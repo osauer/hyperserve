@@ -14,15 +14,14 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to start server:", err)
 	}
-	server.Use(server.RequestLoggerMiddleware)
 
 	// Define the index route with dynamic data
 	server.HandleTemplate("/", "index.html", struct {
 		WelcomeMessage string
 		PageTitle      string
 	}{
-		WelcomeMessage: "Welcome to Hyperserve with HTMX!",
-		PageTitle:      "Dynamic Index Page",
+		WelcomeMessage: "Welcome to Hyperserve with HTMX! 🚀",
+		PageTitle:      "Example for Dynamic Index Page",
 	})
 
 	// Add HTMX-enabled dynamic content route

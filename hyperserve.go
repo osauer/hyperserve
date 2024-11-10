@@ -33,23 +33,6 @@ func init() {
 	logger.Info("Server initializing...")
 }
 
-type Defaults struct {
-}
-
-const (
-	defaultRateLimit rateLimit = 1  // default requests per second
-	defaultBurst     int       = 10 // default maximum number of tokens that can be served
-	// http listener defaults
-	defaultReadTimeout  = 5 * time.Second
-	defaultWriteTimeout = 10 * time.Second
-	defaultIdleTimeout  = 120 * time.Second // allows sessions to remain idle
-	defaultAddr         = ":8080"
-	defaultHealthAddr   = ":9080"
-	defaultFileName     = "config.json"
-	defaultStaticDir    = "static/"
-	defaultTemplateDir  = "templates/"
-)
-
 // Environment management variable names
 const (
 	paramServerAddr = "SERVER_ADDR"
@@ -83,27 +66,32 @@ type Config struct {
 	IdleTimeout     time.Duration `json:"idle-timeout,omitempty"`
 	StaticDir       string        `json:"static-dir,omitempty"`
 	TemplateDir     string        `json:"template-dir,omitempty"`
-	runHealthServer bool
+	RunHealthServer bool          `json:"run-health-server,omitempty"`
 }
 
-// NewConfig creates a new configuration with a priority order:
+var defaultConfig = &Config{
+	Addr:            ":8080",
+	HealthAddr:      ":9080",
+	RateLimit:       1,
+	Burst:           10,
+	ReadTimeout:     5 * time.Second,
+	WriteTimeout:    10 * time.Second,
+	IdleTimeout:     120 * time.Second,
+	StaticDir:       "static/",
+	TemplateDir:     "template/",
+	RunHealthServer: false,
+}
+
+// NewConfig creates a new configuration for the server with a priority order. Environment variables override config file.
 // 1. Environment variables
 // 2. Config file (JSON)
 // 3. Default values
 func NewConfig() *Config {
-	config := &Config{
-		Addr:            defaultAddr,
-		HealthAddr:      defaultHealthAddr,
-		RateLimit:       defaultRateLimit,
-		Burst:           defaultBurst,
-		ReadTimeout:     defaultReadTimeout,
-		WriteTimeout:    defaultWriteTimeout,
-		IdleTimeout:     defaultIdleTimeout,
-		StaticDir:       defaultStaticDir,
-		TemplateDir:     defaultTemplateDir,
-		runHealthServer: false,
-	}
-	// step 1 load from environment variables
+	config := applyEnvVars(applyConfigFile(defaultConfig))
+	return config
+}
+
+func applyEnvVars(config *Config) *Config {
 	if addr := os.Getenv(paramServerAddr); addr != "" {
 		config.Addr = addr
 		logger.Info("Server address set from environment variable", "variable", paramServerAddr, "addr", addr)
@@ -112,14 +100,32 @@ func NewConfig() *Config {
 		config.HealthAddr = healthAddr
 		logger.Info("Health endpoint address set from environment variable", "variable", paramHealthAddr, "addr", healthAddr)
 	}
-	// step 2 load from config file if available
-	if fileConfig, err := loadConfigFromFile(paramFileName); err == nil {
-		mergeConfig(config, fileConfig)
-		logger.Info("Server configuration loaded from file", "file", paramFileName)
-	} else {
-		// todo replace with global logger
-		logger.Info("No config file found; Using environment and defaults")
+	return config
+}
+
+func applyConfigFile(config *Config) *Config {
+	file, err := os.Open(paramFileName)
+	if err != nil {
+		logger.Warn("Failed to open config file", "error", err, "file-name", paramFileName)
+		return config
 	}
+
+	// make sure file is closed after reading
+	defer func(file *os.File) {
+		err := file.Close()
+		if err != nil {
+			logger.Error("Failed to close file", "error", err, "file-name", file.Name())
+		}
+	}(file)
+
+	decoder := json.NewDecoder(file)
+	fileConfig := &Config{}
+	if err := decoder.Decode(fileConfig); err != nil {
+		logger.Info("Loading from config failed; Using environment and defaults")
+		return config
+	}
+	logger.Info("Server configuration loaded from file", "file", paramFileName)
+	mergeConfig(config, fileConfig)
 	return config
 }
 
@@ -152,28 +158,6 @@ func mergeConfig(base *Config, override *Config) {
 	if override.TemplateDir != "" {
 		base.TemplateDir = override.TemplateDir
 	}
-}
-
-// loadConfigFromFile loads a configuration from filename and returns a configuration on success or an error otherwise.
-func loadConfigFromFile(filename string) (*Config, error) {
-	file, err := os.Open(filename)
-	if err != nil {
-		return nil, err
-	}
-
-	defer func(file *os.File) {
-		err := file.Close()
-		if err != nil {
-			logger.Error("Failed to close file", "error", err)
-		}
-	}(file)
-
-	decoder := json.NewDecoder(file)
-	config := &Config{}
-	if err := decoder.Decode(config); err != nil {
-		return nil, err
-	}
-	return config, nil
 }
 
 // Server represents an HTTP appServer that can handle requests and responses.
@@ -236,7 +220,7 @@ func (srv *Server) Run() {
 		srv.MetricsMiddleware(srv.mux),
 		srv.middleware...)
 
-	if srv.config.runHealthServer {
+	if srv.config.RunHealthServer {
 		srv.initHealthServer()
 	}
 
@@ -303,14 +287,32 @@ func (srv *Server) stop(done chan struct{}) {
 	close(done)
 }
 
+// Handle registers the handler function for the given pattern.
+// Example usage:
+//
+//	srv.Handle("/static", http.FileServer(http.Dir("./static")))
 func (srv *Server) Handle(pattern string, handlerFunc http.HandlerFunc) {
 	srv.mux.Handle(pattern, handlerFunc)
 }
 
+// HandleFunc registers the handler function for the given pattern.
+// Example usage:
+//
+//	srv.HandleFunc("/hello", func(w http.ResponseWriter, r *http.Request) {
+//	    fmt.Fprintln(w, "Hello, world!")
+//	})
 func (srv *Server) HandleFunc(pattern string, handler http.HandlerFunc) {
 	srv.mux.HandleFunc(pattern, handler)
 }
 
+// HandleFuncDynamic registers a handler function for the given pattern that dynamically generates data for the template.
+// Example usage:
+//
+//	srv.HandleFuncDynamic("/time", "time.html", func(r *http.Request) interface{} {
+//	    return map[string]interface{}{
+//	        "timestamp": time.Now().Format("2006-01-02 15:04:05"),
+//	    }
+//	})
 func (srv *Server) HandleFuncDynamic(pattern, template string, dataFunc DataFunc) {
 	srv.mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 		data := dataFunc(r)
@@ -385,7 +387,7 @@ type DataFunc func(r *http.Request) interface{}
 // WithHealthServer enables the health server on a different port.
 func WithHealthServer() ServerOption {
 	return func(srv *Server) {
-		srv.config.runHealthServer = true
+		srv.config.RunHealthServer = true
 	}
 }
 
