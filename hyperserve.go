@@ -1,6 +1,7 @@
-// Description: A simple HTTP server that can handle requests and responses.
-// The server can be configured with middleware functions to add functionality to the handlers.
-// The server can be rate limited to a certain number of requests per second.
+// Copyright 2024 by Oliver Sauer
+// Use of this source code is governed by a MIT-style license that can be found in the LICENSE file.
+
+// Simple HTTP Server with middleware and various option to handle requests and responses.
 
 package hyperserve
 
@@ -9,12 +10,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html/template"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -24,56 +26,99 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// default values for the server
-const (
-	defaultRateLimit RateLimit = 1  // default requests epr second
-	defaultBurst     int       = 10 // default maximum number of tokens that can be served
+// logger is a global logger for the appServer. Use NewServer() to create a new appServer with a custom logger.
+var logger = slog.Default()
 
+func init() {
+	logger.Info("Server initializing...")
+}
+
+type Defaults struct {
+}
+
+const (
+	defaultRateLimit rateLimit = 1  // default requests per second
+	defaultBurst     int       = 10 // default maximum number of tokens that can be served
 	// http listener defaults
 	defaultReadTimeout  = 5 * time.Second
 	defaultWriteTimeout = 10 * time.Second
 	defaultIdleTimeout  = 120 * time.Second // allows sessions to remain idle
 	defaultAddr         = ":8080"
-	// Environment management variable names
-	configServerAddr = "SERVER_ADDR"
-	configFileName   = "config.json"
+	defaultHealthAddr   = ":9080"
+	defaultFileName     = "config.json"
+	defaultStaticDir    = "static/"
+	defaultTemplateDir  = "templates/"
 )
 
-// RateLimit limits requests per second that can be requested from the server
-type RateLimit = rate.Limit
+// Environment management variable names
+const (
+	paramServerAddr = "SERVER_ADDR"
+	paramHealthAddr = "HEALTH_ADDR"
+	paramFileName   = "config.json"
+)
 
-// Config is a representation of the server settings
+var (
+	isReady atomic.Bool
+	isLive  atomic.Bool
+
+	// Server metrics
+	totalRequests     atomic.Uint64
+	totalResponseTime atomic.Int64
+	serverStart       time.Time
+
+	clientLimiters = sync.Map{}
+)
+
+// RateLimit limits requests per second that can be requested from the appServer. Requires to add [RateLimitMiddleware]
+type rateLimit = rate.Limit
+
+// Config is a representation of the Server settings
 type Config struct {
-	Addr         string        `json:"addr"`
-	RateLimit    RateLimit     `json:"rate-limit"`
-	Burst        int           `json:"burst"`
-	ReadTimeout  time.Duration `json:"readTimeout"`
-	WriteTimeout time.Duration `json:"writeTimeout"`
-	IdleTimeout  time.Duration `json:"idleTimeout"`
+	Addr            string        `json:"addr"`
+	HealthAddr      string        `json:"health-addr,omitempty"`
+	RateLimit       rateLimit     `json:"rate-limit,omitempty"`
+	Burst           int           `json:"burst,omitempty"`
+	ReadTimeout     time.Duration `json:"read-timeout,omitempty"`
+	WriteTimeout    time.Duration `json:"write-timeout,omitempty"`
+	IdleTimeout     time.Duration `json:"idle-timeout,omitempty"`
+	StaticDir       string        `json:"static-dir,omitempty"`
+	TemplateDir     string        `json:"template-dir,omitempty"`
+	runHealthServer bool
 }
 
-// NewConfig creates a new config with a priority order:
+// NewConfig creates a new configuration with a priority order:
 // 1. Environment variables
 // 2. Config file (JSON)
 // 3. Default values
 func NewConfig() *Config {
 	config := &Config{
-		Addr:         defaultAddr,
-		RateLimit:    defaultRateLimit,
-		Burst:        defaultBurst,
-		ReadTimeout:  defaultReadTimeout,
-		WriteTimeout: defaultWriteTimeout,
-		IdleTimeout:  defaultIdleTimeout,
+		Addr:            defaultAddr,
+		HealthAddr:      defaultHealthAddr,
+		RateLimit:       defaultRateLimit,
+		Burst:           defaultBurst,
+		ReadTimeout:     defaultReadTimeout,
+		WriteTimeout:    defaultWriteTimeout,
+		IdleTimeout:     defaultIdleTimeout,
+		StaticDir:       defaultStaticDir,
+		TemplateDir:     defaultTemplateDir,
+		runHealthServer: false,
 	}
 	// step 1 load from environment variables
-	if addr := os.Getenv(configServerAddr); addr != "" {
+	if addr := os.Getenv(paramServerAddr); addr != "" {
 		config.Addr = addr
+		logger.Info("Server address set from environment variable", "variable", paramServerAddr, "addr", addr)
+	}
+	if healthAddr := os.Getenv(paramHealthAddr); healthAddr != "" {
+		config.HealthAddr = healthAddr
+		logger.Info("Health endpoint address set from environment variable", "variable", paramHealthAddr, "addr", healthAddr)
 	}
 	// step 2 load from config file if available
-	if fileConfig, err := loadConfigFromFile(configFileName); err == nil {
+	if fileConfig, err := loadConfigFromFile(paramFileName); err == nil {
 		mergeConfig(config, fileConfig)
+		logger.Info("Server configuration loaded from file", "file", paramFileName)
 	} else {
-		slog.Info("No config file found")
+		// todo replace with global logger
+		logger.Info("No config file found; Using environment and defaults")
 	}
 	return config
 }
@@ -82,6 +127,9 @@ func NewConfig() *Config {
 func mergeConfig(base *Config, override *Config) {
 	if override.Addr != "" {
 		base.Addr = override.Addr
+	}
+	if override.HealthAddr != "" {
+		base.HealthAddr = override.HealthAddr
 	}
 	if override.RateLimit != 0 {
 		base.RateLimit = override.RateLimit
@@ -98,6 +146,12 @@ func mergeConfig(base *Config, override *Config) {
 	if override.IdleTimeout != 0 {
 		base.IdleTimeout = override.IdleTimeout
 	}
+	if override.StaticDir != "" {
+		base.StaticDir = override.StaticDir
+	}
+	if override.TemplateDir != "" {
+		base.TemplateDir = override.TemplateDir
+	}
 }
 
 // loadConfigFromFile loads a configuration from filename and returns a configuration on success or an error otherwise.
@@ -106,7 +160,13 @@ func loadConfigFromFile(filename string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+
+	defer func(file *os.File) {
+		err := file.Close()
+		if err != nil {
+			logger.Error("Failed to close file", "error", err)
+		}
+	}(file)
 
 	decoder := json.NewDecoder(file)
 	config := &Config{}
@@ -116,50 +176,32 @@ func loadConfigFromFile(filename string) (*Config, error) {
 	return config, nil
 }
 
-var (
-	isReady atomic.Bool
-	isLive  atomic.Bool
-
-	// Server metrics
-	totalRequests     atomic.Uint64
-	totalResponseTime atomic.Int64
-	serverStart       time.Time
-
-	clientLimiters = sync.Map{}
-)
-
-// Middleware is a function that wraps a http.Handler interface and returns a new http.HandlerFunc.
-type middleware func(http.Handler) http.HandlerFunc
-
-// ServerOption using the functional options pattern. Pass options to the server constructor to configure the server.
-type ServerOption func(srv *Server)
-
-// Server represents an HTTP server that can handle requests and responses.
+// Server represents an HTTP appServer that can handle requests and responses.
 type Server struct {
-	mux        *http.ServeMux
-	server     *http.Server
-	logger     *slog.Logger
-	config     *Config
-	middleware []middleware
+	mux          *http.ServeMux
+	healthMux    *http.ServeMux
+	appServer    *http.Server
+	healthServer *http.Server
+	config       *Config
+	middleware   []middleware
 }
 
-// NewAPIServer creates a new instance of the Server.
-func NewAPIServer(opts ...ServerOption) (*Server, error) {
+// NewServer creates a new instance of the Server.
+func NewServer(opts ...ServerOption) (*Server, error) {
 
-	// init new server
+	// init new appServer
 	srv := &Server{
 		mux:    http.NewServeMux(),
-		logger: slog.Default(), // default logger
 		config: NewConfig(),
 	}
 
-	// apply server options
+	// apply appServer options
 	for _, opt := range opts {
 		opt(srv)
 	}
 
-	// initialize the underlying http server
-	srv.server = &http.Server{
+	// initialize the underlying application http appServer for serving requests
+	srv.appServer = &http.Server{
 		Addr:         srv.config.Addr,
 		Handler:      srv.mux,
 		ReadTimeout:  srv.config.ReadTimeout,
@@ -167,7 +209,7 @@ func NewAPIServer(opts ...ServerOption) (*Server, error) {
 		IdleTimeout:  srv.config.IdleTimeout,
 	}
 
-	srv.server.RegisterOnShutdown(srv.Shutdown)
+	srv.appServer.RegisterOnShutdown(srv.Shutdown)
 
 	return srv, nil
 }
@@ -179,39 +221,24 @@ func (srv *Server) Shutdown() {
 		tp = totalRequests.Load() / uint64(resp)
 	}
 	upTime := time.Since(serverStart)
-	srv.logger.Info("Server is shut down.", "up-time", upTime, "µs-in-handlers", resp, "total-req",
+	logger.Info("Server is shut down.", "up-time", upTime, "µs-in-handlers", resp, "total-req",
 		totalRequests.Load(),
 		"avg-handles-per-µs", tp)
 }
 
-func (srv *Server) MetricsMiddleware(next http.Handler) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// TODO totalRequests are not actual requests, but requests hitting the handler successfully
-		// TODO totalResposne Time needs to reflect this ,it's totalTimeInHandler
-		// TODO find way to measure acual response times, including pattern matching etc.
-		totalRequests.Add(1)
-		start := time.Now()
-		next.ServeHTTP(w, r)
-		totalResponseTime.Add(time.Since(start).Microseconds())
-	}
-
-}
-
-// Run starts the server and listens for incoming requests.
+// Run starts the appServer and listens for incoming requests.
 func (srv *Server) Run() {
-	// log server start time for collection up-time metric
+	// log appServer start time for collection up-time metric
 	serverStart = time.Now()
-	// apply middleware to the server
-	if len(srv.middleware) > 0 {
-		srv.server.Handler = ChainMiddleware(srv.mux, srv.middleware...)
-	}
-	// force MetricsMiddleware to be present and loaded first
-	srv.server.Handler = srv.MetricsMiddleware(srv.server.Handler)
 
-	// add built-in probing endpoints
-	srv.Handle("/healthz/", srv.healthzHandler)
-	srv.Handle("/readyz/", srv.readyzHandler)
-	srv.Handle("/livez/", srv.livezHandler)
+	// Middleware chain ensuring MetricsMiddleware is run first
+	srv.appServer.Handler = chainMiddleware(
+		srv.MetricsMiddleware(srv.mux),
+		srv.middleware...)
+
+	if srv.config.runHealthServer {
+		srv.initHealthServer()
+	}
 
 	go srv.start()
 	// create a channel to signal when shutdown is done
@@ -221,57 +248,154 @@ func (srv *Server) Run() {
 
 	// block until graceful shutdown happened and is completed
 	<-done
-	srv.logger.Info("done")
+	logger.Info("done")
 	isLive.Store(false)
 }
 
-// start starts the server in a go-routine and serves incoming requests
+// helper function to initialise the health server
+func (srv *Server) initHealthServer() {
+	// initialize a lightweight http  for health endpoints listening on different port
+	srv.healthMux = http.NewServeMux()
+	srv.healthServer = &http.Server{
+		Addr:    srv.config.HealthAddr,
+		Handler: srv.healthMux,
+	}
+	logger.Info("Health server initialised.", "addr", srv.config.HealthAddr)
+
+	// add built-in probing endpoints
+	srv.healthMux.HandleFunc("/healthz/", srv.healthzHandler)
+	srv.healthMux.HandleFunc("/readyz/", srv.readyzHandler)
+	srv.healthMux.HandleFunc("/livez/", srv.livezHandler)
+}
+
+// start starts the appServer in a go-routine and serves incoming requests
 func (srv *Server) start() {
 	isReady.Store(true)
 	isLive.Store(true)
 
-	srv.logger.Info("Server started.", "addr", srv.config.Addr)
-	err := srv.server.ListenAndServe()
+	logger.Info("Server started.", "addr", srv.config.Addr)
+	err := srv.appServer.ListenAndServe()
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
-		srv.logger.Error("Failed to start server", "error", err)
+		logger.Error("Failed to start appServer", "error", err)
 		os.Exit(1)
 	}
-	slog.Info("server stopped listening")
+	logger.Info("appServer stopped listening")
 }
 
 // stop implements a graceful shutdown
 func (srv *Server) stop(done chan struct{}) {
 
-	// listen for OS signals to shutdown the server.
+	// listen for OS signals to shut down the appServer.
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGKILL)
 	// block until a signal is received
 
 	<-stop
 	isReady.Store(false)
-	srv.logger.Info("received signal to shutdown server. Stopping...")
+	logger.Info("received signal to shutdown appServer. Stopping...")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := srv.server.Shutdown(ctx); err != nil {
-		srv.logger.Error("Server forced to shutdown.", "error", err)
+	if err := srv.appServer.Shutdown(ctx); err != nil {
+		logger.Error("Server forced to shutdown.", "error", err)
 	}
 	close(done)
 }
 
-// Handle registers a handler for the given pattern.
-func (srv *Server) Handle(pattern string, handler http.HandlerFunc) {
+func (srv *Server) Handle(pattern string, handlerFunc http.HandlerFunc) {
+	srv.mux.Handle(pattern, handlerFunc)
+}
+
+func (srv *Server) HandleFunc(pattern string, handler http.HandlerFunc) {
 	srv.mux.HandleFunc(pattern, handler)
 }
 
-// WithAddr adds a listener port to the server. Overwrites existing configuration when applied.
+func (srv *Server) HandleFuncDynamic(pattern, template string, dataFunc DataFunc) {
+	srv.mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
+		data := dataFunc(r)
+		err := templates.ExecuteTemplate(w, template, data)
+		if err != nil {
+			http.Error(w, "Failed to load content", http.StatusInternalServerError)
+			logger.Error("Failed to load content", "error", err)
+			return
+		}
+	})
+}
+
+// Cache templates for efficiency, with lazy initialisation
+var templates *template.Template = nil
+
+func EnsureTrailingSlash(dir string) string {
+	if dir != "" && !strings.HasSuffix(dir, string(filepath.Separator)) {
+		dir += string(filepath.Separator)
+	}
+	return dir
+}
+
+func (srv *Server) HandleTemplate(pattern, t string, data interface{}) {
+
+	templateDir := EnsureTrailingSlash(srv.config.TemplateDir)
+	if templates == nil {
+		// lazy initialisation of templates
+		parseTemplates(templateDir, srv)
+	}
+	srv.mux.HandleFunc(pattern, templateHandler(t, data))
+}
+
+func parseTemplates(templateDir string, srv *Server) {
+	// check if an absolute path is provided and provide a warning
+	if filepath.IsAbs(templateDir) {
+		logger.Warn("Absolute path provided for template directory", "dir", templateDir)
+	}
+
+	// check if the template directory exists to avoid panic
+	if _, err := os.Stat(templateDir); os.IsNotExist(err) {
+		wd, _ := os.Getwd()
+		ad, _ := filepath.Abs(templateDir)
+		logger.Error("Template directory not found", "error", err, "working-dir", wd, "abs-path", ad)
+		srv.Shutdown()
+		os.Exit(1)
+	}
+	templates = template.Must(template.ParseGlob(templateDir + "*.html"))
+	logger.Info("Templates parsed.", "pattern", templateDir+"*.html")
+}
+
+// ServerOption using the functional options pattern.
+// Pass options to the [Server] constructor to configure the appServer.
+//
+// Example:
+//
+// srv, err := NewServer(
+//
+//	                WithAddr(":8080"),
+//	                WithMetrics(),)
+//
+//		if err != nil {
+//			 log.Fatal(err)
+//		}
+//
+// srv.handle("/", handler)
+// srv.Run()
+type ServerOption func(srv *Server)
+
+// DataFunc returns a data structure for the template.
+type DataFunc func(r *http.Request) interface{}
+
+// WithHealthServer enables the health server on a different port.
+func WithHealthServer() ServerOption {
+	return func(srv *Server) {
+		srv.config.runHealthServer = true
+	}
+}
+
+// WithAddr is a configuration option for the server to define listener port
 func WithAddr(addr string) ServerOption {
 	return func(srv *Server) {
 		// validate the address
 		_, port, err := net.SplitHostPort(addr)
 		if err != nil && port == "" {
-			srv.logger.Error("setting address option", "error", err)
+			logger.Error("setting address option", "error", err)
 			// if the address failed to set, we must exit (no fallback to default etc.)
 			os.Exit(1)
 		}
@@ -279,60 +403,58 @@ func WithAddr(addr string) ServerOption {
 	}
 }
 
-// WithLogger adds a structured logger to the server.
-func WithLogger(logger *slog.Logger) ServerOption {
+// WithLogger replaces the default with a custom logger.
+func WithLogger(l *slog.Logger) ServerOption {
 	return func(srv *Server) {
-		srv.logger = logger
+		logger = l
 	}
 }
 
-// WithTimeouts adds  timeouts to the server.
+// setTimeouts helper to apply only custom values or retain the server default
+func (srv *Server) setTimeouts(readTimeout, writeTimeout, idleTimeout time.Duration) {
+	if readTimeout != 0 {
+		srv.config.ReadTimeout = readTimeout
+		srv.appServer.ReadTimeout = readTimeout
+	}
+	if writeTimeout != 0 {
+		srv.config.WriteTimeout = writeTimeout
+		srv.appServer.WriteTimeout = writeTimeout
+	}
+	if idleTimeout != 0 {
+		srv.config.IdleTimeout = idleTimeout
+		srv.appServer.IdleTimeout = idleTimeout
+	}
+}
+
+// WithTimeouts adds timeouts to the appServer.
 func WithTimeouts(readTimeout, writeTimeout, idleTimeout time.Duration) ServerOption {
 	return func(srv *Server) {
-		if srv.server == nil {
-			panic("server is nil")
-		}
-		// TODO this needs to set the srv.config values, plus the server values. Setter?
-		srv.server.ReadTimeout = readTimeout
-		srv.server.WriteTimeout = writeTimeout
-		srv.server.IdleTimeout = idleTimeout
+		srv.setTimeouts(readTimeout, writeTimeout, idleTimeout)
 	}
 }
 
-// WithRateLimit sets rate limiting parameters of the server.
-func WithRateLimit(limit RateLimit, burst int) ServerOption {
+// WithRateLimit sets rate limiting parameters of the appServer.
+func WithRateLimit(limit rateLimit, burst int) ServerOption {
 	return func(srv *Server) {
 		srv.config.RateLimit = limit
 		srv.config.Burst = burst
 	}
 }
 
-// Use adds middleware to the server
-func (srv *Server) Use(middleware ...middleware) {
-	srv.logger.Info("adding middleware")
-	srv.middleware = append(srv.middleware, middleware...)
-}
-
-func (srv *Server) userDataHandler(w http.ResponseWriter, r *http.Request) {
-	// get the user ID from the path
-	userID, err := strconv.Atoi(r.PathValue("userID"))
-
-	response := fmt.Sprintf("User Data: %d", userID)
-	bw, err := w.Write([]byte(response))
-	if err != nil {
-		srv.logger.Error("Failed to w"+
-			""+
-			"rite response", "Error", err, "Bytes written", bw)
+// WithTemplateDir sets the directory for the templates.
+func WithTemplateDir(dir string) ServerOption {
+	return func(srv *Server) {
+		srv.config.TemplateDir = dir
 	}
 }
 
-// HandleHealthCheck returns a 204 status code for health check
-func HandleHealthCheck(w http.ResponseWriter, r *http.Request) {
+// HealthCheckHandler returns a 204 status code for health check
+func HealthCheckHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// HandlePanic simulations a panic situation in a handler to test proper recovery. See
-func HandlePanic(w http.ResponseWriter, r *http.Request) {
+// PanicHandler simulations a panic situation in a handler to test proper recovery. See
+func PanicHandler(w http.ResponseWriter, r *http.Request) {
 	panic("Intentional panic.")
 }
 
@@ -340,6 +462,17 @@ type loggingResponseWriter struct {
 	http.ResponseWriter
 	statusCode   int
 	bytesWritten int
+}
+
+func (lrw *loggingResponseWriter) WriteHeader(code int) {
+	lrw.statusCode = code
+	lrw.ResponseWriter.WriteHeader(code)
+}
+
+func (lrw *loggingResponseWriter) Write(b []byte) (int, error) {
+	n, err := lrw.ResponseWriter.Write(b)
+	lrw.bytesWritten += n
+	return n, err
 }
 
 func (srv *Server) livezHandler(w http.ResponseWriter, r *http.Request) {
@@ -359,12 +492,12 @@ func (srv *Server) healthHandlerHelper(w http.ResponseWriter, request *http.Requ
 	if status.Load() {
 		w.WriteHeader(http.StatusOK)
 		if _, err := w.Write([]byte(probe)); err != nil {
-			srv.logger.Error(fmt.Sprintf("error writing endpoint status (%s)", probe), "error", err)
+			logger.Error(fmt.Sprintf("error writing endpoint status (%s)", probe), "error", err)
 		}
 	} else {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		if _, err := w.Write([]byte("unhealthy")); err != nil {
-			srv.logger.Error(fmt.Sprintf("error writing endpoint status (%s)", probe), "error", err)
+			logger.Error(fmt.Sprintf("error writing endpoint status (%s)", probe), "error", err)
 		}
 	}
 }
@@ -376,9 +509,7 @@ const (
 	authorizationHeader            = "Authorization"
 	bearerTokenPrefix              = "Bearer "
 	sessionIDKey        contextKey = "sessionID"
-	userIDKey           contextKey = "userID"
 	traceIDKey          contextKey = "traceID"
-	// Header constants
 )
 
 type Header struct {
@@ -400,10 +531,29 @@ var securityHeaders = []Header{
 	{"Content-Security-Policy", "default-src 'self'"},
 }
 
+// Use adds middleware to the appServer
+func (srv *Server) Use(middleware ...middleware) {
+	logger.Info("adding middleware")
+	srv.middleware = append(srv.middleware, middleware...)
+}
+
+// Middleware is a function that wraps a http.Handler interface and returns a new http.HandlerFunc.
+type middleware func(http.Handler) http.HandlerFunc
+
+func (srv *Server) MetricsMiddleware(next http.Handler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		totalRequests.Add(1)
+		start := time.Now()
+		next.ServeHTTP(w, r)
+		totalResponseTime.Add(time.Since(start).Microseconds())
+	}
+
+}
+
 // RequireAuthMiddleware middleware checks for a valid bearer token in the Authorization header.
 func (srv *Server) RequireAuthMiddleware(next http.Handler) http.HandlerFunc {
 	// Todo: implement auth middleware
-	// Todo: implement error logging, enabling logger in the handler
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Check for auth token
 		authHeader := r.Header.Get(authorizationHeader)
@@ -419,19 +569,13 @@ func (srv *Server) RequireAuthMiddleware(next http.Handler) http.HandlerFunc {
 			return
 		}
 
-		userID, ok := r.Context().Value(userIDKey).(int)
-		if !ok {
-			http.Error(w, "Unauthorized: invalid user ID", http.StatusUnauthorized)
-			return
-		}
 		// add session and ID to the context
 		ctx := context.WithValue(r.Context(), sessionIDKey, sessionId)
-		ctx = context.WithValue(ctx, userIDKey, userID)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	}
 }
 
-// RequestLoggerMiddleware middleware logs the request details. Use with caution as it slows down the server.
+// RequestLoggerMiddleware middleware logs the request details. Use with caution as it slows down the appServer.
 func (srv *Server) RequestLoggerMiddleware(next http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// create a new logging response writer to capture status code and bytes written
@@ -443,17 +587,22 @@ func (srv *Server) RequestLoggerMiddleware(next http.Handler) http.HandlerFunc {
 			traceID = ""
 		}
 
-		logger := srv.logger.With(
-			"from", ip,
-			"method", r.Method,
-			"url", r.URL.String(),
-			"trace_id", traceID)
-		logger.Info("Request received.")
-
+		/*
+			logger := logger.With(
+				"from", ip,
+				"method", r.Method,
+				"url", r.URL.String(),
+				"trace_id", traceID)
+			logger.Info("Request received.")
+		*/
 		start := time.Now()
 		next.ServeHTTP(lrw, r)
 		duration := time.Since(start)
 		logger.Info("Request completed",
+			"from", ip,
+			"method", r.Method,
+			"url", r.URL.String(),
+			"trace_id", traceID,
 			"status", lrw.statusCode,
 			"duration", duration)
 	}
@@ -465,34 +614,41 @@ func (srv *Server) ResponseTimeMiddleware(next http.Handler) http.HandlerFunc {
 		start := time.Now()
 		next.ServeHTTP(w, r)
 		duration := time.Since(start)
-		srv.logger.Info("Request duration", "duration", duration)
-		next.ServeHTTP(w, r)
+		logger.Info("Request duration", "duration", duration)
+	}
+}
+
+// Consolidate error responses to maintain a consistent format.
+func writeErrorResponse(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	response := map[string]string{"error": message}
+	err := json.NewEncoder(w).Encode(response)
+	if err != nil {
+		logger.Error("Failed to write error response", "error", err)
 	}
 }
 
 // RateLimitMiddleware enforces a rate limit per-client.
 func (srv *Server) RateLimitMiddleware(next http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		srv.logger.Info("in rate limiter")
 		ip, _, _ := net.SplitHostPort(r.RemoteAddr)
 		limiterInterface, _ := clientLimiters.LoadOrStore(ip, rate.NewLimiter(srv.config.RateLimit, srv.config.Burst))
 		limiter := limiterInterface.(*rate.Limiter)
 		if !limiter.Allow() {
-			srv.logger.Info("rate limit reached", "rate-limit", srv.config.RateLimit, "burst", srv.config.Burst)
-			http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+			writeErrorResponse(w, http.StatusTooManyRequests, "Too many requests")
 			return
 		}
-		srv.logger.Debug("rate limit not yet reached.")
 		next.ServeHTTP(w, r)
 	}
 }
 
-// Recovery middleware recovers from panics and returns a 500 status code.
-func (srv *Server) Recovery(next http.Handler) http.HandlerFunc {
+// RecoveryMiddleware middleware recovers from panics and returns a 500 status code.
+func (srv *Server) RecoveryMiddleware(next http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if err := recover(); err != nil {
-				srv.logger.Error("Panic recovered", "error", err)
+				logger.Error("Panic recovered", "error", err)
 				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			}
 		}()
@@ -500,15 +656,53 @@ func (srv *Server) Recovery(next http.Handler) http.HandlerFunc {
 	}
 }
 
-// SecurityHeadersMiddleware middleware to help mitigate common security risks when handling content in browsers.
-func (srv *Server) SecurityHeadersMiddleware(next http.Handler) http.HandlerFunc {
+func (srv *Server) HeadersMiddleware(next http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// todo implement hardened mode
+		hardened := false
+		if !hardened {
+			w.Header().Set("Server", "hyperserve")
+		}
+
 		for _, h := range securityHeaders {
 			w.Header().Set(h.key, h.value)
 		}
+
+		// CORS headers
+		if hardened {
+			// Allow only requests from a specific origin
+			w.Header().Set("Access-Control-Allow-Origin", "https://client-site.com")
+
+		}
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Credentials", "true") // If cookies or credentials are needed
+
+		// Handle preflight request
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		// call the next handler if not in preflight
 		next.ServeHTTP(w, r)
 	}
 }
+
+// templateHandler serves HTML templates with dynamic content.
+func templateHandler(templateName string, data interface{}) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+		err := templates.ExecuteTemplate(w, templateName, data)
+		if err != nil {
+			http.Error(w, "Error rendering template", http.StatusInternalServerError)
+			slog.Error("Error rendering template", "error", err)
+		}
+	}
+}
+
+// Middleware definitions
 
 // TraceMiddleware middleware
 func (srv *Server) TraceMiddleware(next http.Handler) http.HandlerFunc {
@@ -533,24 +727,13 @@ func (srv *Server) trailingSlashMiddleware(next http.Handler) http.HandlerFunc {
 	}
 }
 
-// ChainMiddleware helper to  apply multiple middlewares to a handler
-func ChainMiddleware(handler http.Handler, middlewares ...middleware) http.Handler {
+// chainMiddleware helper to  apply multiple middlewares to a handler
+func chainMiddleware(handler http.Handler, middlewares ...middleware) http.Handler {
 	// reverse order to run first middleware passed first
 	for i := len(middlewares) - 1; i >= 0; i-- {
 		handler = middlewares[i](handler)
 	}
 	return handler
-}
-
-func (lrw *loggingResponseWriter) WriteHeader(code int) {
-	lrw.statusCode = code
-	lrw.ResponseWriter.WriteHeader(code)
-}
-
-func (lrw *loggingResponseWriter) Write(b []byte) (int, error) {
-	n, err := lrw.ResponseWriter.Write(b)
-	lrw.bytesWritten += n
-	return n, err
 }
 
 var requestCounter atomic.Int64
