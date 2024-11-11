@@ -23,5 +23,5 @@ hyperserve is a Go-based HTTP server designed to handle requests, serve response
 Clone the repository to your local machine:
 
 ```sh
-git clone https://github.com/yourusername/hyperserve.git
+git clone https://github.com/osauer/hyperserve.git
 cd hyperserve
