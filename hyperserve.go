@@ -7,6 +7,7 @@ package hyperserve
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -57,7 +58,11 @@ type rateLimit = rate.Limit
 
 // Config is a representation of the Server settings
 type Config struct {
-	Addr            string        `json:"addr"`
+	Addr            string        `json:"addr, omitempty"`
+	UseTLS          bool          `json:"tls,omitempty"`
+	TLSAddr         string        `json:"tls-addr,omitempty"`
+	KeyFile         string        `json:"key-file,omitempty"`
+	CertFile        string        `json:"cert-file,omitempty"`
 	HealthAddr      string        `json:"health-addr,omitempty"`
 	RateLimit       rateLimit     `json:"rate-limit,omitempty"`
 	Burst           int           `json:"burst,omitempty"`
@@ -71,7 +76,11 @@ type Config struct {
 
 var defaultConfig = &Config{
 	Addr:            ":8080",
+	TLSAddr:         ":8443",
 	HealthAddr:      ":9080",
+	UseTLS:          false,
+	KeyFile:         "server.key",
+	CertFile:        "server.crt",
 	RateLimit:       1,
 	Burst:           10,
 	ReadTimeout:     5 * time.Second,
@@ -91,6 +100,7 @@ func NewConfig() *Config {
 	return config
 }
 
+// helper to read environment variables and apply them to the config
 func applyEnvVars(config *Config) *Config {
 	if addr := os.Getenv(paramServerAddr); addr != "" {
 		config.Addr = addr
@@ -103,10 +113,11 @@ func applyEnvVars(config *Config) *Config {
 	return config
 }
 
+// helper to read a config file and apply it to the config
 func applyConfigFile(config *Config) *Config {
 	file, err := os.Open(paramFileName)
 	if err != nil {
-		logger.Warn("Failed to open config file", "error", err, "file-name", paramFileName)
+		logger.Warn("Failed to open config file.", "error", err)
 		return config
 	}
 
@@ -137,6 +148,7 @@ func mergeConfig(base *Config, override *Config) {
 	if override.HealthAddr != "" {
 		base.HealthAddr = override.HealthAddr
 	}
+
 	if override.RateLimit != 0 {
 		base.RateLimit = override.RateLimit
 	}
@@ -157,6 +169,12 @@ func mergeConfig(base *Config, override *Config) {
 	}
 	if override.TemplateDir != "" {
 		base.TemplateDir = override.TemplateDir
+	}
+}
+
+func tlsConfig() *tls.Config {
+	return &tls.Config{
+		MinVersion: tls.VersionTLS12,
 	}
 }
 
@@ -186,13 +204,11 @@ func NewServer(opts ...ServerOption) (*Server, error) {
 
 	// initialize the underlying application http appServer for serving requests
 	srv.appServer = &http.Server{
-		Addr:         srv.config.Addr,
 		Handler:      srv.mux,
 		ReadTimeout:  srv.config.ReadTimeout,
 		WriteTimeout: srv.config.WriteTimeout,
 		IdleTimeout:  srv.config.IdleTimeout,
 	}
-
 	srv.appServer.RegisterOnShutdown(srv.Shutdown)
 
 	return srv, nil
@@ -214,6 +230,8 @@ func (srv *Server) Shutdown() {
 func (srv *Server) Run() {
 	// log appServer start time for collection up-time metric
 	serverStart = time.Now()
+	isReady.Store(true)
+	isLive.Store(true)
 
 	// Middleware chain ensuring MetricsMiddleware is run first
 	srv.appServer.Handler = chainMiddleware(
@@ -224,16 +242,34 @@ func (srv *Server) Run() {
 		srv.initHealthServer()
 	}
 
-	go srv.start()
-	// create a channel to signal when shutdown is done
-	done := make(chan struct{})
-	// wait for OS signals to stop
-	go srv.stop(done)
+	go func() {
+		if srv.config.UseTLS {
+			if srv.config.CertFile == "" || srv.config.KeyFile == "" {
+				logger.Error("TLS enabled but no key or cert file provided.", "key")
+				os.Exit(1)
+			}
+			srv.appServer.TLSConfig = tlsConfig()
+			srv.appServer.Addr = srv.config.TLSAddr
 
-	// block until graceful shutdown happened and is completed
-	<-done
-	logger.Info("done")
-	isLive.Store(false)
+			logger.Info("Starting TLS server on", "addr", srv.config.TLSAddr)
+			if err := srv.appServer.ListenAndServeTLS(srv.config.CertFile, srv.config.KeyFile); err != nil && !errors.Is(
+				err,
+				http.ErrServerClosed) {
+				logger.Error("Failed to start server.", "error", err)
+				os.Exit(1)
+			}
+		} else {
+			srv.appServer.Addr = srv.config.Addr
+			logger.Info("Starting server on", "addr", srv.config.Addr)
+			if err := srv.appServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				logger.Error("Failed to start server", "error", err)
+				os.Exit(1)
+			}
+
+		}
+
+	}()
+	gracefulShutdown(srv)
 }
 
 // helper function to initialise the health server
@@ -252,31 +288,15 @@ func (srv *Server) initHealthServer() {
 	srv.healthMux.HandleFunc("/livez/", srv.livezHandler)
 }
 
-// start starts the appServer in a go-routine and serves incoming requests
-func (srv *Server) start() {
-	isReady.Store(true)
-	isLive.Store(true)
+func gracefulShutdown(srv *Server) {
 
-	logger.Info("Server started.", "addr", srv.config.Addr)
-	err := srv.appServer.ListenAndServe()
-	if err != nil && !errors.Is(err, http.ErrServerClosed) {
-		logger.Error("Failed to start appServer", "error", err)
-		os.Exit(1)
-	}
-	logger.Info("appServer stopped listening")
-}
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGKILL)
 
-// stop implements a graceful shutdown
-func (srv *Server) stop(done chan struct{}) {
-
-	// listen for OS signals to shut down the appServer.
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGKILL)
-	// block until a signal is received
-
-	<-stop
+	// block until a quit signal is received
+	sig := <-quit
+	logger.Info("Shutting down server...", "reason", sig)
 	isReady.Store(false)
-	logger.Info("received signal to shutdown appServer. Stopping...")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -284,6 +304,18 @@ func (srv *Server) stop(done chan struct{}) {
 	if err := srv.appServer.Shutdown(ctx); err != nil {
 		logger.Error("Server forced to shutdown.", "error", err)
 	}
+
+	isLive.Store(false)
+}
+
+// stop implements a graceful shutdown
+func (srv *Server) stop(done chan struct{}) {
+
+	// listen for OS signals to shut down the appServer.
+
+	isReady.Store(false)
+	logger.Info("received signal to shutdown appServer. Stopping...")
+
 	close(done)
 }
 
@@ -383,6 +415,32 @@ type ServerOption func(srv *Server)
 
 // DataFunc returns a data structure for the template.
 type DataFunc func(r *http.Request) interface{}
+
+// WithTLS enables TLS on the appServer.
+func WithTLS(certFile, keyFile string) ServerOption {
+	return func(srv *Server) {
+		srv.config.UseTLS = true
+		wd, _ := os.Getwd()
+		// do not override existing values if not set
+		if certFile != "" {
+			srv.config.CertFile = certFile
+		}
+		if keyFile != "" {
+			srv.config.KeyFile = keyFile
+		}
+		// check if the key and cert files exist
+		_, err := os.Stat(certFile)
+		if err != nil {
+			logger.Error("Cert file not found", "error", err, "file", certFile, "wd", wd)
+			os.Exit(1)
+		}
+		_, err = os.Stat(keyFile)
+		if err != nil {
+			logger.Error("Key file not found", "error", err, "file", keyFile, "wd", wd)
+			os.Exit(1)
+		}
+	}
+}
 
 // WithHealthServer enables the health server on a different port.
 func WithHealthServer() ServerOption {

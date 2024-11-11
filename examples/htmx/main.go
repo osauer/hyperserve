@@ -10,7 +10,8 @@ import (
 
 // Main handler for serving the home page with data
 func main() {
-	server, err := hyperserve.NewServer(hyperserve.WithTemplateDir("examples/htmx/templates"))
+	server, err := hyperserve.NewServer(
+		hyperserve.WithTemplateDir("examples/htmx/templates"))
 	if err != nil {
 		log.Fatal("Failed to start server:", err)
 	}
