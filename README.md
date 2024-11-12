@@ -14,6 +14,10 @@ hyperserve is a Go-based HTTP server designed to handle requests, serve response
 
 ## Getting Started
 
+## Support
+
+Visit, HYP, an AI powered support agent to help building on top of hyperserve (or enhance it) : https://chatgpt.com/g/g-OUyPwXtsN-hyp
+
 ### Requirements
 
 - **Go 1.23.2+**: hyperserve is crafted for the latest features in Go 1.23 and up.
