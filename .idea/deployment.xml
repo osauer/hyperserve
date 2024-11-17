@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="dev_backup" remoteFilesAllowedToDisappearOnAutoupload="false" autoUploadExternalChanges="true">
+  <component name="PublishConfigData" autoUpload="Always" serverName="dev_backup" uploadOnCheckin="ab612b04-f7d9-4ba8-a1a6-81d2ffdb1847" remoteFilesAllowedToDisappearOnAutoupload="false" autoUploadExternalChanges="true">
+    <option name="myUploadOnCheckinName" value="dev_backup" />
     <option name="myAutoUpload" value="ALWAYS" />
   </component>
 </project>
