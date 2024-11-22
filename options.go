@@ -46,7 +46,7 @@ var defaultServerOptions = &ServerOptions{
 	IdleTimeout:       120 * time.Second,
 	StaticDir:         "static/",
 	TemplateDir:       "template/",
-	RunHealthServer:   false,
+	RunHealthServer: true,
 	ChaosMode:         true,
 	ChaosMaxLatency:   2 * time.Second,
 	ChaosMinLatency:   500 * time.Millisecond,
@@ -143,14 +143,14 @@ func mergeConfig(base *ServerOptions, override *ServerOptions) {
 func (srv *Server) setTimeouts(readTimeout, writeTimeout, idleTimeout time.Duration) {
 	if readTimeout != 0 {
 		srv.Options.ReadTimeout = readTimeout
-		srv.appServer.ReadTimeout = readTimeout
+		srv.httpServer.ReadTimeout = readTimeout
 	}
 	if writeTimeout != 0 {
 		srv.Options.WriteTimeout = writeTimeout
-		srv.appServer.WriteTimeout = writeTimeout
+		srv.httpServer.WriteTimeout = writeTimeout
 	}
 	if idleTimeout != 0 {
 		srv.Options.IdleTimeout = idleTimeout
-		srv.appServer.IdleTimeout = idleTimeout
+		srv.httpServer.IdleTimeout = idleTimeout
 	}
 }

@@ -20,6 +20,59 @@ type MiddlewareFunc func(http.Handler) http.HandlerFunc
 // MiddlewareStack is a pre-defined collection of middlewares that can be applied to a http.Handler.
 type MiddlewareStack []MiddlewareFunc
 
+// GlobalMiddlewareRoute is specifier that a MiddlewareStack applies to to all routes.
+const GlobalMiddlewareRoute = "*"
+
+// MiddlewareRegistry is a collection of MiddlewareStacks for different routes.
+type MiddlewareRegistry struct {
+	middlewares map[string]MiddlewareStack
+}
+
+// NewMiddlewareRegistry creates a new MiddlewareRegistry. If globalMiddleware is not nil,
+// it will be added to the registry as the default middleware applied to all routes.
+func NewMiddlewareRegistry(globalMiddleware MiddlewareStack) *MiddlewareRegistry {
+	ret := &MiddlewareRegistry{
+		middlewares: make(map[string]MiddlewareStack),
+	}
+	// add default middleware to all routes if defined in globalMiddleware stack
+	if globalMiddleware != nil {
+		ret.Add(GlobalMiddlewareRoute, globalMiddleware)
+	}
+	return ret
+}
+
+// applyToMux helper to  apply multiple middlewares to a handler
+func (m *MiddlewareRegistry) applyToMux(mux *http.ServeMux) http.Handler {
+	finalHandler := http.Handler(mux)
+	// mw := s.filteredMiddleware(s.middleware, s.excludeMiddleware)
+	for route, stack := range m.middlewares {
+		logger.Info("Applying middleware...", "route", route)
+		// reverse order to run first MiddlewareFunc passed first
+		for i := len(stack) - 1; i >= 0; i-- {
+			finalHandler = stack[i](finalHandler)
+		}
+	}
+	return finalHandler
+}
+
+func (m *MiddlewareRegistry) Add(route string, middleware MiddlewareStack) {
+	m.middlewares[route] = middleware
+}
+
+// Get returns the MiddlewareStack for a given route. If no middleware is found, it returns an empty MiddlewareStack.
+func (m *MiddlewareRegistry) Get(route string) MiddlewareStack {
+	ret := m.middlewares[route]
+	if ret == nil {
+		logger.Warn("No middleware found for route", "route", route)
+		ret = MiddlewareStack{}
+	}
+	return ret
+}
+
+func (m *MiddlewareRegistry) Remove(route string) {
+	delete(m.middlewares, route)
+}
+
 // DefaultMiddleware is a predefined MiddlewareStack for basic server functionality. It will always be applied unless
 // overridden with explicit options exclusion via Server.WithoutOption.
 func DefaultMiddleware() MiddlewareStack {
@@ -46,7 +99,7 @@ func FileServer() MiddlewareStack {
 	return MiddlewareStack{HeadersMiddleware}
 }
 
-// Middleware definitions
+// middleware definitions
 
 // Header context keys
 type contextKey string
@@ -61,20 +114,6 @@ const (
 type Header struct {
 	key   string
 	value string
-}
-
-// securityHeaders provide headers for SecurityHeadersMiddleware MiddlewareFunc
-var securityHeaders = []Header{
-	// Prevent MIME-type sniffing
-	{"X-Content-Type-Options", "nosniff"},
-	// Mitigate clickjacking
-	{"X-Frame-Options", "DENY"},
-	// Enable XSS protection in browsers
-	{"X-XSS-Protection", "1; mode=block"},
-	// Enforce HTTPS (if applicable)
-	{"Strict-Transport-Security", "max-age=63072000; includeSubDomains"},
-	// Control resources the client is allowed to load
-	{"Content-Security-Policy", "default-src 'self'"},
 }
 
 // MetricsMiddleware MiddlewareFunc collects metrics for requests and response times.
@@ -113,7 +152,7 @@ func AuthMiddleware(next http.Handler) http.HandlerFunc {
 	}
 }
 
-// RequestLoggerMiddleware MiddlewareFunc logs the request details. Use with caution as it slows down the appServer.
+// RequestLoggerMiddleware MiddlewareFunc logs the request details. Use with caution as it slows down the httpServer.
 func RequestLoggerMiddleware(next http.Handler) http.HandlerFunc {
 	logger.Info("RequestLoggerMiddleware enabled")
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -184,6 +223,22 @@ func RateLimitMiddleware(options ServerOptions) MiddlewareFunc {
 	}
 }
 
+// securityHeaders provide headers for HeadersMiddleware
+var securityHeaders = []Header{
+	{"X-Content-Type-Options", "nosniff"},                                // Prevent MIME-type sniffing
+	{"X-Frame-Options", "DENY"},                                          // Mitigate clickjacking
+	{"X-XSS-Protection", "1; mode=block"},                                // Enable XSS protection in browsers
+	{"Strict-Transport-Security", "max-age=63072000; includeSubDomains"}, // Enforce HTTPS (if applicable)
+	{"Referrer-Policy", "no-referrer"},                                   // Reduce referrer leakage
+	{"Feature-Policy", "geolocation 'none'; midi 'none'; notifications 'none'; push 'none'; sync-xhr 'none'; microphone 'none'; camera 'none'; magnetometer 'none'; gyroscope 'none'; speaker 'none'; vibrate 'none'; fullscreen 'self'; payment 'none';"},
+	{"Expect-CT", "max-age=86400, enforce, report-uri='https://example.com/report-ct'"}, // Expect Certificate Transparency
+	{"Content-Security-Policy", "default-src 'self'"},                                   // Control resources the client is allowed to load
+	{"Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'"},
+	{"Access-Control-Allow-Methods", "GET, POST, OPTIONS"},
+	{"Access-Control-Allow-Headers", "Content-Type, Authorization"},
+	{"Access-Control-Allow-Credentials", "true"}, // If cookies or credentials are needed
+}
+
 func HeadersMiddleware(next http.Handler) http.HandlerFunc {
 	logger.Info("HeadersMiddleware enabled")
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -198,12 +253,7 @@ func HeadersMiddleware(next http.Handler) http.HandlerFunc {
 		}
 
 		// ToDo add allowed site origin(s) to the header
-		// Allow only requests from a specific origin
-		w.Header().Set("Access-Control-Allow-Origin", "https://client-site.com")
-
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		w.Header().Set("Access-Control-Allow-Credentials", "true") // If cookies or credentials are needed
+		// w.Header().Set("Access-Control-Allow-Origin", "https://client-site.com")
 
 		// Handle preflight request
 		if r.Method == http.MethodOptions {

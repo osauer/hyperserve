@@ -113,3 +113,32 @@ func HandleFuncDynamicMissingTemplate(t *testing.T) {
 		t.Errorf("expected body to contain %v, got %v", expectedError, rec.Body.String())
 	}
 }
+
+func TestHandleStatic(t *testing.T) {
+	srv, _ := NewServer()
+	srv.Options.StaticDir = "./test_static"
+
+	// Create a temporary static file
+	staticContent := "Hello, Static World!"
+	err := os.MkdirAll(srv.Options.StaticDir, 0755)
+	if err != nil {
+		t.Fatalf("error creating static directory: %v", err)
+	}
+	err = os.WriteFile(srv.Options.StaticDir+"/test.txt", []byte(staticContent), 0644)
+	if err != nil {
+		t.Fatalf("error writing static file: %v", err)
+	}
+	defer os.RemoveAll(srv.Options.StaticDir)
+
+	// Test static file serving
+	srv.HandleStatic("/static/")
+	req := httptest.NewRequest("GET", "/static/test.txt", nil)
+	rec := httptest.NewRecorder()
+	srv.mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status %v, got %v", http.StatusOK, rec.Code)
+	}
+	if rec.Body.String() != staticContent {
+		t.Errorf("expected body %v, got %v", staticContent, rec.Body.String())
+	}
+}
