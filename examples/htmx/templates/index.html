@@ -2,19 +2,30 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.PageTitle}}</title>
-    <script src="https://unpkg.com/htmx.org@2.0.3"></script>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <script src="/static/js/htmx.min.js" defer></script>
+    <script src="/static/js/htmx-config.js" defer></script>
 </head>
 <body>
-<h1>{{.WelcomeMessage}}</h1>
+<header>
+    <h1>{{.WelcomeMessage}}</h1>
+</header>
 
 <button hx-get="/dynamic-content" hx-target="#dynamic-section" hx-trigger="click">
     Load Current Time
 </button>
 
 <div id="dynamic-section">
-    <p>Click the button to load the time.</p>
+    <p>Click the button to load dynamic content.</p>
 </div>
+
+<footer>
+    <p>
+        Built with care by the <strong>Hyperserve Team</strong>.
+        <a href="https://hyperserve.com">Explore more</a>.
+    </p>
+</footer>
 </body>
 </html>

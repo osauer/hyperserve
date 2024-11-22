@@ -8,7 +8,6 @@ package hyperserve
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"html/template"
 	"log/slog"
 	"net"
@@ -16,7 +15,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -26,7 +24,7 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// logger is a global logger for the appServer. Use NewServer() to create a new appServer with a custom logger.
+// logger is a global logger for the httpServer. Use NewServer() to create a new httpServer with a custom logger.
 var logger = slog.Default()
 
 func init() {
@@ -52,22 +50,16 @@ var (
 	clientLimiters = sync.Map{}
 )
 
-// rateLimit limits requests per second that can be requested from the appServer. Requires to add [RateLimitMiddleware]
+// rateLimit limits requests per second that can be requested from the httpServer. Requires to add [RateLimitMiddleware]
 type rateLimit = rate.Limit
 
-func tlsConfig() *tls.Config {
-	return &tls.Config{
-		MinVersion: tls.VersionTLS12,
-	}
-}
-
-// Server represents an HTTP appServer that can handle requests and responses.
+// Server represents an HTTP httpServer that can handle requests and responses.
 type Server struct {
 	mux               *http.ServeMux
 	healthMux         *http.ServeMux
-	appServer         *http.Server
+	httpServer        *http.Server
 	healthServer      *http.Server
-	middleware        []MiddlewareFunc
+	middleware        *MiddlewareRegistry
 	excludeMiddleware []MiddlewareFunc
 	Options           *ServerOptions
 }
@@ -75,87 +67,71 @@ type Server struct {
 // NewServer creates a new instance of the Server.
 func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 
-	// init new appServer
+	// init new httpServer
 	srv := &Server{
-		mux:     http.NewServeMux(),
-		Options: NewServerOptions(),
+		mux:        http.NewServeMux(),
+		Options:    NewServerOptions(),
+		middleware: NewMiddlewareRegistry(DefaultMiddleware()),
 	}
 
-	// make sure default middlewares are added
-	srv.WithStack(DefaultMiddleware())
-
-	// apply appServer options
+	// apply httpServer options
 	for _, opt := range opts {
 		opt(srv)
 	}
 
-	// initialize the underlying http appServer for serving requests
-	srv.appServer = &http.Server{
+	// initialize the underlying http httpServer for serving requests
+	srv.httpServer = &http.Server{
 		Handler:      srv.mux,
 		ReadTimeout:  srv.Options.ReadTimeout,
 		WriteTimeout: srv.Options.WriteTimeout,
 		IdleTimeout:  srv.Options.IdleTimeout,
 	}
-	srv.appServer.RegisterOnShutdown(srv.Shutdown)
+	srv.httpServer.RegisterOnShutdown(srv.logServerMetrics)
 
+	isReady.Store(true)
 	return srv, nil
 }
 
-// Run starts the appServer and listens for incoming requests.
-func (srv *Server) Run() {
-	// log appServer start time for collection up-time metric
+// Run starts the httpServer and listens for incoming requests.
+func (srv *Server) Run() error {
+	// log httpServer start time for collection up-time metric
 	serverStart = time.Now()
-	isReady.Store(true)
 	isRunning.Store(true)
 
-	srv.appServer.Handler = srv.chainMiddleware(srv.mux)
+	// apply available middleware to the httpServer
+	srv.httpServer.Handler = srv.middleware.applyToMux(srv.mux)
 
 	if srv.Options.RunHealthServer {
 		srv.initHealthServer()
 	}
 
+	// Channel for server errors
+	serverErr := make(chan error, 1)
+
+	// Run the server in a goroutine
 	go func() {
 		if srv.Options.EnableTLS {
 			if srv.Options.CertFile == "" || srv.Options.KeyFile == "" {
-				logger.Error("TLS enabled but no key or cert file provided.", "key",
-					srv.Options.KeyFile, "cert", srv.Options.CertFile)
-				os.Exit(1)
+				logger.Error("TLS enabled but no key or cert file provided.", "key", srv.Options.KeyFile, "cert", srv.Options.CertFile)
+				return
 			}
-			srv.appServer.TLSConfig = tlsConfig()
-			srv.appServer.Addr = srv.Options.TLSAddr
-
+			// Configure TLS settings
+			srv.httpServer.TLSConfig = srv.tlsConfig()
+			srv.httpServer.Addr = srv.Options.TLSAddr
 			logger.Info("Starting TLS server on", "addr", srv.Options.TLSAddr)
-			if err := srv.appServer.ListenAndServeTLS(srv.Options.CertFile, srv.Options.KeyFile); err != nil && !errors.Is(
-				err,
-				http.ErrServerClosed) {
-				logger.Error("Failed to start server.", "error", err)
-				os.Exit(1)
-			}
+			serverErr <- srv.httpServer.ListenAndServeTLS(srv.Options.CertFile, srv.Options.KeyFile)
 		} else {
-			srv.appServer.Addr = srv.Options.Addr
+			srv.httpServer.Addr = srv.Options.Addr
 			logger.Info("Starting server on", "addr", srv.Options.Addr)
-			if err := srv.appServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				logger.Error("Failed to start server", "error", err)
-				os.Exit(1)
-			}
-
+			serverErr <- srv.httpServer.ListenAndServe()
 		}
-
 	}()
-	gracefulShutdown(srv)
+
+	// Graceful shutdown handling
+	return srv.handleShutdown(serverErr)
 }
 
-// chainMiddleware helper to  apply multiple middlewares to a handler
-func (s *Server) chainMiddleware(finalHandler http.Handler) http.Handler {
-	handler := finalHandler
-	mw := s.filteredMiddleware(s.middleware, s.excludeMiddleware)
-	// reverse order to run first MiddlewareFunc passed first
-	for i := len(mw) - 1; i >= 0; i-- {
-		handler = mw[i](handler)
-	}
-	return handler
-}
-
+/*
 // filter middleware based on include and exclude stacks
 func (s *Server) filteredMiddleware(include, exclude MiddlewareStack) MiddlewareStack {
 	// compile the final middleware stack
@@ -166,71 +142,101 @@ func (s *Server) filteredMiddleware(include, exclude MiddlewareStack) Middleware
 		}
 	}
 	return filtered
-}
+}*/
 
-func (srv *Server) Shutdown() {
+func (srv *Server) logServerMetrics() {
 	tp := uint64(0)
 	resp := totalResponseTime.Load()
 	if resp != 0 {
 		tp = totalRequests.Load() / uint64(resp)
 	}
 	upTime := time.Since(serverStart)
-	logger.Info("Server is shut down.", "up-time", upTime, "µs-in-handlers", resp, "total-req",
+	logger.Info("Server metrics:", "up-time", upTime, "µs-in-handlers", resp, "total-req",
 		totalRequests.Load(),
 		"avg-handles-per-µs", tp)
+}
+
+func (srv *Server) tlsConfig() *tls.Config {
+	return &tls.Config{
+		MinVersion: tls.VersionTLS12,
+	}
+}
+
+func (srv *Server) AddMiddleware(route string, mw MiddlewareFunc) {
+	srv.middleware.Add(route, MiddlewareStack{mw})
+}
+func (srv *Server) AddMiddlewareStack(route string, mw MiddlewareStack) {
+	srv.middleware.Add(route, mw)
 }
 
 // helper function to initialise the health server
 func (srv *Server) initHealthServer() {
 	// initialize a lightweight http  for health endpoints listening on different port
 	srv.healthMux = http.NewServeMux()
+	srv.healthMux.HandleFunc("/healthz/", srv.healthzHandler)
+	srv.healthMux.HandleFunc("/readyz/", srv.readyzHandler)
+	srv.healthMux.HandleFunc("/livez/", srv.livezHandler)
+
 	// Todo add TLS check, make this more generic
 	srv.healthServer = &http.Server{
 		Addr:    srv.Options.HealthAddr,
 		Handler: srv.healthMux,
+		BaseContext: func(_ net.Listener) context.Context {
+			return context.WithValue(context.Background(), "health", true)
+		},
 	}
-	logger.Info("Health server initialised.", "addr", srv.Options.HealthAddr)
+	go func() {
+		logger.Info("Starting health server.", "addr", srv.Options.HealthAddr)
+		if err := srv.healthServer.ListenAndServe(); err != nil {
+			logger.Error("Health server failed to start.", "error", err)
+		}
+	}()
 
-	// add built-in probing endpoints
-	srv.healthMux.HandleFunc("/healthz/", srv.healthzHandler)
-	srv.healthMux.HandleFunc("/readyz/", srv.readyzHandler)
-	srv.healthMux.HandleFunc("/livez/", srv.livezHandler)
 }
 
-func gracefulShutdown(srv *Server) {
-
+func (srv *Server) handleShutdown(serverErr chan error) error {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGKILL)
-
-	// block until a quit signal is received
-	sig := <-quit
-	logger.Info("Shutting down server...", "reason", sig)
-	isReady.Store(false)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := srv.appServer.Shutdown(ctx); err != nil {
-		logger.Error("Server forced to shutdown.", "error", err)
+	select {
+	case sig := <-quit:
+		logger.Info("Shutting down server.", "reason", sig)
+		isReady.Store(false)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		isRunning.Store(false)
+		return srv.shutdown(ctx)
+	case err := <-serverErr:
+		return err
 	}
-
-	isRunning.Store(false)
 }
 
-// stop implements a graceful shutdown. Todo what's the diff between stop and shutdown? and then we have gracefulShutdown
-func (srv *Server) stop(done chan struct{}) {
-
-	// listen for OS signals to shut down the appServer.
-
-	isReady.Store(false)
-	logger.Info("received signal to shutdown appServer. Stopping...")
-
-	close(done)
+func (srv *Server) shutdown(ctx context.Context) error {
+	ret := error(nil)
+	if err := srv.shutdownHealthServer(ctx); err != nil {
+		logger.Error("Error during health server shutdown.", "error", err)
+		ret = err
+	}
+	if err := srv.httpServer.Shutdown(ctx); err != nil {
+		logger.Error("Error during server shutdown.", "error", err)
+		ret = err
+	}
+	return ret
 }
 
-func (srv *Server) With(middleware ...MiddlewareFunc) *Server {
+func (srv *Server) shutdownHealthServer(ctx context.Context) error {
+	if srv.Options.RunHealthServer {
+		logger.Info("Shutting down health server.")
+		// Close any dependencies if needed
+		// ...
+		return srv.healthServer.Shutdown(ctx)
+	} else {
+		return nil
+	}
+}
+
+/*func (srv *Server) With(middleware ...MiddlewareFunc) *Server {
 	if isRunning.Load() {
-		panic("Cannot change middleware after appServer has started.")
+		panic("Cannot change middleware after httpServer has started.")
 	}
 	srv.middleware = append(srv.middleware, middleware...)
 	return srv
@@ -238,22 +244,23 @@ func (srv *Server) With(middleware ...MiddlewareFunc) *Server {
 
 func (srv *Server) WithOut(middleware ...MiddlewareFunc) *Server {
 	if isRunning.Load() {
-		panic("Cannot change middleware after appServer has started.")
+		panic("Cannot change middleware after httpServer has started.")
 	}
 	srv.excludeMiddleware = append(srv.excludeMiddleware, middleware...)
 	return srv
-}
+}*/
+/*
 func (srv *Server) WithStack(stack MiddlewareStack) *Server {
 	if isRunning.Load() {
-		panic("Cannot change middleware after appServer has started.")
+		panic("Cannot change middleware after httpServer has started.")
 	}
 	srv.middleware = append(srv.middleware, stack...)
 	return srv
-}
+}*/
 
 func (srv *Server) WithOutStack(stack ...MiddlewareFunc) *Server {
 	if isRunning.Load() {
-		panic("Cannot change middleware after appServer has started.")
+		panic("Cannot change middleware after httpServer has started.")
 	}
 	srv.excludeMiddleware = append(srv.excludeMiddleware, stack...)
 	return srv
@@ -307,6 +314,11 @@ func EnsureTrailingSlash(dir string) string {
 	return dir
 }
 
+func (srv *Server) HandleStatic(pattern string) {
+	staticDir := EnsureTrailingSlash(srv.Options.StaticDir)
+	srv.mux.Handle(pattern, http.StripPrefix(pattern, http.FileServer(http.Dir(staticDir))))
+}
+
 func (srv *Server) HandleTemplate(pattern, t string, data interface{}) *Server {
 	templateDir := EnsureTrailingSlash(srv.Options.TemplateDir)
 	if templates == nil {
@@ -328,7 +340,7 @@ func parseTemplates(templateDir string, srv *Server) {
 		wd, _ := os.Getwd()
 		ad, _ := filepath.Abs(templateDir)
 		logger.Error("Template directory not found", "error", err, "working-dir", wd, "abs-path", ad)
-		srv.Shutdown()
+		srv.logServerMetrics()
 		os.Exit(1)
 	}
 	templates = template.Must(template.ParseGlob(templateDir + "*.html"))
@@ -338,7 +350,7 @@ func parseTemplates(templateDir string, srv *Server) {
 // DataFunc returns a data structure for the template.
 type DataFunc func(r *http.Request) interface{}
 
-// WithTLS enables TLS on the appServer.
+// WithTLS enables TLS on the httpServer.
 func WithTLS(certFile, keyFile string) ServerOptionFunc {
 	return func(srv *Server) {
 		srv.Options.EnableTLS = true
@@ -392,14 +404,14 @@ func WithLogger(l *slog.Logger) ServerOptionFunc {
 	}
 }
 
-// WithTimeouts adds timeouts to the appServer.
+// WithTimeouts adds timeouts to the httpServer.
 func WithTimeouts(readTimeout, writeTimeout, idleTimeout time.Duration) ServerOptionFunc {
 	return func(srv *Server) {
 		srv.setTimeouts(readTimeout, writeTimeout, idleTimeout)
 	}
 }
 
-// WithRateLimit sets rate limiting parameters of the appServer.
+// WithRateLimit sets rate limiting parameters of the httpServer.
 func WithRateLimit(limit rateLimit, burst int) ServerOptionFunc {
 	return func(srv *Server) {
 		srv.Options.RateLimit = limit
