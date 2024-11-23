@@ -28,6 +28,7 @@ import (
 var logger = slog.Default()
 
 func init() {
+	slog.SetLogLoggerLevel(slog.LevelInfo)
 	logger.Info("Server initializing...")
 }
 
@@ -55,13 +56,12 @@ type rateLimit = rate.Limit
 
 // Server represents an HTTP httpServer that can handle requests and responses.
 type Server struct {
-	mux               *http.ServeMux
-	healthMux         *http.ServeMux
-	httpServer        *http.Server
-	healthServer      *http.Server
-	middleware        *MiddlewareRegistry
-	excludeMiddleware []MiddlewareFunc
-	Options           *ServerOptions
+	mux          *http.ServeMux
+	healthMux    *http.ServeMux
+	httpServer   *http.Server
+	healthServer *http.Server
+	middleware   *MiddlewareRegistry
+	Options      *ServerOptions
 }
 
 // NewServer creates a new instance of the Server.
@@ -112,7 +112,8 @@ func (srv *Server) Run() error {
 	go func() {
 		if srv.Options.EnableTLS {
 			if srv.Options.CertFile == "" || srv.Options.KeyFile == "" {
-				logger.Error("TLS enabled but no key or cert file provided.", "key", srv.Options.KeyFile, "cert", srv.Options.CertFile)
+				logger.Error("TLS enabled but no key or cert file provided.", "key", srv.Options.KeyFile,
+					"cert", srv.Options.CertFile)
 				return
 			}
 			// Configure TLS settings
@@ -130,19 +131,6 @@ func (srv *Server) Run() error {
 	// Graceful shutdown handling
 	return srv.handleShutdown(serverErr)
 }
-
-/*
-// filter middleware based on include and exclude stacks
-func (s *Server) filteredMiddleware(include, exclude MiddlewareStack) MiddlewareStack {
-	// compile the final middleware stack
-	filtered := MiddlewareStack{}
-	for _, mw := range s.middleware {
-		if !slices.ContainsFunc(s.excludeMiddleware, func(excluded MiddlewareFunc) bool { return &mw == &excluded }) {
-			filtered = append(filtered, mw)
-		}
-	}
-	return filtered
-}*/
 
 func (srv *Server) logServerMetrics() {
 	tp := uint64(0)
@@ -167,6 +155,10 @@ func (srv *Server) AddMiddleware(route string, mw MiddlewareFunc) {
 }
 func (srv *Server) AddMiddlewareStack(route string, mw MiddlewareStack) {
 	srv.middleware.Add(route, mw)
+}
+
+func (srv *Server) RemoveMiddlewareStack(route string) {
+	srv.middleware.RemoveStack(route)
 }
 
 // helper function to initialise the health server
@@ -246,7 +238,7 @@ func (srv *Server) WithOut(middleware ...MiddlewareFunc) *Server {
 	if isRunning.Load() {
 		panic("Cannot change middleware after httpServer has started.")
 	}
-	srv.excludeMiddleware = append(srv.excludeMiddleware, middleware...)
+	srv.exclude = append(srv.exclude, middleware...)
 	return srv
 }*/
 /*
@@ -258,11 +250,11 @@ func (srv *Server) WithStack(stack MiddlewareStack) *Server {
 	return srv
 }*/
 
-func (srv *Server) WithOutStack(stack ...MiddlewareFunc) *Server {
+func (srv *Server) WithOutStack(stack MiddlewareStack) *Server {
 	if isRunning.Load() {
 		panic("Cannot change middleware after httpServer has started.")
 	}
-	srv.excludeMiddleware = append(srv.excludeMiddleware, stack...)
+	srv.middleware.exclude = append(srv.middleware.exclude, stack...)
 	return srv
 }
 
@@ -373,6 +365,13 @@ func WithTLS(certFile, keyFile string) ServerOptionFunc {
 			logger.Error("Key file not found", "error", err, "file", keyFile, "wd", wd)
 			os.Exit(1)
 		}
+	}
+}
+
+// WithHealthServer enables the health server on a different port.
+func WithLoglevel(level slog.Level) ServerOptionFunc {
+	return func(srv *Server) {
+		slog.SetLogLoggerLevel(level)
 	}
 }
 

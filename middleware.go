@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -17,7 +18,7 @@ import (
 // MiddlewareFunc wraps a http.Handler interface and returns a new http.HandlerFunc.
 type MiddlewareFunc func(http.Handler) http.HandlerFunc
 
-// MiddlewareStack is a pre-defined collection of middlewares that can be applied to a http.Handler.
+// MiddlewareStack is a pre-defined collection of middleware that can be applied to a http.Handler.
 type MiddlewareStack []MiddlewareFunc
 
 // GlobalMiddlewareRoute is specifier that a MiddlewareStack applies to to all routes.
@@ -25,14 +26,15 @@ const GlobalMiddlewareRoute = "*"
 
 // MiddlewareRegistry is a collection of MiddlewareStacks for different routes.
 type MiddlewareRegistry struct {
-	middlewares map[string]MiddlewareStack
+	middleware map[string]MiddlewareStack
+	exclude    []MiddlewareFunc
 }
 
 // NewMiddlewareRegistry creates a new MiddlewareRegistry. If globalMiddleware is not nil,
 // it will be added to the registry as the default middleware applied to all routes.
 func NewMiddlewareRegistry(globalMiddleware MiddlewareStack) *MiddlewareRegistry {
 	ret := &MiddlewareRegistry{
-		middlewares: make(map[string]MiddlewareStack),
+		middleware: make(map[string]MiddlewareStack),
 	}
 	// add default middleware to all routes if defined in globalMiddleware stack
 	if globalMiddleware != nil {
@@ -41,12 +43,30 @@ func NewMiddlewareRegistry(globalMiddleware MiddlewareStack) *MiddlewareRegistry
 	return ret
 }
 
-// applyToMux helper to  apply multiple middlewares to a handler
-func (m *MiddlewareRegistry) applyToMux(mux *http.ServeMux) http.Handler {
+// Filter the MiddlewareRegistry based on include and exclude stacks
+func (mwr *MiddlewareRegistry) filterMiddleware() {
+	// range through the exclude middleware and remove them from the middleware registry
+	for _, excl := range mwr.exclude {
+		// range through all routes in the registry
+		for key, mw := range mwr.middleware {
+			filtered := MiddlewareStack{}
+			for _, m := range mw {
+				// we need to use reflect as Go as of 1.23 does not support direct comparison of func variables
+				if reflect.ValueOf(m) != reflect.ValueOf(excl) {
+					filtered = append(filtered, m)
+				}
+			}
+			mwr.middleware[key] = filtered
+		}
+	}
+}
+
+// applyToMux helper to  apply multiple middleware to a handler
+func (mwr *MiddlewareRegistry) applyToMux(mux *http.ServeMux) http.Handler {
 	finalHandler := http.Handler(mux)
-	// mw := s.filteredMiddleware(s.middleware, s.excludeMiddleware)
-	for route, stack := range m.middlewares {
-		logger.Info("Applying middleware...", "route", route)
+	mwr.filterMiddleware()
+	for route, stack := range mwr.middleware {
+		logger.Info("Applying middleware.", "route", route)
 		// reverse order to run first MiddlewareFunc passed first
 		for i := len(stack) - 1; i >= 0; i-- {
 			finalHandler = stack[i](finalHandler)
@@ -55,13 +75,13 @@ func (m *MiddlewareRegistry) applyToMux(mux *http.ServeMux) http.Handler {
 	return finalHandler
 }
 
-func (m *MiddlewareRegistry) Add(route string, middleware MiddlewareStack) {
-	m.middlewares[route] = middleware
+func (mwr *MiddlewareRegistry) Add(route string, middleware MiddlewareStack) {
+	mwr.middleware[route] = middleware
 }
 
 // Get returns the MiddlewareStack for a given route. If no middleware is found, it returns an empty MiddlewareStack.
-func (m *MiddlewareRegistry) Get(route string) MiddlewareStack {
-	ret := m.middlewares[route]
+func (mwr *MiddlewareRegistry) Get(route string) MiddlewareStack {
+	ret := mwr.middleware[route]
 	if ret == nil {
 		logger.Warn("No middleware found for route", "route", route)
 		ret = MiddlewareStack{}
@@ -69,8 +89,9 @@ func (m *MiddlewareRegistry) Get(route string) MiddlewareStack {
 	return ret
 }
 
-func (m *MiddlewareRegistry) Remove(route string) {
-	delete(m.middlewares, route)
+// RemoveStack removes the MiddlewareStack for a given route. If no middleware is found, it does nothing.
+func (mwr *MiddlewareRegistry) RemoveStack(route string) {
+	delete(mwr.middleware, route)
 }
 
 // DefaultMiddleware is a predefined MiddlewareStack for basic server functionality. It will always be applied unless

@@ -22,8 +22,8 @@ func main() {
 	}
 
 	// Configure server options
-	server.Options.TemplateDir = "examples/htmx/templates"
-	server.Options.StaticDir = "examples/htmx/static"
+	server.Options.TemplateDir = "examples/htmx-dynamic/templates"
+	server.Options.StaticDir = "examples/htmx-dynamic/static"
 
 	// Middleware: Add security headers for all routes
 	server.AddMiddlewareStack("/", hyperserve.SecureWeb(*server.Options))

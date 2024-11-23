@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>htmx streaming example</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <script src="/static/js/htmx.min.js" defer></script>
+    <script src="/static/js/htmx-config.js" defer></script>
+</head>
+<body>
+<h1>Live Random Number Stream</h1>
+<div class="number" id="number" hx-sse="connect:/numbers/stream"></div>
+<footer>
+    <p>
+        Built with care by the <strong>HyperServe Team</strong>.
+        <a href="https://hyperserve.dev">Explore more</a>.
+    </p>
+</body>
+
+</html>

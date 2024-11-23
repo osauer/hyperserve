@@ -2,6 +2,7 @@ package hyperserve
 
 import (
 	"encoding/json"
+	"log/slog"
 	"os"
 	"time"
 )
@@ -54,6 +55,15 @@ var defaultServerOptions = &ServerOptions{
 	ChaosThrottleRate: 0.05,
 	ChaosPanicRate:    0.01,
 }
+
+// Wrappers for debug levels to be used in the server. We're using slog for logging,
+// but want to hide this detail from the client
+const (
+	LevelDebug = slog.LevelDebug
+	LevelInfo  = slog.LevelInfo
+	LevelWarn  = slog.LevelWarn
+	LevelError = slog.LevelError
+)
 
 // NewServerOptions creates a new configuration for the server with a priority order. Environment variables override options file.
 // 1. Environment variables
