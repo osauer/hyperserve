@@ -1,7 +1,3 @@
-Based on the latest code from `hyperserve.go` and the context from the existing repository, here’s an updated draft for the `README.md`. This revision includes the latest features and ensures clarity for new users or contributors:
-
----
-
 # Hyperserve 🚀
 
 A high-performance, dependency-free, and secure HTTP server for the modern web, built with Go.
