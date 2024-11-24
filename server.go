@@ -79,15 +79,6 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 		opt(srv)
 	}
 
-	// initialize the underlying http httpServer for serving requests
-	srv.httpServer = &http.Server{
-		Handler:      srv.mux,
-		ReadTimeout:  srv.Options.ReadTimeout,
-		WriteTimeout: srv.Options.WriteTimeout,
-		IdleTimeout:  srv.Options.IdleTimeout,
-	}
-	srv.httpServer.RegisterOnShutdown(srv.logServerMetrics)
-
 	isReady.Store(true)
 	return srv, nil
 }
@@ -97,6 +88,15 @@ func (srv *Server) Run() error {
 	// log httpServer start time for collection up-time metric
 	serverStart = time.Now()
 	isRunning.Store(true)
+
+	// initialize the underlying http httpServer for serving requests
+	srv.httpServer = &http.Server{
+		Handler:      srv.mux,
+		ReadTimeout:  srv.Options.ReadTimeout,
+		WriteTimeout: srv.Options.WriteTimeout,
+		IdleTimeout:  srv.Options.IdleTimeout,
+	}
+	srv.httpServer.RegisterOnShutdown(srv.logServerMetrics)
 
 	// apply available middleware to the httpServer
 	srv.httpServer.Handler = srv.middleware.applyToMux(srv.mux)
@@ -155,10 +155,6 @@ func (srv *Server) AddMiddleware(route string, mw MiddlewareFunc) {
 }
 func (srv *Server) AddMiddlewareStack(route string, mw MiddlewareStack) {
 	srv.middleware.Add(route, mw)
-}
-
-func (srv *Server) RemoveMiddlewareStack(route string) {
-	srv.middleware.RemoveStack(route)
 }
 
 // helper function to initialise the health server

@@ -2,7 +2,10 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"math/rand"
+
+	// "math/rand"
 	"net/http"
 	"time"
 
@@ -19,28 +22,46 @@ func numbersStreamHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
 		return
 	}
+	log.Println("SSE connection opened")
 
-	ticker := time.NewTicker(10 * time.Millisecond)
+	ticker := time.NewTicker(1 * time.Second) // Slower for testing
 	defer ticker.Stop()
+
+	sseMessage := hs.NewSEEventMessage("hello world")
+	sseMessage.Event = "sse:numbers"
+	if _, err := fmt.Fprint(w, sseMessage); err != nil {
+		log.Println("Error creating SSE message:", err)
+	}
+	flusher.Flush()
 
 	for {
 		select {
 		case <-r.Context().Done():
+			log.Println("SSE connection closed", r.Context().Err())
 			return
 		case <-ticker.C:
 			number := rand.Intn(100)
-			fmt.Fprintf(w, "data: %d\n\n", number)
+			log.Println("Sending number:", number)
+			// Send HTMX-compatible SSE data
+			sseMessage.Data = number
+			fmt.Fprint(w, sseMessage)
 			flusher.Flush()
+			log.Println("Sent number:", number)
 		}
 	}
 }
 
 func main() {
 	// Initialize hs
-	srv, err := hs.NewServer(hs.WithLoglevel(hs.LevelDebug))
+	srv, err := hs.NewServer(
+		hs.WithLoglevel(hs.LevelDebug))
 	if err != nil {
 		panic(err)
 	}
+
+	srv.Options.ReadTimeout = 0
+	srv.Options.WriteTimeout = 0
+	srv.Options.IdleTimeout = 0
 
 	// Configure template and static directories
 	srv.Options.TemplateDir = "examples/htmx-stream/templates"

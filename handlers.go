@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"net/http"
 	"sync/atomic"
+	"time"
 )
 
 // Consolidate error responses to maintain a consistent format.
@@ -35,6 +37,57 @@ func templateHandler(templateName string, data interface{}) http.HandlerFunc {
 // HealthCheckHandler returns a 204 status code for health check
 func HealthCheckHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
+}
+
+type SSEMessage struct {
+	Event string `json:"event"` // Optional: Allows sending multiple event types
+	Data  any    `json:"data"`  // The actual data payload
+}
+
+func NewSEEventMessage(data any) *SSEMessage {
+	return &SSEMessage{
+		Event: "message",
+		Data:  data,
+	}
+}
+
+func (sse *SSEMessage) String() string {
+	str := fmt.Sprintf("event: %s\ndata: %v\n\n", sse.Event, sse.Data)
+	return fmt.Sprintf(str)
+}
+
+// SSEHandler is a server-sent events handler that streams data to the client.
+func SSEHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	ticker := time.NewTicker(1 * time.Second) // Slower for testing
+	defer ticker.Stop()
+
+	logger.Info("SSE connection opened")
+	logger.Info("event: message\ndata: Hello, world!")
+	for {
+		select {
+		case <-r.Context().Done():
+			logger.Info("SSE connection closed")
+			return
+		case <-ticker.C:
+			number := rand.Intn(100)
+			// Log the number being sent
+			logger.Info("Sending number:", number)
+
+			// Send HTMX-compatible SSE data
+			fmt.Fprintf(w, "data:", number)
+			flusher.Flush()
+		}
+	}
 }
 
 func (srv *Server) livezHandler(w http.ResponseWriter, r *http.Request) {

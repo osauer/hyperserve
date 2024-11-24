@@ -376,6 +376,13 @@ type loggingResponseWriter struct {
 	bytesWritten int
 }
 
+func (lrw *loggingResponseWriter) Flush() {
+	flusher, ok := lrw.ResponseWriter.(http.Flusher)
+	if ok {
+		flusher.Flush()
+	}
+}
+
 func (lrw *loggingResponseWriter) WriteHeader(code int) {
 	lrw.statusCode = code
 	lrw.ResponseWriter.WriteHeader(code)
