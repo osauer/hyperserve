@@ -1,4 +1,4 @@
-# hs 🚀
+# hyperserve 🚀
 
 _A simple, dependable, and dependency-free HTTP srv for the hyperspeed age._
 
