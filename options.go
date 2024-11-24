@@ -74,7 +74,7 @@ func NewServerOptions() *ServerOptions {
 	return config
 }
 
-type ServerOptionFunc func(srv *Server)
+type ServerOptionFunc func(srv *Server) error
 
 // helper to read environment variables and apply them to the options
 func applyEnvVars(config *ServerOptions) *ServerOptions {

@@ -1,11 +1,17 @@
+// This example demonstrates a minimal HTMX setup with Server-Sent Events (SSE) in Go.
+// It includes a Go server that streams random numbers to the client every 100ms.
+// The client-side HTML uses HTMX to connect to the SSE endpoint and update the content in real-time.
+// Key learning points:
+// - Setting up a basic Go server with SSE support
+// - Using HTMX for real-time updates in the browser
+// - Configuring server and client-side code for SSE
+
 package main
 
 import (
 	"fmt"
 	"log"
 	"math/rand"
-
-	// "math/rand"
 	"net/http"
 	"time"
 
@@ -13,62 +19,60 @@ import (
 )
 
 func numbersStreamHandler(w http.ResponseWriter, r *http.Request) {
+	// set headers for server-sent events
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
+	// Flusher to send buffered data to the client. Make sure the http.ResponseWriter supports flushing in case
+	// you use a custom one (must implement http.Flusher interface).
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
 		return
 	}
-	log.Println("SSE connection opened")
 
-	ticker := time.NewTicker(1 * time.Second) // Slower for testing
+	// Send a random number every 100ms
+	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
-	sseMessage := hs.NewSEEventMessage("hello world")
-	sseMessage.Event = "sse:numbers"
+	// Create a new SSE message, with empty data. The data will be updated in the loop.
+	sseMessage := hs.NewSSEMessage("")
 	if _, err := fmt.Fprint(w, sseMessage); err != nil {
 		log.Println("Error creating SSE message:", err)
 	}
-	flusher.Flush()
 
+	// Loop until the client closes the connection
 	for {
 		select {
 		case <-r.Context().Done():
 			log.Println("SSE connection closed", r.Context().Err())
 			return
 		case <-ticker.C:
-			number := rand.Intn(100)
-			log.Println("Sending number:", number)
-			// Send HTMX-compatible SSE data
-			sseMessage.Data = number
-			fmt.Fprint(w, sseMessage)
-			flusher.Flush()
-			log.Println("Sent number:", number)
+			sseMessage.Data = rand.Intn(100)
+			fmt.Fprint(w, sseMessage.String())
+			flusher.Flush() // Ensure the message is sent immediately
 		}
 	}
 }
 
 func main() {
-	// Initialize hs
-	srv, err := hs.NewServer(
-		hs.WithLoglevel(hs.LevelDebug))
+	// Initialize the server
+	srv, err := hs.NewServer()
 	if err != nil {
 		panic(err)
 	}
-
+	// proper timeout settings for streaming
 	srv.Options.ReadTimeout = 0
 	srv.Options.WriteTimeout = 0
 	srv.Options.IdleTimeout = 0
 
 	// Configure template and static directories
 	srv.Options.TemplateDir = "examples/htmx-stream/templates"
-	srv.Options.StaticDir = "examples/htmx-dynamic/static"
+	srv.Options.StaticDir = "examples/htmx-stream/static"
 	srv.HandleStatic("/static/")
 
-	// Handle random number streaming
+	// Handler for streaming
 	srv.HandleFunc("/numbers/stream", numbersStreamHandler)
 
 	// Serve the main template

@@ -4,10 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"math/rand"
 	"net/http"
 	"sync/atomic"
-	"time"
 )
 
 // Consolidate error responses to maintain a consistent format.
@@ -22,14 +20,13 @@ func writeErrorResponse(w http.ResponseWriter, status int, message string) {
 }
 
 // templateHandler serves HTML templates with dynamic content.
-func templateHandler(templateName string, data interface{}) http.HandlerFunc {
+func (srv *Server) templateHandler(templateName string, data interface{}) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
-		err := templates.ExecuteTemplate(w, templateName, data)
-		if err != nil {
-			http.Error(w, "Error rendering template", http.StatusInternalServerError)
+		if err := srv.templates.ExecuteTemplate(w, templateName, data); err != nil {
 			slog.Error("Error rendering template", "error", err)
+			http.Error(w, "Error rendering template", http.StatusInternalServerError)
 		}
 	}
 }
@@ -44,7 +41,7 @@ type SSEMessage struct {
 	Data  any    `json:"data"`  // The actual data payload
 }
 
-func NewSEEventMessage(data any) *SSEMessage {
+func NewSSEMessage(data any) *SSEMessage {
 	return &SSEMessage{
 		Event: "message",
 		Data:  data,
@@ -56,50 +53,16 @@ func (sse *SSEMessage) String() string {
 	return fmt.Sprintf(str)
 }
 
-// SSEHandler is a server-sent events handler that streams data to the client.
-func SSEHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
-		return
-	}
-
-	ticker := time.NewTicker(1 * time.Second) // Slower for testing
-	defer ticker.Stop()
-
-	logger.Info("SSE connection opened")
-	logger.Info("event: message\ndata: Hello, world!")
-	for {
-		select {
-		case <-r.Context().Done():
-			logger.Info("SSE connection closed")
-			return
-		case <-ticker.C:
-			number := rand.Intn(100)
-			// Log the number being sent
-			logger.Info("Sending number:", number)
-
-			// Send HTMX-compatible SSE data
-			fmt.Fprintf(w, "data:", number)
-			flusher.Flush()
-		}
-	}
-}
-
 func (srv *Server) livezHandler(w http.ResponseWriter, r *http.Request) {
-	srv.healthHandlerHelper(w, r, "alive", &isRunning)
+	srv.healthHandlerHelper(w, r, "alive", &srv.isRunning)
 }
 
 func (srv *Server) readyzHandler(w http.ResponseWriter, r *http.Request) {
-	srv.healthHandlerHelper(w, r, "ready", &isReady)
+	srv.healthHandlerHelper(w, r, "ready", &srv.isReady)
 }
 
 func (srv *Server) healthzHandler(w http.ResponseWriter, r *http.Request) {
-	srv.healthHandlerHelper(w, r, "ok", &isRunning)
+	srv.healthHandlerHelper(w, r, "ok", &srv.isRunning)
 }
 
 func (srv *Server) healthHandlerHelper(w http.ResponseWriter, request *http.Request, probe string,

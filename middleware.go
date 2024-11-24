@@ -75,6 +75,7 @@ func (mwr *MiddlewareRegistry) applyToMux(mux *http.ServeMux) http.Handler {
 	return finalHandler
 }
 
+// Add adds a MiddlewareStack to the MiddlewareRegistry for a given route.
 func (mwr *MiddlewareRegistry) Add(route string, middleware MiddlewareStack) {
 	mwr.middleware[route] = middleware
 }
@@ -96,9 +97,9 @@ func (mwr *MiddlewareRegistry) RemoveStack(route string) {
 
 // DefaultMiddleware is a predefined MiddlewareStack for basic server functionality. It will always be applied unless
 // overridden with explicit options exclusion via Server.WithoutOption.
-func DefaultMiddleware() MiddlewareStack {
+func DefaultMiddleware(server *Server) MiddlewareStack {
 	return MiddlewareStack{
-		MetricsMiddleware,
+		MetricsMiddleware(server),
 		RequestLoggerMiddleware,
 		RecoveryMiddleware}
 }
@@ -112,12 +113,12 @@ func SecureAPI(options ServerOptions) MiddlewareStack {
 
 // SecureWeb is a predefined MiddlewareStack for secure web endpoints.
 func SecureWeb(options ServerOptions) MiddlewareStack {
-	return MiddlewareStack{HeadersMiddleware}
+	return MiddlewareStack{HeadersMiddleware(options)}
 }
 
 // FileServer is a predefined MiddlewareStack for serving static files.
-func FileServer() MiddlewareStack {
-	return MiddlewareStack{HeadersMiddleware}
+func FileServer(options ServerOptions) MiddlewareStack {
+	return MiddlewareStack{HeadersMiddleware(options)}
 }
 
 // middleware definitions
@@ -138,13 +139,15 @@ type Header struct {
 }
 
 // MetricsMiddleware MiddlewareFunc collects metrics for requests and response times.
-func MetricsMiddleware(next http.Handler) http.HandlerFunc {
-	logger.Info("MetricsMiddleware enabled")
-	return func(w http.ResponseWriter, r *http.Request) {
-		totalRequests.Add(1)
-		start := time.Now()
-		next.ServeHTTP(w, r)
-		totalResponseTime.Add(time.Since(start).Microseconds())
+func MetricsMiddleware(srv *Server) MiddlewareFunc {
+	return func(next http.Handler) http.HandlerFunc {
+		logger.Info("MetricsMiddleware enabled")
+		return func(w http.ResponseWriter, r *http.Request) {
+			srv.totalRequests.Add(1)
+			start := time.Now()
+			next.ServeHTTP(w, r)
+			srv.totalResponseTime.Add(time.Since(start).Microseconds())
+		}
 	}
 }
 
@@ -254,36 +257,43 @@ var securityHeaders = []Header{
 	{"Feature-Policy", "geolocation 'none'; midi 'none'; notifications 'none'; push 'none'; sync-xhr 'none'; microphone 'none'; camera 'none'; magnetometer 'none'; gyroscope 'none'; speaker 'none'; vibrate 'none'; fullscreen 'self'; payment 'none';"},
 	{"Expect-CT", "max-age=86400, enforce, report-uri='https://example.com/report-ct'"}, // Expect Certificate Transparency
 	{"Content-Security-Policy", "default-src 'self'"},                                   // Control resources the client is allowed to load
-	{"Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'"},
-	{"Access-Control-Allow-Methods", "GET, POST, OPTIONS"},
-	{"Access-Control-Allow-Headers", "Content-Type, Authorization"},
-	{"Access-Control-Allow-Credentials", "true"}, // If cookies or credentials are needed
+	{"Access-Control-Allow-Methods", "GET, POST, OPTIONS"},                              // Allowed methods
+	{"Access-Control-Allow-Headers", "Content-Type, Authorization"},                     // Allowed headers
+	{"Access-Control-Allow-Credentials", "true"},                                        // If cookies or credentials are needed
+	{"Access-Control-Max-Age", "600"},                                                   // Pre-flight request cache
 }
 
-func HeadersMiddleware(next http.Handler) http.HandlerFunc {
+// HeadersMiddleware MiddlewareFunc adds security headers to the response.
+func HeadersMiddleware(options ServerOptions) MiddlewareFunc {
 	logger.Info("HeadersMiddleware enabled")
-	return func(w http.ResponseWriter, r *http.Request) {
-		// todo implement hardened mode
-		hardened := false
-		if !hardened {
-			w.Header().Set("Server", "hyperserve")
+	return func(next http.Handler) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			// todo implement hardened mode
+			hardened := false
+			if !hardened {
+				w.Header().Set("Server", "hyperserve")
+			}
+
+			for _, h := range securityHeaders {
+				w.Header().Set(h.key, h.value)
+			}
+
+			if options.EnableTLS {
+				w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+			}
+
+			// ToDo add allowed site origin(s) to the header
+			// w.Header().Set("Access-Control-Allow-Origin", "https://client-site.com")
+
+			// Handle preflight request
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+
+			// call the next handler if not in preflight
+			next.ServeHTTP(w, r)
 		}
-
-		for _, h := range securityHeaders {
-			w.Header().Set(h.key, h.value)
-		}
-
-		// ToDo add allowed site origin(s) to the header
-		// w.Header().Set("Access-Control-Allow-Origin", "https://client-site.com")
-
-		// Handle preflight request
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-
-		// call the next handler if not in preflight
-		next.ServeHTTP(w, r)
 	}
 }
 
