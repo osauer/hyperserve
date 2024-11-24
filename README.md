@@ -1,34 +1,90 @@
-# hyperserve 🚀
+Based on the latest code from `hyperserve.go` and the context from the existing repository, here’s an updated draft for the `README.md`. This revision includes the latest features and ensures clarity for new users or contributors:
 
-_A simple, dependable, and dependency-free HTTP srv for the hyperspeed age._
+---
 
-hs is a Go-based HTTP srv designed to handle requests, serve responses, and enforce rate limits—all while avoiding
-external dependencies. With default configurations, clean middleware handling, and basic endpoint checks, hs is ready to
-roll with just a few lines of Go.
+# Hyperserve 🚀
 
-## Features
+A high-performance, dependency-free, and secure HTTP server for the modern web, built with Go.
 
-- **Middleware Support**: Easily add and chain middleware functions to extend srv functionality.
-- **Rate Limiting**: Configure requests per second and burst limits to keep things under control.
-- **Configurable**: Load configurations from environment variables, a JSON file, or rely on built-in defaults.
-- **Health Checks**: `/healthz`, `/readyz`, and `/livez` endpoints for easy liveness and readiness probing.
-- **Zero External Dependencies**: Because who needs them, really?
+## Key Features
+
+### Performance
+- **Optimized HTTP Handling**: Lightweight server using Go's standard library.
+- **Middleware Support**: Easily extend server functionality with a middleware stack.
+- **Configurable Rate Limiting**: Per-second burst configuration to avoid overloads.
+
+### Security
+- **Built-in TLS Support**: Enables HTTPS with ease, with customizable key and cert paths.
+- **Health Checks**: Pre-configured endpoints (`/healthz`, `/readyz`, `/livez`) for monitoring.
+- **Secure Defaults**: Designed with best practices, including CSRF protection and request validation.
+
+### Simplicity and Flexibility
+- **Dynamic Templates**: Support for dynamic HTML rendering using Go templates.
+- **Static File Serving**: Serve static files efficiently from a configurable directory.
+- **Zero External Dependencies**: Pure Go implementation to ensure lightweight and portable builds.
+
+### Optional Features
+- **HTMX 2.x Compatibility**: Fully compatible with HTMX for seamless hypermedia-driven development.
+- **Server-Sent Events (SSE)**: Native SSE support for real-time updates without external dependencies.
 
 ## Getting Started
 
-## Support
+1. **Install Hyperserve**
+   Ensure you have Go 1.23+ installed. Then clone the repository:
+   ```bash
+   git clone https://github.com/osauer/hyperserve.git
+   cd hyperserve
+   ```
 
-Visit, HYP, an AI powered support agent to help building on top of hs (or enhance
-it) : https://chatgpt.com/g/g-OUyPwXtsN-hyp
+2. **Run the Server**
+   Execute the sample server:
+   ```bash
+   go run server.go
+   ```
 
-### Requirements
+3. **Customize**
+   Edit `server.go` to customize middleware, routes, and templates.
 
-- **Go 1.23.2+**: hs is crafted for the latest features in Go 1.23 and up.
+## Example Usage
 
-### Installation
+### Simple Route
+```go
+server.Handle("/hello", func(w http.ResponseWriter, r *http.Request) {
+    fmt.Fprintln(w, "Hello, World!")
+})
+```
 
-Clone the repository to your local machine:
+### Enable TLS
+```go
+server.WithTLS(certFile: "path/to/cert.pem", keyFile: "path/to/key.pem")
+```
 
-```sh
-git clone https://github.com/osauer/hs.git
-cd hs
+### Middleware Example
+```go
+server.AddMiddleware("/api", func(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        log.Println("Processing request...")
+        next.ServeHTTP(w, r)
+    })
+})
+```
+
+## HTMX and SSE Integration
+Leverage HTMX 2.x and the SSE extension for real-time applications:
+```html
+<div hx-ext="sse" sse-connect="/events" sse-swap="message">
+    Real-time updates here
+</div>
+```
+
+## Contributing
+
+We welcome contributions to improve Hyperserve. Please follow our [Contribution Guidelines](CONTRIBUTING.md).
+
+## License
+
+Hyperserve is released under the MIT License.
+
+---
+
+Would you like me to proceed with updating the `README.md` in the GitHub repository?
