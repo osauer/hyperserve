@@ -7,7 +7,8 @@ import (
 	"time"
 )
 
-// ServerOptions is a representation of the Server settings
+// ServerOptions contains all configuration settings for the HTTP server.
+// Options are loaded from environment variables, configuration files, and defaults in that priority order.
 type ServerOptions struct {
 	Addr              string        `json:"addr,omitempty"`
 	EnableTLS         bool          `json:"tls,omitempty"`
@@ -56,24 +57,31 @@ var defaultServerOptions = &ServerOptions{
 	ChaosPanicRate:    0.01,
 }
 
-// Wrappers for debug levels to be used in the server. We're using slog for logging,
-// but want to hide this detail from the client
+// Log level constants for server configuration.
+// These wrap slog levels to provide a consistent API while hiding the logging implementation details.
 const (
+	// LevelDebug enables debug-level logging with detailed information
 	LevelDebug = slog.LevelDebug
+	// LevelInfo enables info-level logging for general information
 	LevelInfo  = slog.LevelInfo
+	// LevelWarn enables warning-level logging for important but non-critical events
 	LevelWarn  = slog.LevelWarn
+	// LevelError enables error-level logging for error conditions only
 	LevelError = slog.LevelError
 )
 
-// NewServerOptions creates a new configuration for the server with a priority order. Environment variables override options file.
-// 1. Environment variables
-// 2. ServerOptions file (JSON)
-// 3. Default values
+// NewServerOptions creates a new ServerOptions instance with values loaded in priority order:
+// 1. Environment variables (highest priority)
+// 2. Configuration file (options.json)
+// 3. Default values (lowest priority)
+// Returns a fully initialized ServerOptions struct ready for use.
 func NewServerOptions() *ServerOptions {
 	config := applyEnvVars(applyConfigFile(defaultServerOptions))
 	return config
 }
 
+// ServerOptionFunc is a function type used to configure Server instances.
+// It follows the functional options pattern for flexible server configuration.
 type ServerOptionFunc func(srv *Server) error
 
 // helper to read environment variables and apply them to the options

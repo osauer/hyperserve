@@ -31,16 +31,21 @@ func (srv *Server) templateHandler(templateName string, data interface{}) http.H
 	}
 }
 
-// HealthCheckHandler returns a 204 status code for health check
+// HealthCheckHandler returns a 204 No Content status code for basic health checks.
+// This handler can be used as a simple liveness or readiness probe.
 func HealthCheckHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// SSEMessage represents a Server-Sent Events message with an optional event type and data payload.
+// It follows the SSE format with event and data fields that can be sent to clients.
 type SSEMessage struct {
 	Event string `json:"event"` // Optional: Allows sending multiple event types
 	Data  any    `json:"data"`  // The actual data payload
 }
 
+// NewSSEMessage creates a new SSE message with the given data and a default "message" event type.
+// This is a convenience function for creating standard SSE messages.
 func NewSSEMessage(data any) *SSEMessage {
 	return &SSEMessage{
 		Event: "message",
@@ -48,6 +53,8 @@ func NewSSEMessage(data any) *SSEMessage {
 	}
 }
 
+// String formats the SSE message according to the Server-Sent Events specification.
+// Returns a string in the format "event: <event>\ndata: <data>\n\n".
 func (sse *SSEMessage) String() string {
 	str := fmt.Sprintf("event: %s\ndata: %v\n\n", sse.Event, sse.Data)
 	return fmt.Sprintf(str)
@@ -80,7 +87,8 @@ func (srv *Server) healthHandlerHelper(w http.ResponseWriter, request *http.Requ
 	}
 }
 
-// PanicHandler simulations a panic situation in a handler to test proper recovery. See
+// PanicHandler simulates a panic situation in a handler to test proper recovery middleware.
+// This handler is intended for testing purposes only and should not be used in production.
 func PanicHandler(w http.ResponseWriter, r *http.Request) {
 	panic("Intentional panic.")
 }

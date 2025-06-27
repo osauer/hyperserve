@@ -15,23 +15,27 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// MiddlewareFunc wraps a http.Handler interface and returns a new http.HandlerFunc.
+// MiddlewareFunc is a function type that wraps an http.Handler and returns a new http.HandlerFunc.
+// This is the standard pattern for HTTP middleware in Go.
 type MiddlewareFunc func(http.Handler) http.HandlerFunc
 
-// MiddlewareStack is a pre-defined collection of middleware that can be applied to a http.Handler.
+// MiddlewareStack is a collection of middleware functions that can be applied to an http.Handler.
+// Middleware in the stack is applied in order, with the first middleware being the outermost.
 type MiddlewareStack []MiddlewareFunc
 
-// GlobalMiddlewareRoute is specifier that a MiddlewareStack applies to to all routes.
+// GlobalMiddlewareRoute is a special route identifier that applies middleware to all routes.
+// Use this constant when registering middleware that should run for every request.
 const GlobalMiddlewareRoute = "*"
 
-// MiddlewareRegistry is a collection of MiddlewareStacks for different routes.
+// MiddlewareRegistry manages middleware stacks for different routes.
+// It allows route-specific middleware configuration and supports exclusion of specific middleware.
 type MiddlewareRegistry struct {
 	middleware map[string]MiddlewareStack
 	exclude    []MiddlewareFunc
 }
 
-// NewMiddlewareRegistry creates a new MiddlewareRegistry. If globalMiddleware is not nil,
-// it will be added to the registry as the default middleware applied to all routes.
+// NewMiddlewareRegistry creates a new MiddlewareRegistry with optional global middleware.
+// If globalMiddleware is provided, it will be applied to all routes by default.
 func NewMiddlewareRegistry(globalMiddleware MiddlewareStack) *MiddlewareRegistry {
 	ret := &MiddlewareRegistry{
 		middleware: make(map[string]MiddlewareStack),
@@ -75,12 +79,14 @@ func (mwr *MiddlewareRegistry) applyToMux(mux *http.ServeMux) http.Handler {
 	return finalHandler
 }
 
-// Add adds a MiddlewareStack to the MiddlewareRegistry for a given route.
+// Add registers a MiddlewareStack for a specific route in the registry.
+// Use GlobalMiddlewareRoute ("*") to apply middleware to all routes.
 func (mwr *MiddlewareRegistry) Add(route string, middleware MiddlewareStack) {
 	mwr.middleware[route] = middleware
 }
 
-// Get returns the MiddlewareStack for a given route. If no middleware is found, it returns an empty MiddlewareStack.
+// Get retrieves the MiddlewareStack for a specific route.
+// Returns an empty MiddlewareStack if no middleware is registered for the route.
 func (mwr *MiddlewareRegistry) Get(route string) MiddlewareStack {
 	ret := mwr.middleware[route]
 	if ret == nil {
@@ -90,13 +96,15 @@ func (mwr *MiddlewareRegistry) Get(route string) MiddlewareStack {
 	return ret
 }
 
-// RemoveStack removes the MiddlewareStack for a given route. If no middleware is found, it does nothing.
+// RemoveStack removes all middleware for a specific route from the registry.
+// Does nothing if no middleware is registered for the route.
 func (mwr *MiddlewareRegistry) RemoveStack(route string) {
 	delete(mwr.middleware, route)
 }
 
-// DefaultMiddleware is a predefined MiddlewareStack for basic server functionality. It will always be applied unless
-// overridden with explicit options exclusion via Server.WithoutOption.
+// DefaultMiddleware returns a predefined middleware stack with essential server functionality.
+// Includes metrics collection, request logging, and panic recovery.
+// This middleware is applied by default unless explicitly excluded.
 func DefaultMiddleware(server *Server) MiddlewareStack {
 	return MiddlewareStack{
 		MetricsMiddleware(server),
@@ -104,19 +112,22 @@ func DefaultMiddleware(server *Server) MiddlewareStack {
 		RecoveryMiddleware}
 }
 
-// SecureAPI is a predefined MiddlewareStack for secure API endpoints.
+// SecureAPI returns a middleware stack configured for secure API endpoints.
+// Includes authentication and rate limiting middleware.
 func SecureAPI(options ServerOptions) MiddlewareStack {
 	return MiddlewareStack{
 		AuthMiddleware,
 		RateLimitMiddleware(options)}
 }
 
-// SecureWeb is a predefined MiddlewareStack for secure web endpoints.
+// SecureWeb returns a middleware stack configured for secure web endpoints.
+// Includes security headers middleware for web applications.
 func SecureWeb(options ServerOptions) MiddlewareStack {
 	return MiddlewareStack{HeadersMiddleware(options)}
 }
 
-// FileServer is a predefined MiddlewareStack for serving static files.
+// FileServer returns a middleware stack optimized for serving static files.
+// Includes appropriate security headers for file serving.
 func FileServer(options ServerOptions) MiddlewareStack {
 	return MiddlewareStack{HeadersMiddleware(options)}
 }
@@ -133,12 +144,14 @@ const (
 	traceIDKey          contextKey = "traceID"
 )
 
+// Header represents an HTTP header key-value pair used in middleware configuration.
 type Header struct {
 	key   string
 	value string
 }
 
-// MetricsMiddleware MiddlewareFunc collects metrics for requests and response times.
+// MetricsMiddleware returns a middleware function that collects request metrics.
+// It tracks total request count and response times for performance monitoring.
 func MetricsMiddleware(srv *Server) MiddlewareFunc {
 	return func(next http.Handler) http.HandlerFunc {
 		logger.Info("MetricsMiddleware enabled")
@@ -151,7 +164,8 @@ func MetricsMiddleware(srv *Server) MiddlewareFunc {
 	}
 }
 
-// AuthMiddleware MiddlewareFunc checks for a valid bearer token in the Authorization header.
+// AuthMiddleware returns a middleware function that validates bearer tokens in the Authorization header.
+// Requires requests to include a valid Bearer token, otherwise returns 401 Unauthorized.
 func AuthMiddleware(next http.Handler) http.HandlerFunc {
 	// Todo: implement auth MiddlewareFunc
 	logger.Info("AuthMiddleware enabled")
@@ -176,7 +190,9 @@ func AuthMiddleware(next http.Handler) http.HandlerFunc {
 	}
 }
 
-// RequestLoggerMiddleware MiddlewareFunc logs the request details. Use with caution as it slows down the httpServer.
+// RequestLoggerMiddleware returns a middleware function that logs detailed request information.
+// Logs IP address, method, URL, trace ID, status code, and request duration.
+// Use with caution as it may impact server performance.
 func RequestLoggerMiddleware(next http.Handler) http.HandlerFunc {
 	logger.Info("RequestLoggerMiddleware enabled")
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -202,7 +218,8 @@ func RequestLoggerMiddleware(next http.Handler) http.HandlerFunc {
 	}
 }
 
-// ResponseTimeMiddleware MiddlewareFunc logs the duration of the request. Can be used without the RequestLoggerMiddleware.
+// ResponseTimeMiddleware returns a middleware function that logs only the request duration.
+// This is a lighter alternative to RequestLoggerMiddleware when only timing information is needed.
 func ResponseTimeMiddleware(next http.Handler) http.HandlerFunc {
 	logger.Info("ResponseTimeMiddleware enabled")
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -213,7 +230,8 @@ func ResponseTimeMiddleware(next http.Handler) http.HandlerFunc {
 	}
 }
 
-// RecoveryMiddleware MiddlewareFunc recovers from panics and returns a 500 status code.
+// RecoveryMiddleware returns a middleware function that recovers from panics in request handlers.
+// Catches panics, logs the error, and returns a 500 Internal Server Error response.
 func RecoveryMiddleware(next http.Handler) http.HandlerFunc {
 	logger.Info("RecoveryMiddleware enabled")
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -227,7 +245,9 @@ func RecoveryMiddleware(next http.Handler) http.HandlerFunc {
 	}
 }
 
-// RateLimitMiddleware enforces a rate limit per-client ip address
+// RateLimitMiddleware returns a middleware function that enforces rate limiting per client IP address.
+// Uses token bucket algorithm with configurable rate limit and burst capacity.
+// Returns 429 Too Many Requests when rate limit is exceeded.
 func RateLimitMiddleware(options ServerOptions) MiddlewareFunc {
 	logger.Info("RateLimitMiddleware enabled")
 	return func(next http.Handler) http.HandlerFunc {
@@ -263,7 +283,9 @@ var securityHeaders = []Header{
 	{"Access-Control-Max-Age", "600"},                                                   // Pre-flight request cache
 }
 
-// HeadersMiddleware MiddlewareFunc adds security headers to the response.
+// HeadersMiddleware returns a middleware function that adds security headers to responses.
+// Includes headers for XSS protection, content type sniffing prevention, HSTS, CSP, and CORS.
+// Automatically handles CORS preflight requests.
 func HeadersMiddleware(options ServerOptions) MiddlewareFunc {
 	logger.Info("HeadersMiddleware enabled")
 	return func(next http.Handler) http.HandlerFunc {
@@ -297,7 +319,9 @@ func HeadersMiddleware(options ServerOptions) MiddlewareFunc {
 	}
 }
 
-// ChaosMiddleware applies random disturbances to simulate chaos
+// ChaosMiddleware returns a middleware handler that simulates random failures for chaos engineering.
+// When chaos mode is enabled, can inject random latency, errors, throttling, and panics.
+// Useful for testing application resilience and error handling.
 func ChaosMiddleware(next http.Handler, options ServerOptions) http.Handler {
 	logger.Info("ChaosMiddleware enabled")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -348,7 +372,8 @@ func ChaosMiddleware(next http.Handler, options ServerOptions) http.Handler {
 	})
 }
 
-// TraceMiddleware MiddlewareFunc
+// TraceMiddleware returns a middleware function that adds trace IDs to requests.
+// Generates unique trace IDs for request tracking and distributed tracing.
 func TraceMiddleware(next http.Handler) http.HandlerFunc {
 	logger.Info("TraceMiddleware enabled")
 	return func(w http.ResponseWriter, r *http.Request) {
