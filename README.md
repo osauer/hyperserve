@@ -80,7 +80,3 @@ We welcome contributions to improve Hyperserve. Please follow our [Contribution 
 ## License
 
 Hyperserve is released under the MIT License.
-
----
-
-Would you like me to proceed with updating the `README.md` in the GitHub repository?
