@@ -40,9 +40,6 @@ const (
 	paramFileName   = "options.json"
 )
 
-var (
-	clientLimiters = sync.Map{}
-)
 
 // rateLimit limits requests per second that can be requested from the httpServer. Requires to add [RateLimitMiddleware]
 type rateLimit = rate.Limit
@@ -63,6 +60,9 @@ type Server struct {
 	totalRequests     atomic.Uint64
 	totalResponseTime atomic.Int64
 	serverStart       time.Time
+	clientLimiters    sync.Map
+	requestCounter    atomic.Int64
+	cleanupStop       chan struct{}
 }
 
 // NewServer creates a new instance of the Server with the given options.
@@ -75,6 +75,7 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 		Options:     NewServerOptions(),
 		templates:   nil,
 		templatesMu: sync.Mutex{},
+		cleanupStop: make(chan struct{}),
 	}
 	srv.middleware = NewMiddlewareRegistry(DefaultMiddleware(srv))
 
@@ -84,6 +85,17 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 			return nil, err
 		}
 	}
+
+	// Pre-parse templates if template directory is configured
+	if srv.Options.TemplateDir != "" {
+		if err := srv.parseTemplates(); err != nil {
+			logger.Warn("Failed to parse templates during initialization", "error", err)
+			// Don't fail server creation, just log the warning
+		}
+	}
+
+	// Start rate limiter cleanup goroutine
+	go srv.cleanupRateLimit()
 
 	srv.isReady.Store(true)
 	return srv, nil
@@ -241,6 +253,9 @@ func (srv *Server) handleShutdown(serverErr chan error) error {
 }
 
 func (srv *Server) shutdown(ctx context.Context) error {
+	// Stop rate limiter cleanup
+	close(srv.cleanupStop)
+
 	// Create an error channel to collect errors from goroutines
 	errChan := make(chan error, 2)
 	var wg sync.WaitGroup
@@ -285,6 +300,31 @@ func (srv *Server) shutdown(ctx context.Context) error {
 	}
 
 	return shutdownErr
+}
+
+// cleanupRateLimit periodically removes old rate limiters to prevent memory leaks
+func (srv *Server) cleanupRateLimit() {
+	ticker := time.NewTicker(5 * time.Minute) // Cleanup every 5 minutes
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			srv.clientLimiters.Range(func(key, value interface{}) bool {
+				limiter := value.(*rate.Limiter)
+				// Remove limiters that haven't been used recently
+				// This is a simple heuristic - remove limiters with full token bucket
+				if limiter.Tokens() >= float64(srv.Options.Burst) {
+					srv.clientLimiters.Delete(key)
+					logger.Debug("Cleaned up rate limiter", "ip", key)
+				}
+				return true
+			})
+		case <-srv.cleanupStop:
+			logger.Info("Rate limiter cleanup stopped")
+			return
+		}
+	}
 }
 
 func (srv *Server) shutdownHealthServer(ctx context.Context) error {

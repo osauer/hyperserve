@@ -50,7 +50,7 @@ var defaultServerOptions = &ServerOptions{
 	StaticDir:              "static/",
 	TemplateDir:            "template/",
 	RunHealthServer:        true,
-	ChaosMode:              true,
+	ChaosMode:              false,
 	ChaosMaxLatency:        2 * time.Second,
 	ChaosMinLatency:        500 * time.Millisecond,
 	ChaosErrorRate:         0.1,

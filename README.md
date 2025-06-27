@@ -60,7 +60,7 @@ func main() {
 
     // Add middleware
     srv.AddMiddleware("*", hyperserve.MetricsMiddleware(srv))
-    srv.AddMiddleware("/api", hyperserve.RateLimitMiddleware(srv.Options))
+    srv.AddMiddleware("/api", hyperserve.RateLimitMiddleware(srv))
 
     // Add routes
     srv.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -134,11 +134,11 @@ srv.AddMiddleware("/api", hyperserve.AuthMiddleware(srv.Options))
 srv.AddMiddleware("*", hyperserve.HeadersMiddleware(srv.Options))
 
 // Rate limiting
-srv.AddMiddleware("/api", hyperserve.RateLimitMiddleware(srv.Options))
+srv.AddMiddleware("/api", hyperserve.RateLimitMiddleware(srv))
 
 // Recovery and tracing
 srv.AddMiddleware("*", hyperserve.RecoveryMiddleware)
-srv.AddMiddleware("*", hyperserve.TraceMiddleware)
+srv.AddMiddleware("*", hyperserve.TraceMiddleware(srv))
 ```
 
 ### Custom Middleware
@@ -164,7 +164,7 @@ srv.AddMiddleware("/api", CustomMiddleware)
 
 ```go
 // Pre-configured stacks
-srv.AddMiddlewareStack("/api", hyperserve.SecureAPI(srv.Options))
+srv.AddMiddlewareStack("/api", hyperserve.SecureAPI(srv))
 srv.AddMiddlewareStack("/", hyperserve.SecureWeb(srv.Options))
 ```
 

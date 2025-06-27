@@ -114,10 +114,10 @@ func DefaultMiddleware(server *Server) MiddlewareStack {
 
 // SecureAPI returns a middleware stack configured for secure API endpoints.
 // Includes authentication and rate limiting middleware.
-func SecureAPI(options *ServerOptions) MiddlewareStack {
+func SecureAPI(srv *Server) MiddlewareStack {
 	return MiddlewareStack{
-		AuthMiddleware(options),
-		RateLimitMiddleware(options)}
+		AuthMiddleware(srv.Options),
+		RateLimitMiddleware(srv)}
 }
 
 // SecureWeb returns a middleware stack configured for secure web endpoints.
@@ -265,12 +265,12 @@ func RecoveryMiddleware(next http.Handler) http.HandlerFunc {
 // RateLimitMiddleware returns a middleware function that enforces rate limiting per client IP address.
 // Uses token bucket algorithm with configurable rate limit and burst capacity.
 // Returns 429 Too Many Requests when rate limit is exceeded.
-func RateLimitMiddleware(options *ServerOptions) MiddlewareFunc {
+func RateLimitMiddleware(srv *Server) MiddlewareFunc {
 	logger.Info("RateLimitMiddleware enabled")
 	return func(next http.Handler) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			ip, _, _ := net.SplitHostPort(r.RemoteAddr)
-			limiterInterface, _ := clientLimiters.LoadOrStore(ip, rate.NewLimiter(options.RateLimit, options.Burst))
+			limiterInterface, _ := srv.clientLimiters.LoadOrStore(ip, rate.NewLimiter(srv.Options.RateLimit, srv.Options.Burst))
 			limiter := limiterInterface.(*rate.Limiter)
 			if limiter.Allow() {
 				// todo: add a header to the response to indicate the rate limit, left tokens etc.
@@ -393,12 +393,14 @@ func ChaosMiddleware(options *ServerOptions) MiddlewareFunc {
 
 // TraceMiddleware returns a middleware function that adds trace IDs to requests.
 // Generates unique trace IDs for request tracking and distributed tracing.
-func TraceMiddleware(next http.Handler) http.HandlerFunc {
+func TraceMiddleware(srv *Server) MiddlewareFunc {
 	logger.Info("TraceMiddleware enabled")
-	return func(w http.ResponseWriter, r *http.Request) {
-		traceID := generateTraceID()
-		ctx := context.WithValue(r.Context(), traceIDKey, traceID)
-		next.ServeHTTP(w, r.WithContext(ctx))
+	return func(next http.Handler) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			traceID := generateTraceID(srv)
+			ctx := context.WithValue(r.Context(), traceIDKey, traceID)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		}
 	}
 }
 
@@ -417,12 +419,11 @@ func trailingSlashMiddleware(next http.Handler) http.HandlerFunc {
 	}
 }
 
-func generateTraceID() string {
-	counter := requestCounter.Add(1)
+func generateTraceID(srv *Server) string {
+	counter := srv.requestCounter.Add(1)
 	return fmt.Sprintf("%d-%d", counter, time.Now().UnixNano())
 }
 
-var requestCounter atomic.Int64
 
 type loggingResponseWriter struct {
 	http.ResponseWriter
