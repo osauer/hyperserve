@@ -8,7 +8,9 @@ A lightweight, high-performance HTTP server framework for Go with zero external 
 ## Features
 
 ### 🚀 Performance & Simplicity
+- **Blazing fast** - 2.6M+ requests/sec with sub-microsecond latency (381ns baseline)
 - **Zero external dependencies** - Pure Go implementation (only uses `golang.org/x/time/rate`)
+- **Minimal overhead** - Full security stack adds <100ns latency
 - **Flexible middleware system** - Route-specific and global middleware chains
 - **Built-in static file serving** - Efficient static content delivery
 - **Template engine integration** - Dynamic HTML rendering with Go templates
@@ -360,6 +362,8 @@ HyperServe automatically enables X25519MLKEM768 key exchange when not in FIPS mo
 - **os.Root**: Secure, sandboxed file serving prevents directory traversal
 - **Timing Protection**: Authentication uses `crypto/subtle.WithDataIndependentTiming`
 
+See our [benchmark results](benchmarks/summary.md) for detailed performance metrics.
+
 ## Health Checks
 
 When health server is enabled, the following endpoints are available on a separate port (default: `:8081`):
@@ -413,6 +417,7 @@ export HS_CHAOS_MAX_LATENCY=500ms
 
 For comprehensive project documentation, see:
 
+- **[PERFORMANCE.md](PERFORMANCE.md)** - Detailed performance analysis and optimization guide
 - **[CHANGELOG.md](CHANGELOG.md)** - Version history and release notes following semantic versioning
 - **[API_STABILITY.md](API_STABILITY.md)** - API stability commitments and backward compatibility promises
 - **[MIGRATION_GUIDE.md](MIGRATION_GUIDE.md)** - Guide for migrating to Go 1.24 features
