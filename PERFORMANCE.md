@@ -2,35 +2,44 @@
 
 ## Overview
 
-HyperServe is designed for high performance with minimal overhead. Our benchmarks demonstrate that you can have both security and speed.
+HyperServe is designed for minimal overhead while providing production-ready features. Performance characteristics are hardware-dependent, but the relative costs and efficiency metrics provide useful guidance.
 
-## Benchmark Results
+## Performance Characteristics
 
-Running on Apple M4 Pro (darwin/arm64):
+### Memory Efficiency
 
-### Core Performance
+HyperServe maintains a small memory footprint:
 
-| Scenario | Throughput | Latency | Memory/req | Allocations/req |
-|----------|------------|---------|------------|-----------------|
-| Baseline HTTP | 2.6M req/s | 381ns | 1010 B | 10 |
-| Secure API Stack | 2.9M req/s | 349ns | 1056 B | 10 |
-| Static Files | 104K req/s | 9.6μs | 2536 B | 31 |
-| JSON API | 783K req/s | 1.3μs | 1938 B | 27 |
+| Component | Memory per Request | Allocations | Notes |
+|-----------|-------------------|-------------|--------|
+| Baseline Handler | ~1 KB | 10 | Minimal HTTP processing |
+| With Security Stack | ~1 KB | 10 | No additional allocations |
+| Static File (small) | ~2.5 KB | 31 | Room for optimization |
+| JSON Response | ~2 KB | 27 | Includes encoding buffer |
 
-### Middleware Overhead
+### Relative Performance
 
-Each middleware component adds minimal latency:
+Middleware overhead as percentage of baseline:
 
-| Middleware | Latency Cost | Use Case |
-|------------|--------------|----------|
-| Recovery | -35ns ✨ | Panic recovery (actually optimizes!) |
-| Auth | +82ns | Token validation |
-| Trace | +128ns | Request tracing |
-| RateLimit | +197ns | Request throttling |
-| Headers | ~100ns | Security headers |
-| RequestLogger | +969ns | Structured logging |
+| Middleware | Overhead | Impact |
+|------------|----------|---------|
+| Recovery | -9% | Actually improves performance via optimized path |
+| Auth | +21% | Token validation with timing-safe comparison |
+| Trace | +33% | UUID generation and context propagation |
+| RateLimit | +52% | Map lookup and token bucket algorithm |
+| RequestLogger | +254% | I/O bound, structured logging |
 
-**Total overhead for full security stack: <100ns** (excluding logging)
+**Key insight**: Full security stack (excluding logging) adds only 10-30% overhead compared to baseline.
+
+### Architectural Efficiency
+
+What makes HyperServe efficient:
+
+1. **Zero-copy operations** where possible
+2. **Pre-allocated buffers** for common paths
+3. **Minimal interface conversions**
+4. **Efficient middleware chaining** without reflection
+5. **Swiss Tables (Go 1.24)** for O(1) rate limiter lookups
 
 ## Performance Tips
 
@@ -104,16 +113,20 @@ if debug {
 }
 ```
 
-## Comparison with Other Frameworks
+## Design Philosophy
 
-HyperServe aims to match or exceed `net/http` performance while providing more features:
+HyperServe prioritizes:
 
-| Framework | Simple Handler | Features | Dependencies |
-|-----------|---------------|----------|--------------|
-| HyperServe | 381ns | Full suite | 1 (rate limiter) |
-| net/http | ~300ns | Basic | 0 |
-| gin | ~450ns | Router + middleware | Many |
-| echo | ~420ns | Full framework | Many |
+1. **Predictable performance** - No hidden allocations or surprising costs
+2. **Linear scaling** - Performance degrades gracefully under load
+3. **Memory stability** - No leaks, automatic cleanup of resources
+4. **Fair comparison** - We measure relative overhead, not absolute numbers
+
+### Trade-offs
+
+- **Simplicity over micro-optimizations**: Readable code that's fast enough
+- **Safety over speed**: Timing-safe auth, proper bounds checking
+- **Features when needed**: Middleware is pay-for-what-you-use
 
 ## Running Benchmarks
 

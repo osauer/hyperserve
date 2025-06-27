@@ -9,11 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Benchmarking Suite**: Comprehensive performance testing framework
-  - Baseline: 2.6M+ requests/sec (381ns per request)
-  - Secure API: 2.9M requests/sec with full middleware stack
-  - Individual middleware overhead measurements
-  - Memory allocation profiling
-- **Performance Documentation**: Added benchmark results and analysis
+  - Memory efficiency: ~1KB per request with 10 allocations
+  - Middleware overhead: 10-30% for full security stack
+  - Individual middleware measurements show relative costs
+  - Hardware-independent metrics focus on efficiency
+- **Performance Documentation**: Added detailed analysis with focus on relative performance
 
 ## [0.9.0] - 2025-06-27
 

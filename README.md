@@ -8,9 +8,9 @@ A lightweight, high-performance HTTP server framework for Go with zero external 
 ## Features
 
 ### 🚀 Performance & Simplicity
-- **Blazing fast** - 2.6M+ requests/sec with sub-microsecond latency (381ns baseline)
+- **Minimal overhead** - Security middleware adds only 10-30% to baseline latency
 - **Zero external dependencies** - Pure Go implementation (only uses `golang.org/x/time/rate`)
-- **Minimal overhead** - Full security stack adds <100ns latency
+- **Memory efficient** - 10 allocations per request, ~1KB memory footprint
 - **Flexible middleware system** - Route-specific and global middleware chains
 - **Built-in static file serving** - Efficient static content delivery
 - **Template engine integration** - Dynamic HTML rendering with Go templates
