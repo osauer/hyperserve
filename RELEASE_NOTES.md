@@ -1,6 +1,6 @@
 # Release Notes
 
-## v1.1.0 - Go 1.24 Update (2025-06-27)
+## v0.9.0 - Go 1.24 Update (2025-06-27)
 
 ### 🚀 Major Features
 
@@ -68,7 +68,7 @@ Stop() error  // Graceful shutdown with 10s timeout
 
 ## Upgrade Guide
 
-### From v1.0.x to v1.1.0
+### From v0.8.x to v0.9.0
 
 1. **Update Go Version**
    ```bash

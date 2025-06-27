@@ -132,7 +132,7 @@ func validateToken(token string) (bool, error) {
 
 ## Complete Migration Example
 
-**Before (v1.0.x):**
+**Before (v0.8.x):**
 ```go
 package main
 
@@ -153,7 +153,7 @@ func main() {
 }
 ```
 
-**After (v1.1.0 with Go 1.24):**
+**After (v0.9.0 with Go 1.24):**
 ```go
 package main
 
@@ -205,7 +205,7 @@ If you need to rollback:
 
 1. Downgrade HyperServe:
    ```bash
-   go get github.com/osauer/hyperserve@v1.0.0
+   go get github.com/osauer/hyperserve@v0.8.0
    ```
 
 2. Remove new options:
