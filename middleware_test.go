@@ -9,9 +9,9 @@ import (
 	"golang.org/x/time/rate"
 )
 
-func MetricsMiddlewareIncrementsTotalRequests(t *testing.T) {
-	// srv, _ := NewServer()
-	handler := MetricsMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func TestMetricsMiddlewareIncrementsTotalRequests(t *testing.T) {
+	srv, _ := NewServer()
+	handler := MetricsMiddleware(srv)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	req := httptest.NewRequest("GET", "/", nil)
@@ -20,14 +20,18 @@ func MetricsMiddlewareIncrementsTotalRequests(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Errorf("expected status %v, got %v", http.StatusOK, rec.Code)
 	}
-	if totalRequests.Load() != 1 {
-		t.Errorf("expected totalRequests to be 1, got %v", totalRequests.Load())
+	if srv.totalRequests.Load() != 1 {
+		t.Errorf("expected totalRequests to be 1, got %v", srv.totalRequests.Load())
 	}
 }
 
-func AuthMiddlewareValidToken(t *testing.T) {
-	// srv, _ := NewServer()
-	handler := AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func TestAuthMiddlewareValidToken(t *testing.T) {
+	options := &ServerOptions{
+		AuthTokenValidatorFunc: func(token string) (bool, error) {
+			return token == "valid-token", nil
+		},
+	}
+	handler := AuthMiddleware(options)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	req := httptest.NewRequest("GET", "/", nil)
@@ -39,9 +43,13 @@ func AuthMiddlewareValidToken(t *testing.T) {
 	}
 }
 
-func AuthMiddlewareMissingToken(t *testing.T) {
-	// srv, _ := NewServer()
-	handler := AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func TestAuthMiddlewareMissingToken(t *testing.T) {
+	options := &ServerOptions{
+		AuthTokenValidatorFunc: func(token string) (bool, error) {
+			return false, nil
+		},
+	}
+	handler := AuthMiddleware(options)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	req := httptest.NewRequest("GET", "/", nil)
@@ -52,8 +60,7 @@ func AuthMiddlewareMissingToken(t *testing.T) {
 	}
 }
 
-func RecoveryMiddlewareRecoversFromPanic(t *testing.T) {
-	// srv, _ := NewServer()
+func TestRecoveryMiddlewareRecoversFromPanic(t *testing.T) {
 	handler := RecoveryMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		panic("test panic")
 	}))
@@ -65,13 +72,13 @@ func RecoveryMiddlewareRecoversFromPanic(t *testing.T) {
 	}
 }
 
-func RateLimitMiddlewareAllowsRequest(t *testing.T) {
-	options := ServerOptions{RateLimit: rate.Every(time.Second), Burst: 1}
-	// srv, _ := NewServer()
+func TestRateLimitMiddlewareAllowsRequest(t *testing.T) {
+	options := &ServerOptions{RateLimit: rate.Every(time.Second), Burst: 1}
 	handler := RateLimitMiddleware(options)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	req := httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -79,17 +86,19 @@ func RateLimitMiddlewareAllowsRequest(t *testing.T) {
 	}
 }
 
-func RateLimitMiddlewareBlocksRequest(t *testing.T) {
-	options := ServerOptions{RateLimit: rate.Every(time.Second), Burst: 1}
-	// srv, _ := NewServer()
+func TestRateLimitMiddlewareBlocksRequest(t *testing.T) {
+	options := &ServerOptions{RateLimit: rate.Every(time.Second), Burst: 1}
 	handler := RateLimitMiddleware(options)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	req := httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "127.0.0.2:1234"
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
-	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusTooManyRequests {
-		t.Errorf("expected status %v, got %v", http.StatusTooManyRequests, rec.Code)
+	// Second request should be blocked
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req)
+	if rec2.Code != http.StatusTooManyRequests {
+		t.Errorf("expected status %v, got %v", http.StatusTooManyRequests, rec2.Code)
 	}
 }

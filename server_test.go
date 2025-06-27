@@ -4,13 +4,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"strings"
 	"testing"
 )
 
 // Content serving tests
 
-func HandleTemplateValidTemplate(t *testing.T) {
+func TestHandleTemplateValidTemplate(t *testing.T) {
 	srv, _ := NewServer()
 	srv.Options.TemplateDir = "./test_templates"
 
@@ -40,25 +39,25 @@ func HandleTemplateValidTemplate(t *testing.T) {
 	}
 }
 
-func HandleTemplateMissingTemplate(t *testing.T) {
+func TestHandleTemplateMissingTemplate(t *testing.T) {
 	srv, _ := NewServer()
 	srv.Options.TemplateDir = "./test_templates"
 
-	// Test missing template
-	srv.HandleTemplate("/missing", "missing.html", "Hello, World!")
-	req := httptest.NewRequest("GET", "/missing", nil)
-	rec := httptest.NewRecorder()
-	srv.mux.ServeHTTP(rec, req)
-	if rec.Code != http.StatusInternalServerError {
-		t.Errorf("expected status %v, got %v", http.StatusInternalServerError, rec.Code)
+	// Create a directory but no template file
+	err := os.MkdirAll(srv.Options.TemplateDir, 0755)
+	if err != nil {
+		t.Fatalf("error creating template directory: %v", err)
 	}
-	expectedError := "Failed to load content"
-	if !strings.Contains(rec.Body.String(), expectedError) {
-		t.Errorf("expected body to contain %v, got %v", expectedError, rec.Body.String())
+	defer os.RemoveAll(srv.Options.TemplateDir)
+
+	// Test missing template - HandleTemplate should fail
+	err = srv.HandleTemplate("/missing", "missing.html", "Hello, World!")
+	if err == nil {
+		t.Errorf("expected error when template is missing, got nil")
 	}
 }
 
-func HandleFuncDynamicValidTemplate(t *testing.T) {
+func TestHandleFuncDynamicValidTemplate(t *testing.T) {
 	srv, _ := NewServer()
 	srv.Options.TemplateDir = "./test_templates"
 
@@ -92,25 +91,18 @@ func HandleFuncDynamicValidTemplate(t *testing.T) {
 	}
 }
 
-func HandleFuncDynamicMissingTemplate(t *testing.T) {
+func TestHandleFuncDynamicMissingTemplate(t *testing.T) {
 	srv, _ := NewServer()
 	srv.Options.TemplateDir = "./test_templates"
 
-	// Test missing dynamic template
-	srv.HandleFuncDynamic("/missing", "missing.html", func(r *http.Request) interface{} {
+	// Test missing directory - HandleFuncDynamic should fail
+	err := srv.HandleFuncDynamic("/missing", "missing.html", func(r *http.Request) interface{} {
 		return map[string]interface{}{
 			"timestamp": "2024-01-01 00:00:00",
 		}
 	})
-	req := httptest.NewRequest("GET", "/missing", nil)
-	rec := httptest.NewRecorder()
-	srv.mux.ServeHTTP(rec, req)
-	if rec.Code != http.StatusInternalServerError {
-		t.Errorf("expected status %v, got %v", http.StatusInternalServerError, rec.Code)
-	}
-	expectedError := "Failed to load content"
-	if !strings.Contains(rec.Body.String(), expectedError) {
-		t.Errorf("expected body to contain %v, got %v", expectedError, rec.Body.String())
+	if err == nil {
+		t.Errorf("expected error when template directory is missing, got nil")
 	}
 }
 

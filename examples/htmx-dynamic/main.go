@@ -26,7 +26,7 @@ func main() {
 	server.Options.StaticDir = "examples/htmx-dynamic/static"
 
 	// Middleware: Add security headers for all routes
-	server.AddMiddlewareStack("/", hyperserve.SecureWeb(*server.Options))
+	server.AddMiddlewareStack("/", hyperserve.SecureWeb(server.Options))
 
 	// Static content route (e.g., CSS, JS)
 	server.HandleStatic("/static/")

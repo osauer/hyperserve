@@ -114,7 +114,7 @@ func DefaultMiddleware(server *Server) MiddlewareStack {
 
 // SecureAPI returns a middleware stack configured for secure API endpoints.
 // Includes authentication and rate limiting middleware.
-func SecureAPI(options ServerOptions) MiddlewareStack {
+func SecureAPI(options *ServerOptions) MiddlewareStack {
 	return MiddlewareStack{
 		AuthMiddleware(options),
 		RateLimitMiddleware(options)}
@@ -122,13 +122,13 @@ func SecureAPI(options ServerOptions) MiddlewareStack {
 
 // SecureWeb returns a middleware stack configured for secure web endpoints.
 // Includes security headers middleware for web applications.
-func SecureWeb(options ServerOptions) MiddlewareStack {
+func SecureWeb(options *ServerOptions) MiddlewareStack {
 	return MiddlewareStack{HeadersMiddleware(options)}
 }
 
 // FileServer returns a middleware stack optimized for serving static files.
 // Includes appropriate security headers for file serving.
-func FileServer(options ServerOptions) MiddlewareStack {
+func FileServer(options *ServerOptions) MiddlewareStack {
 	return MiddlewareStack{HeadersMiddleware(options)}
 }
 
@@ -166,8 +166,7 @@ func MetricsMiddleware(srv *Server) MiddlewareFunc {
 
 // AuthMiddleware returns a middleware function that validates bearer tokens in the Authorization header.
 // Requires requests to include a valid Bearer token, otherwise returns 401 Unauthorized.
-func AuthMiddleware(next http.Handler) http.HandlerFunc {
-	// Todo: implement auth MiddlewareFunc
+func AuthMiddleware(options *ServerOptions) MiddlewareFunc {
 	logger.Info("AuthMiddleware enabled")
 	return func(next http.Handler) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -186,6 +185,10 @@ func AuthMiddleware(next http.Handler) http.HandlerFunc {
 			}
 
 			// validate token
+			if options.AuthTokenValidatorFunc == nil {
+				http.Error(w, "Internal Server Error: Auth not configured", http.StatusInternalServerError)
+				return
+			}
 			valid, err := options.AuthTokenValidatorFunc(token)
 			if err != nil {
 				logger.Error("error validating token", "error", err)
@@ -262,7 +265,7 @@ func RecoveryMiddleware(next http.Handler) http.HandlerFunc {
 // RateLimitMiddleware returns a middleware function that enforces rate limiting per client IP address.
 // Uses token bucket algorithm with configurable rate limit and burst capacity.
 // Returns 429 Too Many Requests when rate limit is exceeded.
-func RateLimitMiddleware(options ServerOptions) MiddlewareFunc {
+func RateLimitMiddleware(options *ServerOptions) MiddlewareFunc {
 	logger.Info("RateLimitMiddleware enabled")
 	return func(next http.Handler) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -300,7 +303,7 @@ var securityHeaders = []Header{
 // HeadersMiddleware returns a middleware function that adds security headers to responses.
 // Includes headers for XSS protection, content type sniffing prevention, HSTS, CSP, and CORS.
 // Automatically handles CORS preflight requests.
-func HeadersMiddleware(options ServerOptions) MiddlewareFunc {
+func HeadersMiddleware(options *ServerOptions) MiddlewareFunc {
 	logger.Info("HeadersMiddleware enabled")
 	return func(next http.Handler) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -336,54 +339,56 @@ func HeadersMiddleware(options ServerOptions) MiddlewareFunc {
 // ChaosMiddleware returns a middleware handler that simulates random failures for chaos engineering.
 // When chaos mode is enabled, can inject random latency, errors, throttling, and panics.
 // Useful for testing application resilience and error handling.
-func ChaosMiddleware(next http.Handler, options ServerOptions) http.Handler {
+func ChaosMiddleware(options *ServerOptions) MiddlewareFunc {
 	logger.Info("ChaosMiddleware enabled")
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !options.ChaosMode {
-			// Pass through if Chaos Mode is not enabled
+	return func(next http.Handler) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if !options.ChaosMode {
+				// Pass through if Chaos Mode is not enabled
+				next.ServeHTTP(w, r)
+				return
+			}
+			logger.Warn("Chaos Mode enabled")
+			// Random latency
+
+			if options.ChaosMaxLatency > 0 && options.ChaosMinLatency < options.ChaosMaxLatency {
+				latency := time.Duration(rand.Int63n(int64(options.ChaosMaxLatency-options.
+					ChaosMinLatency))) + options.ChaosMinLatency
+				log.Printf("[CHAOS] Adding latency: %v\n", latency)
+				time.Sleep(latency)
+			}
+
+			// Random error response
+			if rand.Float64() < options.ChaosErrorRate {
+				statusCodes := []int{500, 503, 502}
+				errorCode := statusCodes[rand.Intn(len(statusCodes))]
+				log.Printf("[CHAOS] Returning error: %d\n", errorCode)
+				http.Error(w, http.StatusText(errorCode), errorCode)
+				return
+			}
+
+			// Random throttling
+			if rand.Float64() < options.ChaosThrottleRate {
+				log.Printf("[CHAOS] Simulating throttling (429 Too Many Requests)\n")
+				http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+				return
+			}
+
+			// Random panic (gracefully recovered)
+			if rand.Float64() < options.ChaosPanicRate {
+				log.Printf("[CHAOS] Simulating panic\n")
+				defer func() {
+					if err := recover(); err != nil {
+						log.Printf("[CHAOS] Recovered from panic: %v\n", err)
+					}
+				}()
+				panic("Simulated Chaos Mode Panic")
+			}
+
+			// Proceed with normal handler
 			next.ServeHTTP(w, r)
-			return
 		}
-		logger.Warn("Chaos Mode enabled")
-		// Random latency
-
-		if options.ChaosMaxLatency > 0 && options.ChaosMinLatency < options.ChaosMaxLatency {
-			latency := time.Duration(rand.Int63n(int64(options.ChaosMaxLatency-options.
-				ChaosMinLatency))) + options.ChaosMinLatency
-			log.Printf("[CHAOS] Adding latency: %v\n", latency)
-			time.Sleep(latency)
-		}
-
-		// Random error response
-		if rand.Float64() < options.ChaosErrorRate {
-			statusCodes := []int{500, 503, 502}
-			errorCode := statusCodes[rand.Intn(len(statusCodes))]
-			log.Printf("[CHAOS] Returning error: %d\n", errorCode)
-			http.Error(w, http.StatusText(errorCode), errorCode)
-			return
-		}
-
-		// Random throttling
-		if rand.Float64() < options.ChaosThrottleRate {
-			log.Printf("[CHAOS] Simulating throttling (429 Too Many Requests)\n")
-			http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
-			return
-		}
-
-		// Random panic (gracefully recovered)
-		if rand.Float64() < options.ChaosPanicRate {
-			log.Printf("[CHAOS] Simulating panic\n")
-			defer func() {
-				if err := recover(); err != nil {
-					log.Printf("[CHAOS] Recovered from panic: %v\n", err)
-				}
-			}()
-			panic("Simulated Chaos Mode Panic")
-		}
-
-		// Proceed with normal handler
-		next.ServeHTTP(w, r)
-	})
+	}
 }
 
 // TraceMiddleware returns a middleware function that adds trace IDs to requests.

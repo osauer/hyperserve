@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func WriteErrorResponseSetsCorrectHeadersAndBody(t *testing.T) {
+func TestWriteErrorResponseSetsCorrectHeadersAndBody(t *testing.T) {
 	rec := httptest.NewRecorder()
 	writeErrorResponse(rec, http.StatusBadRequest, "Bad Request")
 	if rec.Code != http.StatusBadRequest {
@@ -18,14 +18,16 @@ func WriteErrorResponseSetsCorrectHeadersAndBody(t *testing.T) {
 		t.Errorf("expected Content-Type application/json, got %v", rec.Header().Get("Content-Type"))
 	}
 	expectedBody := `{"error":"Bad Request"}`
-	if rec.Body.String() != expectedBody {
+	if strings.TrimSpace(rec.Body.String()) != expectedBody {
 		t.Errorf("expected body %v, got %v", expectedBody, rec.Body.String())
 	}
 }
 
-func TemplateHandlerRendersTemplate(t *testing.T) {
-	templates = template.Must(template.New("test").Parse("<html><body>{{.}}</body></html>"))
-	handler := templateHandler("test", "Hello, World!")
+func TestTemplateHandlerRendersTemplate(t *testing.T) {
+	srv := &Server{
+		templates: template.Must(template.New("test").Parse("<html><body>{{.}}</body></html>")),
+	}
+	handler := srv.templateHandler("test", "Hello, World!")
 	req := httptest.NewRequest("GET", "/", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -38,8 +40,11 @@ func TemplateHandlerRendersTemplate(t *testing.T) {
 	}
 }
 
-func TemplateHandlerReturnsErrorOnMissingTemplate(t *testing.T) {
-	handler := templateHandler("missing", "Hello, World!")
+func TestTemplateHandlerReturnsErrorOnMissingTemplate(t *testing.T) {
+	srv := &Server{
+		templates: template.New("root"),
+	}
+	handler := srv.templateHandler("missing", "Hello, World!")
 	req := httptest.NewRequest("GET", "/", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -51,7 +56,7 @@ func TemplateHandlerReturnsErrorOnMissingTemplate(t *testing.T) {
 	}
 }
 
-func HealthCheckHandlerReturnsNoContent(t *testing.T) {
+func TestHealthCheckHandlerReturnsNoContent(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 	rec := httptest.NewRecorder()
 	HealthCheckHandler(rec, req)
@@ -60,9 +65,9 @@ func HealthCheckHandlerReturnsNoContent(t *testing.T) {
 	}
 }
 
-func LivezHandlerReturnsAliveWhenRunning(t *testing.T) {
+func TestLivezHandlerReturnsAliveWhenRunning(t *testing.T) {
 	srv := &Server{}
-	isRunning.Store(true)
+	srv.isRunning.Store(true)
 	req := httptest.NewRequest("GET", "/livez", nil)
 	rec := httptest.NewRecorder()
 	srv.livezHandler(rec, req)
@@ -74,9 +79,9 @@ func LivezHandlerReturnsAliveWhenRunning(t *testing.T) {
 	}
 }
 
-func LivezHandlerReturnsUnhealthyWhenNotRunning(t *testing.T) {
+func TestLivezHandlerReturnsUnhealthyWhenNotRunning(t *testing.T) {
 	srv := &Server{}
-	isRunning.Store(false)
+	srv.isRunning.Store(false)
 	req := httptest.NewRequest("GET", "/livez", nil)
 	rec := httptest.NewRecorder()
 	srv.livezHandler(rec, req)
@@ -88,9 +93,9 @@ func LivezHandlerReturnsUnhealthyWhenNotRunning(t *testing.T) {
 	}
 }
 
-func ReadyzHandlerReturnsReadyWhenReady(t *testing.T) {
+func TestReadyzHandlerReturnsReadyWhenReady(t *testing.T) {
 	srv := &Server{}
-	isReady.Store(true)
+	srv.isReady.Store(true)
 	req := httptest.NewRequest("GET", "/readyz", nil)
 	rec := httptest.NewRecorder()
 	srv.readyzHandler(rec, req)
@@ -102,9 +107,9 @@ func ReadyzHandlerReturnsReadyWhenReady(t *testing.T) {
 	}
 }
 
-func ReadyzHandlerReturnsUnhealthyWhenNotReady(t *testing.T) {
+func TestReadyzHandlerReturnsUnhealthyWhenNotReady(t *testing.T) {
 	srv := &Server{}
-	isReady.Store(false)
+	srv.isReady.Store(false)
 	req := httptest.NewRequest("GET", "/readyz", nil)
 	rec := httptest.NewRecorder()
 	srv.readyzHandler(rec, req)
@@ -116,9 +121,9 @@ func ReadyzHandlerReturnsUnhealthyWhenNotReady(t *testing.T) {
 	}
 }
 
-func HealthzHandlerReturnsOkWhenRunning(t *testing.T) {
+func TestHealthzHandlerReturnsOkWhenRunning(t *testing.T) {
 	srv := &Server{}
-	isRunning.Store(true)
+	srv.isRunning.Store(true)
 	req := httptest.NewRequest("GET", "/healthz", nil)
 	rec := httptest.NewRecorder()
 	srv.healthzHandler(rec, req)
@@ -130,9 +135,9 @@ func HealthzHandlerReturnsOkWhenRunning(t *testing.T) {
 	}
 }
 
-func HealthzHandlerReturnsUnhealthyWhenNotRunning(t *testing.T) {
+func TestHealthzHandlerReturnsUnhealthyWhenNotRunning(t *testing.T) {
 	srv := &Server{}
-	isRunning.Store(false)
+	srv.isRunning.Store(false)
 	req := httptest.NewRequest("GET", "/healthz", nil)
 	rec := httptest.NewRecorder()
 	srv.healthzHandler(rec, req)
@@ -144,7 +149,7 @@ func HealthzHandlerReturnsUnhealthyWhenNotRunning(t *testing.T) {
 	}
 }
 
-func PanicHandlerCausesPanic(t *testing.T) {
+func TestPanicHandlerCausesPanic(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {
 			t.Errorf("expected panic, but code did not panic")
