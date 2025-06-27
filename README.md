@@ -409,6 +409,16 @@ export HS_CHAOS_MIN_LATENCY=100ms
 export HS_CHAOS_MAX_LATENCY=500ms
 ```
 
+## Documentation
+
+For comprehensive project documentation, see:
+
+- **[CHANGELOG.md](CHANGELOG.md)** - Version history and release notes following semantic versioning
+- **[API_STABILITY.md](API_STABILITY.md)** - API stability commitments and backward compatibility promises
+- **[MIGRATION_GUIDE.md](MIGRATION_GUIDE.md)** - Guide for migrating to Go 1.24 features
+- **[RELEASE_NOTES.md](RELEASE_NOTES.md)** - Detailed release notes with upgrade instructions
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Guidelines for contributing to the project
+
 ## Contributing
 
 We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
