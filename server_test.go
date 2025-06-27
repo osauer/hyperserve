@@ -1,17 +1,21 @@
 package hyperserve
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 )
 
 // Content serving tests
 
 func TestHandleTemplateValidTemplate(t *testing.T) {
+	t.Parallel()
 	srv, _ := NewServer()
-	srv.Options.TemplateDir = "./test_templates"
+	// Use unique directory name to avoid conflicts in parallel tests
+	srv.Options.TemplateDir = fmt.Sprintf("./test_templates_%d_%d", time.Now().UnixNano(), os.Getpid())
 
 	// Create a temporary template file
 	templateContent := "<html><body>{{.}}</body></html>"
@@ -40,8 +44,10 @@ func TestHandleTemplateValidTemplate(t *testing.T) {
 }
 
 func TestHandleTemplateMissingTemplate(t *testing.T) {
+	t.Parallel()
 	srv, _ := NewServer()
-	srv.Options.TemplateDir = "./test_templates"
+	// Use unique directory name to avoid conflicts in parallel tests
+	srv.Options.TemplateDir = fmt.Sprintf("./test_templates_%d_%d", time.Now().UnixNano(), os.Getpid())
 
 	// Create a directory but no template file
 	err := os.MkdirAll(srv.Options.TemplateDir, 0755)
@@ -58,8 +64,10 @@ func TestHandleTemplateMissingTemplate(t *testing.T) {
 }
 
 func TestHandleFuncDynamicValidTemplate(t *testing.T) {
+	t.Parallel()
 	srv, _ := NewServer()
-	srv.Options.TemplateDir = "./test_templates"
+	// Use unique directory name to avoid conflicts in parallel tests
+	srv.Options.TemplateDir = fmt.Sprintf("./test_templates_%d_%d", time.Now().UnixNano(), os.Getpid())
 
 	// Create a temporary template file
 	templateContent := "<html><body>{{.timestamp}}</body></html>"
@@ -92,8 +100,10 @@ func TestHandleFuncDynamicValidTemplate(t *testing.T) {
 }
 
 func TestHandleFuncDynamicMissingTemplate(t *testing.T) {
+	t.Parallel()
 	srv, _ := NewServer()
-	srv.Options.TemplateDir = "./test_templates"
+	// Use unique directory name to avoid conflicts in parallel tests
+	srv.Options.TemplateDir = fmt.Sprintf("./test_templates_%d_%d", time.Now().UnixNano(), os.Getpid())
 
 	// Test missing directory - HandleFuncDynamic should fail
 	err := srv.HandleFuncDynamic("/missing", "missing.html", func(r *http.Request) interface{} {
@@ -107,8 +117,10 @@ func TestHandleFuncDynamicMissingTemplate(t *testing.T) {
 }
 
 func TestHandleStatic(t *testing.T) {
+	t.Parallel()
 	srv, _ := NewServer()
-	srv.Options.StaticDir = "./test_static"
+	// Use unique directory name to avoid conflicts in parallel tests
+	srv.Options.StaticDir = fmt.Sprintf("./test_static_%d_%d", time.Now().UnixNano(), os.Getpid())
 
 	// Create a temporary static file
 	staticContent := "Hello, Static World!"

@@ -9,6 +9,7 @@ import (
 )
 
 func TestWriteErrorResponseSetsCorrectHeadersAndBody(t *testing.T) {
+	t.Parallel()
 	rec := httptest.NewRecorder()
 	writeErrorResponse(rec, http.StatusBadRequest, "Bad Request")
 	if rec.Code != http.StatusBadRequest {
@@ -24,6 +25,7 @@ func TestWriteErrorResponseSetsCorrectHeadersAndBody(t *testing.T) {
 }
 
 func TestTemplateHandlerRendersTemplate(t *testing.T) {
+	t.Parallel()
 	srv := &Server{
 		templates: template.Must(template.New("test").Parse("<html><body>{{.}}</body></html>")),
 	}

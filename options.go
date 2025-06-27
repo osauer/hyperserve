@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"reflect"
 	"time"
 )
 
@@ -50,7 +51,7 @@ var defaultServerOptions = &ServerOptions{
 	StaticDir:              "static/",
 	TemplateDir:            "template/",
 	RunHealthServer:        true,
-	ChaosMode:              true,
+	ChaosMode:              false,
 	ChaosMaxLatency:        2 * time.Second,
 	ChaosMinLatency:        500 * time.Millisecond,
 	ChaosErrorRate:         0.1,
@@ -127,35 +128,26 @@ func applyConfigFile(config *ServerOptions) *ServerOptions {
 }
 
 // mergeConfig overrides default options with values of override if set
+// Uses reflection to automatically merge all fields, eliminating the need for manual field copying
 func mergeConfig(base *ServerOptions, override *ServerOptions) {
-	// todo: check all options options are covered. Can we automate this?
-	if override.Addr != "" {
-		base.Addr = override.Addr
-	}
-	if override.HealthAddr != "" {
-		base.HealthAddr = override.HealthAddr
-	}
+	baseValue := reflect.ValueOf(base).Elem()
+	overrideValue := reflect.ValueOf(override).Elem()
+	baseType := baseValue.Type()
 
-	if override.RateLimit != 0 {
-		base.RateLimit = override.RateLimit
-	}
-	if override.Burst != 0 {
-		base.Burst = override.Burst
-	}
-	if override.ReadTimeout != 0 {
-		base.ReadTimeout = override.ReadTimeout
-	}
-	if override.WriteTimeout != 0 {
-		base.WriteTimeout = override.WriteTimeout
-	}
-	if override.IdleTimeout != 0 {
-		base.IdleTimeout = override.IdleTimeout
-	}
-	if override.StaticDir != "" {
-		base.StaticDir = override.StaticDir
-	}
-	if override.TemplateDir != "" {
-		base.TemplateDir = override.TemplateDir
+	for i := 0; i < baseValue.NumField(); i++ {
+		field := baseType.Field(i)
+		baseField := baseValue.Field(i)
+		overrideField := overrideValue.Field(i)
+
+		// Skip non-exported fields or function fields (like AuthTokenValidatorFunc)
+		if !baseField.CanSet() || field.Type.Kind() == reflect.Func {
+			continue
+		}
+
+		// Check if override field is not zero value
+		if !overrideField.IsZero() {
+			baseField.Set(overrideField)
+		}
 	}
 }
 
