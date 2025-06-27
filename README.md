@@ -16,8 +16,8 @@ A lightweight, high-performance HTTP server framework for Go with zero external 
 
 ### 🔒 Security & Reliability
 - **TLS support** - Easy HTTPS configuration with modern cipher suites
-- **Rate limiting** - Token bucket algorithm per client IP
-- **Security headers** - CORS, CSP, HSTS, and more built-in
+- **Rate limiting** - Token bucket algorithm per client IP with informative headers and cleanup
+- **Security headers** - Modern 2024 security headers including CORS, CSP, HSTS, Cross-Origin policies, and Permissions-Policy
 - **Health checks** - Kubernetes-ready health endpoints (`/healthz`, `/readyz`, `/livez`)
 - **Request tracing** - Built-in trace ID generation for distributed systems
 - **Panic recovery** - Automatic recovery from handler panics
@@ -25,7 +25,8 @@ A lightweight, high-performance HTTP server framework for Go with zero external 
 ### 🎯 Developer Experience
 - **Multiple configuration methods** - Environment variables, JSON files, or code
 - **Structured logging** - Using Go's `slog` package
-- **Metrics collection** - Request count and latency tracking
+- **Metrics collection** - Request count and latency tracking with automatic cleanup
+- **Memory management** - Built-in cleanup mechanisms prevent memory leaks from rate limiters
 - **Server-Sent Events (SSE)** - Real-time streaming support
 - **Chaos engineering** - Built-in chaos mode for resilience testing
 
@@ -60,7 +61,7 @@ func main() {
 
     // Add middleware
     srv.AddMiddleware("*", hyperserve.MetricsMiddleware(srv))
-    srv.AddMiddleware("/api", hyperserve.RateLimitMiddleware(srv.Options))
+    srv.AddMiddleware("/api", hyperserve.RateLimitMiddleware(srv))
 
     // Add routes
     srv.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -89,7 +90,7 @@ export HS_PORT=8080
 export HS_RATE_LIMIT=100
 export HS_BURST_LIMIT=200
 export HS_LOG_LEVEL=info
-export HS_CHAOS_MODE=false
+export HS_CHAOS_MODE=false  # Default: false (production safe)
 export HS_TLS_CERT_FILE=/path/to/cert.pem
 export HS_TLS_KEY_FILE=/path/to/key.pem
 ```
@@ -134,7 +135,7 @@ srv.AddMiddleware("/api", hyperserve.AuthMiddleware(srv.Options))
 srv.AddMiddleware("*", hyperserve.HeadersMiddleware(srv.Options))
 
 // Rate limiting
-srv.AddMiddleware("/api", hyperserve.RateLimitMiddleware(srv.Options))
+srv.AddMiddleware("/api", hyperserve.RateLimitMiddleware(srv))
 
 // Recovery and tracing
 srv.AddMiddleware("*", hyperserve.RecoveryMiddleware)
@@ -164,9 +165,18 @@ srv.AddMiddleware("/api", CustomMiddleware)
 
 ```go
 // Pre-configured stacks
-srv.AddMiddlewareStack("/api", hyperserve.SecureAPI(srv.Options))
+srv.AddMiddlewareStack("/api", hyperserve.SecureAPI(srv))
 srv.AddMiddlewareStack("/", hyperserve.SecureWeb(srv.Options))
 ```
+
+### Rate Limiting Headers
+
+The rate limiting middleware automatically adds informative headers to help clients understand their current rate limit status:
+
+- `X-RateLimit-Limit`: The maximum number of requests allowed per second
+- `X-RateLimit-Remaining`: The number of requests remaining in the current window
+- `X-RateLimit-Reset`: Unix timestamp when the rate limit resets
+- `Retry-After`: Seconds to wait before retrying when rate limited (429 responses)
 
 ## Templates
 
@@ -230,12 +240,43 @@ srv.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
 srv, _ := hyperserve.NewServer(
     hyperserve.WithAuthTokenValidator(func(token string) (bool, error) {
         // Implement your token validation logic
-        return token == "valid-secret-token", nil
+        // Example: validate JWT, check database, verify API key
+        if token == "valid-secret-token" {
+            return true, nil
+        }
+        return false, nil
     }),
 )
 
 // Apply auth middleware to protected routes
 srv.AddMiddleware("/api", hyperserve.AuthMiddleware(srv.Options))
+```
+
+### Token Validation
+
+The authentication middleware requires a token validator function to be configured. This function receives the bearer token and should return whether it's valid:
+
+- Return `(true, nil)` for valid tokens
+- Return `(false, nil)` for invalid tokens  
+- Return `(false, error)` for validation errors
+
+Example implementations:
+
+```go
+// Simple API key validation
+WithAuthTokenValidator(func(token string) (bool, error) {
+    validTokens := map[string]bool{
+        "api-key-123": true,
+        "secret-token": true,
+    }
+    return validTokens[token], nil
+})
+
+// JWT validation (using a JWT library)
+WithAuthTokenValidator(func(token string) (bool, error) {
+    _, err := jwt.Parse(token, keyFunc)
+    return err == nil, err
+})
 ```
 
 ## Health Checks
