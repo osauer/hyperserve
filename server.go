@@ -47,7 +47,8 @@ var (
 // rateLimit limits requests per second that can be requested from the httpServer. Requires to add [RateLimitMiddleware]
 type rateLimit = rate.Limit
 
-// Server represents an HTTP httpServer that can handle requests and responses.
+// Server represents an HTTP server that can handle requests and responses.
+// It provides middleware support, health checks, template rendering, and various configuration options.
 type Server struct {
 	mux               *http.ServeMux
 	healthMux         *http.ServeMux
@@ -64,7 +65,9 @@ type Server struct {
 	serverStart       time.Time
 }
 
-// NewServer creates a new instance of the Server.
+// NewServer creates a new instance of the Server with the given options.
+// It initializes the server with default middleware and applies all provided ServerOptionFunc options.
+// Returns an error if any of the options fail to apply.
 func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 	// init new httpServer
 	srv := &Server{
@@ -86,7 +89,9 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 	return srv, nil
 }
 
-// Run starts the httpServer and listens for incoming requests.
+// Run starts the server and listens for incoming requests.
+// It sets up TLS if enabled, starts the health server if configured, and handles graceful shutdown.
+// Returns an error if the server fails to start or encounters an error during operation.
 func (srv *Server) Run() error {
 	// log httpServer start time for collection up-time metric
 	srv.serverStart = time.Now()
@@ -172,9 +177,13 @@ func (srv *Server) tlsConfig() *tls.Config {
 	}
 }
 
+// AddMiddleware adds a single middleware function to the specified route.
+// Use "*" as the route to apply middleware globally to all routes.
 func (srv *Server) AddMiddleware(route string, mw MiddlewareFunc) {
 	srv.middleware.Add(route, MiddlewareStack{mw})
 }
+// AddMiddlewareStack adds a collection of middleware functions to the specified route.
+// The middleware stack is applied in the order provided.
 func (srv *Server) AddMiddlewareStack(route string, mw MiddlewareStack) {
 	srv.middleware.Add(route, mw)
 }
@@ -298,6 +307,7 @@ func (srv *Server) WithOutStack(stack MiddlewareStack) error {
 }
 
 // Handle registers the handler function for the given pattern.
+// This is a wrapper around http.ServeMux.Handle that integrates with the server's middleware system.
 // Example usage:
 //
 //	srv.Handle("/static", http.FileServer(http.Dir("./static")))
@@ -306,6 +316,7 @@ func (srv *Server) Handle(pattern string, handlerFunc http.HandlerFunc) {
 }
 
 // HandleFunc registers the handler function for the given pattern.
+// This is a wrapper around http.ServeMux.HandleFunc that integrates with the server's middleware system.
 // Example usage:
 //
 //	srv.HandleFunc("/hello", func(w http.ResponseWriter, r *http.Request) {
@@ -315,6 +326,9 @@ func (srv *Server) HandleFunc(pattern string, handler http.HandlerFunc) {
 	srv.mux.HandleFunc(pattern, handler)
 }
 
+// HandleFuncDynamic registers a handler that renders templates with dynamic data.
+// The dataFunc is called for each request to generate the data passed to the template.
+// Returns an error if template parsing fails.
 func (srv *Server) HandleFuncDynamic(pattern, tmplName string, dataFunc DataFunc) error {
 	if err := srv.parseTemplates(); err != nil {
 		logger.Error("Failed to parse templates", "error", err)
@@ -333,6 +347,8 @@ func (srv *Server) HandleFuncDynamic(pattern, tmplName string, dataFunc DataFunc
 	return nil
 }
 
+// EnsureTrailingSlash ensures that a directory path ends with a trailing slash.
+// This utility function is used to normalize directory paths for consistent handling.
 func EnsureTrailingSlash(dir string) string {
 	if dir != "" && !strings.HasSuffix(dir, string(filepath.Separator)) {
 		dir += string(filepath.Separator)
@@ -340,11 +356,16 @@ func EnsureTrailingSlash(dir string) string {
 	return dir
 }
 
+// HandleStatic registers a handler for serving static files from the configured static directory.
+// The pattern should typically end with a wildcard (e.g., "/static/").
 func (srv *Server) HandleStatic(pattern string) {
 	staticDir := EnsureTrailingSlash(srv.Options.StaticDir)
 	srv.mux.Handle(pattern, http.StripPrefix(pattern, http.FileServer(http.Dir(staticDir))))
 }
 
+// HandleTemplate registers a handler that renders a specific template with static data.
+// Unlike HandleFuncDynamic, the data is provided once at registration time.
+// Returns an error if template parsing fails.
 func (srv *Server) HandleTemplate(pattern, t string, data interface{}) error {
 	srv.Options.TemplateDir = EnsureTrailingSlash(srv.Options.TemplateDir)
 	if err := srv.parseTemplates(); err != nil {
@@ -383,7 +404,8 @@ func (srv *Server) parseTemplates() error {
 	return nil
 }
 
-// DataFunc returns a data structure for the template.
+// DataFunc is a function type that generates data for template rendering.
+// It receives the current HTTP request and returns data to be passed to the template.
 type DataFunc func(r *http.Request) interface{}
 
 func checkfile(file, wd string) error {
@@ -393,7 +415,8 @@ func checkfile(file, wd string) error {
 	return nil
 }
 
-// WithTLS enables TLS on the httpServer.
+// WithTLS enables TLS on the server with the specified certificate and key files.
+// Returns a ServerOptionFunc that configures TLS settings and validates file existence.
 func WithTLS(certFile, keyFile string) ServerOptionFunc {
 
 	return func(srv *Server) error {
@@ -416,7 +439,8 @@ func WithTLS(certFile, keyFile string) ServerOptionFunc {
 	}
 }
 
-// WithHealthServer enables the health server on a different port.
+// WithLoglevel sets the global log level for the server.
+// Accepts slog.Level values (LevelDebug, LevelInfo, LevelWarn, LevelError).
 func WithLoglevel(level slog.Level) ServerOptionFunc {
 	return func(srv *Server) error {
 		slog.SetLogLoggerLevel(level)
@@ -424,7 +448,8 @@ func WithLoglevel(level slog.Level) ServerOptionFunc {
 	}
 }
 
-// WithHealthServer enables the health server on a different port.
+// WithHealthServer enables the health server on a separate port.
+// The health server provides /healthz/, /readyz/, and /livez/ endpoints for monitoring.
 func WithHealthServer() ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.RunHealthServer = true
@@ -432,7 +457,8 @@ func WithHealthServer() ServerOptionFunc {
 	}
 }
 
-// WithAddr is a configuration option for the server to define listener port
+// WithAddr sets the address and port for the server to listen on.
+// The address must be in the format "host:port" (e.g., ":8080", "localhost:3000").
 func WithAddr(addr string) ServerOptionFunc {
 	return func(srv *Server) error {
 		// validate the address
@@ -446,7 +472,8 @@ func WithAddr(addr string) ServerOptionFunc {
 	}
 }
 
-// WithLogger replaces the default with a custom logger.
+// WithLogger replaces the default logger with a custom slog.Logger instance.
+// This allows for custom log formatting, output destinations, and log levels.
 func WithLogger(l *slog.Logger) ServerOptionFunc {
 	return func(srv *Server) error {
 		logger = l
@@ -454,7 +481,10 @@ func WithLogger(l *slog.Logger) ServerOptionFunc {
 	}
 }
 
-// WithTimeouts adds timeouts to the httpServer.
+// WithTimeouts configures the HTTP server timeouts.
+// readTimeout: maximum duration for reading the entire request
+// writeTimeout: maximum duration before timing out writes of the response
+// idleTimeout: maximum time to wait for the next request when keep-alives are enabled
 func WithTimeouts(readTimeout, writeTimeout, idleTimeout time.Duration) ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.setTimeouts(readTimeout, writeTimeout, idleTimeout)
@@ -462,7 +492,9 @@ func WithTimeouts(readTimeout, writeTimeout, idleTimeout time.Duration) ServerOp
 	}
 }
 
-// WithRateLimit sets rate limiting parameters of the httpServer.
+// WithRateLimit configures rate limiting for the server.
+// limit: maximum number of requests per second per client IP
+// burst: maximum number of requests that can be made in a short burst
 func WithRateLimit(limit rateLimit, burst int) ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.RateLimit = limit
@@ -471,7 +503,8 @@ func WithRateLimit(limit rateLimit, burst int) ServerOptionFunc {
 	}
 }
 
-// WithTemplateDir sets the directory for the templates.
+// WithTemplateDir sets the directory path where HTML templates are located.
+// Templates in this directory can be used with HandleTemplate and HandleFuncDynamic methods.
 func WithTemplateDir(dir string) ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.TemplateDir = dir
