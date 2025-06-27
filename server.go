@@ -422,7 +422,6 @@ func (srv *Server) HandleFuncDynamic(pattern, tmplName string, dataFunc DataFunc
 		return err
 	}
 	srv.mux.HandleFunc(pattern,
-		// todo return error if template execution fails
 		func(w http.ResponseWriter, r *http.Request) {
 			data := dataFunc(r)
 			if err := srv.templates.ExecuteTemplate(w, tmplName, data); err != nil {
@@ -710,7 +709,10 @@ func WithRateLimit(limit rateLimit, burst int) ServerOptionFunc {
 func WithTemplateDir(dir string) ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.TemplateDir = dir
-		// Todo check if the directory exists and return error if not
+		// Check if the directory exists
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			return fmt.Errorf("template directory does not exist: %s", dir)
+		}
 		return nil
 	}
 }
@@ -776,5 +778,25 @@ func (srv *Server) stopCleanup() {
 	}
 	if srv.cleanupDone != nil {
 		close(srv.cleanupDone)
+	}
+}
+
+// WithHardenedMode enables hardened security mode which hides server identity.
+// In hardened mode, the server won't reveal its identity in response headers.
+func WithHardenedMode() ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.HardenedMode = true
+		logger.Info("Hardened security mode enabled")
+		return nil
+	}
+}
+
+// WithAllowedOrigins sets the allowed CORS origins for the server.
+// These origins will be added to the Access-Control-Allow-Origin header.
+func WithAllowedOrigins(origins ...string) ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.AllowedOrigins = origins
+		logger.Info("CORS allowed origins configured", "origins", origins)
+		return nil
 	}
 }

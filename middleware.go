@@ -346,8 +346,8 @@ func HeadersMiddleware(options *ServerOptions) MiddlewareFunc {
 	logger.Info("HeadersMiddleware enabled")
 	return func(next http.Handler) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			// todo implement hardened mode
-			hardened := false
+			// In hardened mode, don't reveal server identity
+			hardened := options.HardenedMode
 			if !hardened {
 				w.Header().Set("Server", "hyperserve")
 			}
@@ -360,8 +360,10 @@ func HeadersMiddleware(options *ServerOptions) MiddlewareFunc {
 				w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
 			}
 
-			// ToDo add allowed site origin(s) to the header
-			// w.Header().Set("Access-Control-Allow-Origin", "https://client-site.com")
+			// Set CORS origins if configured
+			if len(options.AllowedOrigins) > 0 {
+				w.Header().Set("Access-Control-Allow-Origin", strings.Join(options.AllowedOrigins, ", "))
+			}
 
 			// Handle preflight request
 			if r.Method == http.MethodOptions {
@@ -442,7 +444,6 @@ func TraceMiddleware(next http.Handler) http.HandlerFunc {
 }
 
 // trailingSlashMiddleware MiddlewareFunc redirects requests without a trailing slash to the same URL with a trailing slash.
-// TODO: check if this  has become obsolete as the http handler is taking care.
 func trailingSlashMiddleware(next http.Handler) http.HandlerFunc {
 	logger.Info("trailingSlashMiddleware enabled")
 	return func(w http.ResponseWriter, r *http.Request) {

@@ -36,6 +36,8 @@ type ServerOptions struct {
 	FIPSMode               bool          `json:"fips_mode,omitempty"`
 	EnableECH              bool          `json:"enable_ech,omitempty"`
 	ECHKeys                [][]byte      `json:"-"` // ECH keys are sensitive, don't serialize
+	HardenedMode           bool          `json:"hardened_mode,omitempty"`
+	AllowedOrigins         []string      `json:"allowed_origins,omitempty"`
 }
 
 var defaultServerOptions = &ServerOptions{
