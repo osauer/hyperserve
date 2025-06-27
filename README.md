@@ -161,6 +161,8 @@ func CustomMiddleware(next http.Handler) http.HandlerFunc {
 srv.AddMiddleware("/api", CustomMiddleware)
 ```
 
+💡 **Auth Integration**: For authentication setup, see [Authentication](#authentication) and [Token Validation](#token-validation) sections.
+
 ### Middleware Stacks
 
 ```go
@@ -252,7 +254,11 @@ srv, _ := hyperserve.NewServer(
 srv.AddMiddleware("/api", hyperserve.AuthMiddleware(srv.Options))
 ```
 
+💡 **See also**: [Token Validation](#token-validation) for detailed implementation examples, [Security Headers](#-security--reliability) for additional protection, and [Middleware Stacks](#middleware-stacks) for combining auth with other security features.
+
 ### Token Validation
+
+Token validation is a critical security component that determines whether incoming authentication tokens are legitimate. The validator function acts as the gatekeeper for protected routes, ensuring only authenticated requests can access secured endpoints. Proper token validation helps prevent unauthorized access and maintains application security.
 
 The authentication middleware requires a token validator function to be configured. This function receives the bearer token and should return whether it's valid:
 
@@ -272,12 +278,40 @@ WithAuthTokenValidator(func(token string) (bool, error) {
     return validTokens[token], nil
 })
 
-// JWT validation (using a JWT library)
+// Comprehensive JWT validation with error handling
 WithAuthTokenValidator(func(token string) (bool, error) {
-    _, err := jwt.Parse(token, keyFunc)
-    return err == nil, err
+    parsedToken, err := jwt.Parse(token, keyFunc)
+    if err != nil {
+        // Handle specific JWT errors
+        if ve, ok := err.(*jwt.ValidationError); ok {
+            switch {
+            case ve.Errors&jwt.ValidationErrorMalformed != 0:
+                return false, fmt.Errorf("malformed token")
+            case ve.Errors&jwt.ValidationErrorExpired != 0:
+                return false, fmt.Errorf("token expired")
+            case ve.Errors&jwt.ValidationErrorNotValidYet != 0:
+                return false, fmt.Errorf("token not valid yet")
+            default:
+                return false, fmt.Errorf("token validation failed: %v", err)
+            }
+        }
+        return false, err
+    }
+    
+    // Validate custom claims
+    if claims, ok := parsedToken.Claims.(jwt.MapClaims); ok && parsedToken.Valid {
+        // Check required claims
+        if !claims.VerifyAudience("your-app", true) {
+            return false, fmt.Errorf("invalid audience")
+        }
+        return true, nil
+    }
+    
+    return false, fmt.Errorf("invalid token claims")
 })
 ```
+
+💡 **Related**: This pairs with [Rate Limiting](#rate-limiting-headers) to prevent brute force attacks and [Security Headers](#-security--reliability) for defense in depth.
 
 ## Health Checks
 
