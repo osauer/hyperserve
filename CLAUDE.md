@@ -11,11 +11,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 cd examples/chaos && go build
 cd examples/htmx-dynamic && go build
 cd examples/htmx-stream && go build
+cd examples/enterprise && go build
 
 # Run examples
 go run examples/chaos/main.go
 go run examples/htmx-dynamic/main.go
 go run examples/htmx-stream/main.go
+go run examples/enterprise/main.go
+
+# Generate certificates for enterprise example
+cd examples/enterprise && ./generate_certs.sh
 ```
 
 ### Testing
@@ -32,6 +37,13 @@ go test -v -run TestServerCreation
 
 # Run tests with race detection
 go test -race ./...
+
+# Run benchmarks
+go test -bench=. -benchmem
+go test -bench=BenchmarkBaseline -benchmem -benchtime=10s
+
+# Run benchmarks without noisy logs
+go test -run=^$ -bench=. -benchmem 2>/dev/null
 ```
 
 ### Code Quality
@@ -119,14 +131,55 @@ Key configuration options:
 - `HS_CHAOS_MODE`: Enable chaos testing features
 - `HS_TLS_CERT_FILE` / `HS_TLS_KEY_FILE`: TLS configuration
 
-### Current Issues
+### Go 1.24 Features
 
-1. Test files have compilation errors due to undefined variables/functions
-2. Some examples have import/type mismatches
-3. Auth example is incomplete (marked as TODO)
+The project leverages several Go 1.24 features:
 
-When fixing tests, ensure that:
+1. **FIPS 140-3 Mode**: Use `WithFIPSMode()` for government compliance
+2. **os.Root**: Secure file serving with automatic sandboxing
+3. **Swiss Tables**: Rate limiter uses faster map implementation
+4. **ECH Support**: Encrypted Client Hello for privacy
+5. **Post-Quantum**: X25519MLKEM768 enabled by default (non-FIPS)
 
-- All undefined variables are properly declared
-- Handler functions match expected signatures
-- Middleware functions receive correct parameter types
+### Important Implementation Notes
+
+1. **Middleware Signatures**: Always use `*ServerOptions` (pointer) not value types
+2. **Server Fields**: Most server fields are unexported - use provided methods
+3. **Benchmarks**: Place in main package to access unexported fields
+4. **Rate Limiter**: Uses regular map with RWMutex, not sync.Map
+5. **SSE**: Use `NewSSEMessage()` helper, avoid double fmt.Sprintf
+
+### Testing Gotchas
+
+1. **Parallel Tests**: Use unique directory names with timestamps/PID
+2. **Cleanup**: Always defer cleanup of test directories
+3. **Health Server**: Runs on separate port (:8081 by default)
+4. **Template Tests**: Create actual template files, not just directories
+5. **Middleware Tests**: Test with actual server instance, not in isolation
+
+### Performance Considerations
+
+1. **Allocations**: Baseline is 10 allocations per request - maintain this
+2. **Middleware Overhead**: Aim for <30% total overhead
+3. **Logging**: Most expensive middleware due to I/O
+4. **Static Files**: Currently 31 allocations - optimization opportunity
+
+### Common Patterns
+
+```go
+// Creating a secure API server
+srv, _ := hyperserve.NewServer(
+    hyperserve.WithFIPSMode(),
+    hyperserve.WithTLS("cert.pem", "key.pem"),
+    hyperserve.WithAuthTokenValidator(validateFunc),
+)
+
+// Adding middleware selectively
+srv.AddMiddleware("/api", hyperserve.RateLimitMiddleware(srv))
+srv.AddMiddleware("/api", hyperserve.AuthMiddleware(srv.Options))
+
+// Graceful shutdown
+go srv.Run()
+// ... later ...
+srv.Stop()
+```
