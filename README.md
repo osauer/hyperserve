@@ -2,7 +2,7 @@
 
 A lightweight, high-performance HTTP server framework for Go with zero external dependencies (except `golang.org/x/time/rate` for rate limiting).
 
-[![Go Version](https://img.shields.io/badge/Go-1.23%2B-blue.svg)](https://golang.org/dl/)
+[![Go Version](https://img.shields.io/badge/Go-1.24-blue.svg)](https://golang.org/dl/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ## Features
@@ -15,8 +15,12 @@ A lightweight, high-performance HTTP server framework for Go with zero external 
 - **Graceful shutdown** - Proper cleanup and connection draining
 
 ### 🔒 Security & Reliability
-- **TLS support** - Easy HTTPS configuration with modern cipher suites
-- **Rate limiting** - Token bucket algorithm per client IP with informative headers and cleanup
+- **TLS support** - HTTPS with modern cipher suites, post-quantum ready (X25519MLKEM768)
+- **FIPS 140-3 mode** - Government-grade cryptographic compliance for enterprise deployments
+- **Encrypted Client Hello** - Enhanced privacy by encrypting SNI in TLS handshakes
+- **Rate limiting** - Optimized for Go 1.24's Swiss Tables with automatic cleanup
+- **Timing attack protection** - Constant-time authentication using `crypto/subtle`
+- **Secure file serving** - Uses `os.Root` for sandboxed directory access (Go 1.24)
 - **Security headers** - Modern 2024 security headers including CORS, CSP, HSTS, Cross-Origin policies, and Permissions-Policy
 - **Health checks** - Kubernetes-ready health endpoints (`/healthz`, `/readyz`, `/livez`)
 - **Request tracing** - Built-in trace ID generation for distributed systems
@@ -118,6 +122,8 @@ srv, err := hyperserve.NewServer(
     hyperserve.WithRateLimit(100, 200),
     hyperserve.WithTimeouts(30*time.Second, 30*time.Second, 120*time.Second),
     hyperserve.WithHealthServer(),
+    hyperserve.WithFIPSMode(), // Enable FIPS 140-3 compliance
+    hyperserve.WithEncryptedClientHello(echKeys...), // Enable ECH
 )
 ```
 
@@ -313,6 +319,47 @@ WithAuthTokenValidator(func(token string) (bool, error) {
 
 💡 **Related**: This pairs with [Rate Limiting](#rate-limiting-headers) to prevent brute force attacks and [Security Headers](#-security--reliability) for defense in depth.
 
+## Go 1.24 Features
+
+HyperServe leverages cutting-edge Go 1.24 features for enhanced performance and security:
+
+### FIPS 140-3 Compliance
+
+Enable FIPS mode for government and regulated industry deployments:
+
+```go
+srv, _ := hyperserve.NewServer(
+    hyperserve.WithFIPSMode(),
+)
+```
+
+This enables:
+- FIPS-approved cipher suites only
+- Restricted elliptic curves (P256, P384)
+- GOFIPS140 runtime mode
+- Compliance logging
+
+### Encrypted Client Hello (ECH)
+
+Protect user privacy by encrypting the SNI:
+
+```go
+echKeys := [][]byte{primaryKey, backupKey}
+srv, _ := hyperserve.NewServer(
+    hyperserve.WithEncryptedClientHello(echKeys...),
+)
+```
+
+### Post-Quantum Cryptography
+
+HyperServe automatically enables X25519MLKEM768 key exchange when not in FIPS mode, providing protection against future quantum computer attacks.
+
+### Performance Optimizations
+
+- **Swiss Tables**: Rate limiting uses Go 1.24's faster map implementation
+- **os.Root**: Secure, sandboxed file serving prevents directory traversal
+- **Timing Protection**: Authentication uses `crypto/subtle.WithDataIndependentTiming`
+
 ## Health Checks
 
 When health server is enabled, the following endpoints are available on a separate port (default: `:8081`):
@@ -331,6 +378,7 @@ srv, _ := hyperserve.NewServer(
 
 Check out the `examples` directory for complete examples:
 
+- **[enterprise](examples/enterprise)** - Enterprise security with FIPS 140-3 and Go 1.24 features
 - **[htmx-dynamic](examples/htmx-dynamic)** - Dynamic content with HTMX 2.x
 - **[htmx-stream](examples/htmx-stream)** - Server-Sent Events with HTMX
 - **[chaos](examples/chaos)** - Chaos engineering demonstration

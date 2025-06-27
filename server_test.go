@@ -146,3 +146,41 @@ func TestHandleStatic(t *testing.T) {
 		t.Errorf("expected body %v, got %v", staticContent, rec.Body.String())
 	}
 }
+
+func TestFIPSMode(t *testing.T) {
+	t.Parallel()
+	srv, err := NewServer(WithFIPSMode())
+	if err != nil {
+		t.Fatalf("failed to create server with FIPS mode: %v", err)
+	}
+	
+	if !srv.Options.FIPSMode {
+		t.Error("expected FIPSMode to be enabled")
+	}
+	
+	// Verify TLS config has FIPS-compliant settings
+	tlsConfig := srv.tlsConfig()
+	if len(tlsConfig.CipherSuites) != 6 { // FIPS mode has 6 cipher suites
+		t.Errorf("expected 6 FIPS-compliant cipher suites, got %d", len(tlsConfig.CipherSuites))
+	}
+	if len(tlsConfig.CurvePreferences) != 2 { // FIPS mode only allows P256 and P384
+		t.Errorf("expected 2 FIPS-compliant curves, got %d", len(tlsConfig.CurvePreferences))
+	}
+}
+
+func TestEncryptedClientHello(t *testing.T) {
+	t.Parallel()
+	echKey := []byte("test-ech-key")
+	srv, err := NewServer(WithEncryptedClientHello(echKey))
+	if err != nil {
+		t.Fatalf("failed to create server with ECH: %v", err)
+	}
+	
+	if !srv.Options.EnableECH {
+		t.Error("expected ECH to be enabled")
+	}
+	
+	if len(srv.Options.ECHKeys) != 1 {
+		t.Errorf("expected 1 ECH key, got %d", len(srv.Options.ECHKeys))
+	}
+}

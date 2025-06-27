@@ -56,8 +56,7 @@ func NewSSEMessage(data any) *SSEMessage {
 // String formats the SSE message according to the Server-Sent Events specification.
 // Returns a string in the format "event: <event>\ndata: <data>\n\n".
 func (sse *SSEMessage) String() string {
-	str := fmt.Sprintf("event: %s\ndata: %v\n\n", sse.Event, sse.Data)
-	return fmt.Sprintf(str)
+	return fmt.Sprintf("event: %s\ndata: %v\n\n", sse.Event, sse.Data)
 }
 
 func (srv *Server) livezHandler(w http.ResponseWriter, r *http.Request) {

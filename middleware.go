@@ -2,6 +2,7 @@ package hyperserve
 
 import (
 	"context"
+	"crypto/subtle"
 	"fmt"
 	"log"
 	"math/rand"
@@ -184,12 +185,19 @@ func AuthMiddleware(options *ServerOptions) MiddlewareFunc {
 				return
 			}
 
-			// validate token
+			// validate token with timing attack protection
 			if options.AuthTokenValidatorFunc == nil {
 				http.Error(w, "Internal Server Error: Auth not configured", http.StatusInternalServerError)
 				return
 			}
-			valid, err := options.AuthTokenValidatorFunc(token)
+			
+			// Use crypto/subtle.WithDataIndependentTiming for constant-time token validation
+			var valid bool
+			var err error
+			subtle.WithDataIndependentTiming(func() {
+				valid, err = options.AuthTokenValidatorFunc(token)
+			})
+			
 			if err != nil {
 				logger.Error("error validating token", "error", err)
 				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -265,17 +273,42 @@ func RecoveryMiddleware(next http.Handler) http.HandlerFunc {
 // RateLimitMiddleware returns a middleware function that enforces rate limiting per client IP address.
 // Uses token bucket algorithm with configurable rate limit and burst capacity.
 // Returns 429 Too Many Requests when rate limit is exceeded.
+// Optimized for Go 1.24's Swiss Tables map implementation.
 func RateLimitMiddleware(srv *Server) MiddlewareFunc {
 	logger.Info("RateLimitMiddleware enabled")
 	return func(next http.Handler) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			ip, _, _ := net.SplitHostPort(r.RemoteAddr)
-			limiterInterface, _ := srv.clientLimiters.LoadOrStore(ip, rate.NewLimiter(srv.Options.RateLimit, srv.Options.Burst))
-			limiter := limiterInterface.(*rate.Limiter)
-			if limiter.Allow() {
+			
+			// Try to get existing limiter with read lock (fast path)
+			srv.limitersMu.RLock()
+			entry, exists := srv.clientLimiters[ip]
+			srv.limitersMu.RUnlock()
+			
+			if !exists {
+				// Create new limiter with write lock
+				srv.limitersMu.Lock()
+				// Double-check in case another goroutine created it
+				entry, exists = srv.clientLimiters[ip]
+				if !exists {
+					entry = &rateLimiterEntry{
+						limiter:    rate.NewLimiter(srv.Options.RateLimit, srv.Options.Burst),
+						lastAccess: time.Now(),
+					}
+					srv.clientLimiters[ip] = entry
+				}
+				srv.limitersMu.Unlock()
+			} else {
+				// Update last access time
+				srv.limitersMu.Lock()
+				entry.lastAccess = time.Now()
+				srv.limitersMu.Unlock()
+			}
+			
+			if entry.limiter.Allow() {
 				// Add rate limit headers to inform clients of their current status
 				w.Header().Set("X-RateLimit-Limit", fmt.Sprintf("%.0f", float64(srv.Options.RateLimit)))
-				w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%.0f", limiter.Tokens()))
+				w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%.0f", entry.limiter.Tokens()))
 				w.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", time.Now().Add(time.Second).Unix()))
 				next.ServeHTTP(w, r)
 			} else {

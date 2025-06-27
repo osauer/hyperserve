@@ -33,6 +33,9 @@ type ServerOptions struct {
 	ChaosThrottleRate      float64       `json:"chaos_throttle_rate,omitempty"`
 	ChaosPanicRate         float64       `json:"chaos_panic_rate,omitempty"`
 	AuthTokenValidatorFunc func(token string) (bool, error)
+	FIPSMode               bool          `json:"fips_mode,omitempty"`
+	EnableECH              bool          `json:"enable_ech,omitempty"`
+	ECHKeys                [][]byte      `json:"-"` // ECH keys are sensitive, don't serialize
 }
 
 var defaultServerOptions = &ServerOptions{
@@ -58,6 +61,8 @@ var defaultServerOptions = &ServerOptions{
 	ChaosThrottleRate:      0.05,
 	ChaosPanicRate:         0.01,
 	AuthTokenValidatorFunc: func(token string) (bool, error) { return false, nil },
+	FIPSMode:               false,
+	EnableECH:              false,
 }
 
 // Log level constants for server configuration.

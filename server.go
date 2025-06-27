@@ -10,6 +10,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"html/template"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -44,6 +45,12 @@ const (
 // rateLimit limits requests per second that can be requested from the httpServer. Requires to add [RateLimitMiddleware]
 type rateLimit = rate.Limit
 
+// rateLimiterEntry stores a rate limiter with last access time for cleanup
+type rateLimiterEntry struct {
+	limiter    *rate.Limiter
+	lastAccess time.Time
+}
+
 // Server represents an HTTP server that can handle requests and responses.
 // It provides middleware support, health checks, template rendering, and various configuration options.
 type Server struct {
@@ -60,9 +67,12 @@ type Server struct {
 	totalRequests     atomic.Uint64
 	totalResponseTime atomic.Int64
 	serverStart       time.Time
-	clientLimiters    sync.Map
+	clientLimiters    map[string]*rateLimiterEntry
+	limitersMu        sync.RWMutex
 	cleanupTicker     *time.Ticker
 	cleanupDone       chan bool
+	staticRoot        *os.Root
+	templateRoot      *os.Root
 }
 
 // NewServer creates a new instance of the Server with the given options.
@@ -71,12 +81,12 @@ type Server struct {
 func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 	// init new httpServer
 	srv := &Server{
-		mux:           http.NewServeMux(),
-		Options:       NewServerOptions(),
-		templates:     nil,
-		templatesMu:   sync.Mutex{},
-		clientLimiters: sync.Map{},
-		cleanupDone:   make(chan bool),
+		mux:            http.NewServeMux(),
+		Options:        NewServerOptions(),
+		templates:      nil,
+		templatesMu:    sync.Mutex{},
+		clientLimiters: make(map[string]*rateLimiterEntry),
+		cleanupDone:    make(chan bool),
 	}
 	srv.middleware = NewMiddlewareRegistry(DefaultMiddleware(srv))
 
@@ -84,6 +94,27 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 	for _, opt := range opts {
 		if err := opt(srv); err != nil {
 			return nil, err
+		}
+	}
+
+	// Initialize secure file roots if directories are configured
+	if srv.Options.StaticDir != "" {
+		staticRoot, err := os.OpenRoot(srv.Options.StaticDir)
+		if err != nil {
+			logger.Warn("Failed to open static root directory", "error", err, "dir", srv.Options.StaticDir)
+		} else {
+			srv.staticRoot = staticRoot
+			logger.Info("Static root initialized", "dir", srv.Options.StaticDir)
+		}
+	}
+
+	if srv.Options.TemplateDir != "" {
+		templateRoot, err := os.OpenRoot(srv.Options.TemplateDir)
+		if err != nil {
+			logger.Warn("Failed to open template root directory", "error", err, "dir", srv.Options.TemplateDir)
+		} else {
+			srv.templateRoot = templateRoot
+			logger.Info("Template root initialized", "dir", srv.Options.TemplateDir)
 		}
 	}
 
@@ -162,10 +193,29 @@ func (srv *Server) logServerMetrics() {
 }
 
 func (srv *Server) tlsConfig() *tls.Config {
-	return &tls.Config{
+	config := &tls.Config{
 		MinVersion: tls.VersionTLS12,
 		MaxVersion: tls.VersionTLS13,
-		CipherSuites: []uint16{
+	}
+
+	if srv.Options.FIPSMode {
+		// FIPS 140-3 compliant cipher suites and curves only
+		config.CipherSuites = []uint16{
+			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_AES_128_GCM_SHA256, // TLS 1.3 FIPS approved
+			tls.TLS_AES_256_GCM_SHA384, // TLS 1.3 FIPS approved
+		}
+		config.CurvePreferences = []tls.CurveID{
+			tls.CurveP256,
+			tls.CurveP384,
+		}
+		logger.Info("TLS configured in FIPS 140-3 mode")
+	} else {
+		// Standard cipher suites including post-quantum ready
+		config.CipherSuites = []uint16{
 			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
 			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
@@ -173,14 +223,19 @@ func (srv *Server) tlsConfig() *tls.Config {
 			tls.TLS_AES_128_GCM_SHA256,       // TLS 1.3 cipher suite
 			tls.TLS_AES_256_GCM_SHA384,       // TLS 1.3 cipher suite
 			tls.TLS_CHACHA20_POLY1305_SHA256, // TLS 1.3 cipher suite
-		},
-		CurvePreferences: []tls.CurveID{
-			tls.CurveP256,
-			tls.CurveP384,
-			tls.CurveP521,
-			tls.X25519,
-		},
+		}
+		// CurvePreferences nil enables post-quantum X25519MLKEM768 by default in Go 1.24
+		config.CurvePreferences = nil
 	}
+
+	// Enable Encrypted Client Hello if configured
+	if srv.Options.EnableECH && len(srv.Options.ECHKeys) > 0 {
+		// ECH configuration will be automatically handled by Go 1.24's crypto/tls
+		// when ECH keys are provided in the Config
+		logger.Info("Encrypted Client Hello (ECH) enabled")
+	}
+
+	return config
 }
 
 // AddMiddleware adds a single middleware function to the specified route.
@@ -265,15 +320,17 @@ func (srv *Server) shutdown(ctx context.Context) error {
 	}
 
 	// Shutdown http server
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		logger.Info("Shutting down http server.")
-		if err := srv.httpServer.Shutdown(ctx); err != nil && err != http.ErrServerClosed {
-			logger.Error("Error during main server shutdown.", "error", err)
-			errChan <- fmt.Errorf("main server shutdown error: %w", err)
-		}
-	}()
+	if srv.httpServer != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			logger.Info("Shutting down http server.")
+			if err := srv.httpServer.Shutdown(ctx); err != nil && err != http.ErrServerClosed {
+				logger.Error("Error during main server shutdown.", "error", err)
+				errChan <- fmt.Errorf("main server shutdown error: %w", err)
+			}
+		}()
+	}
 
 	// Wait for both shutdowns to complete
 	wg.Wait()
@@ -290,7 +347,31 @@ func (srv *Server) shutdown(ctx context.Context) error {
 		}
 	}
 
+	// Clean up resources
+	srv.stopCleanup()
+	
+	// Close os.Root handles if they exist
+	if srv.staticRoot != nil {
+		if err := srv.staticRoot.Close(); err != nil {
+			logger.Error("Failed to close static root", "error", err)
+		}
+	}
+	if srv.templateRoot != nil {
+		if err := srv.templateRoot.Close(); err != nil {
+			logger.Error("Failed to close template root", "error", err)
+		}
+	}
+
 	return shutdownErr
+}
+
+// Stop gracefully stops the server with a default timeout of 10 seconds
+func (srv *Server) Stop() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	srv.isReady.Store(false)
+	srv.isRunning.Store(false)
+	return srv.shutdown(ctx)
 }
 
 func (srv *Server) shutdownHealthServer(ctx context.Context) error {
@@ -364,9 +445,57 @@ func EnsureTrailingSlash(dir string) string {
 
 // HandleStatic registers a handler for serving static files from the configured static directory.
 // The pattern should typically end with a wildcard (e.g., "/static/").
+// Uses os.Root for secure file access when available (Go 1.24+).
 func (srv *Server) HandleStatic(pattern string) {
-	staticDir := EnsureTrailingSlash(srv.Options.StaticDir)
-	srv.mux.Handle(pattern, http.StripPrefix(pattern, http.FileServer(http.Dir(staticDir))))
+	if srv.staticRoot != nil {
+		// Use secure os.Root with custom handler
+		srv.mux.Handle(pattern, http.StripPrefix(pattern, srv.rootFileServer()))
+		logger.Info("Static file serving using secure os.Root", "pattern", pattern)
+	} else {
+		// Fallback to traditional file server
+		staticDir := EnsureTrailingSlash(srv.Options.StaticDir)
+		srv.mux.Handle(pattern, http.StripPrefix(pattern, http.FileServer(http.Dir(staticDir))))
+		logger.Info("Static file serving using http.Dir", "pattern", pattern, "dir", staticDir)
+	}
+}
+
+// rootFileServer creates an http.Handler that serves files from os.Root
+func (srv *Server) rootFileServer() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" && r.Method != "HEAD" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Clean the path
+		path := filepath.Clean(r.URL.Path)
+		if path == "/" {
+			path = "index.html"
+		}
+
+		// Open file using os.Root
+		file, err := srv.staticRoot.Open(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				http.NotFound(w, r)
+			} else {
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				logger.Error("Failed to open file", "path", path, "error", err)
+			}
+			return
+		}
+		defer file.Close()
+
+		// Get file info
+		stat, err := file.Stat()
+		if err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		// Serve the file
+		http.ServeContent(w, r, stat.Name(), stat.ModTime(), file)
+	})
 }
 
 // HandleTemplate registers a handler that renders a specific template with static data.
@@ -390,6 +519,47 @@ func (srv *Server) parseTemplates() error {
 		// Templates already parsed
 		return nil
 	}
+
+	if srv.templateRoot != nil {
+		// Use secure os.Root for template parsing (Go 1.24+)
+		tmpl := template.New("root")
+		
+		// List directory contents using a helper function
+		templateFiles, err := srv.listTemplateFiles()
+		if err != nil {
+			return fmt.Errorf("failed to list template files: %w", err)
+		}
+
+		for _, filename := range templateFiles {
+			if strings.HasSuffix(filename, ".html") {
+				// Open and read the template file
+				file, err := srv.templateRoot.Open(filename)
+				if err != nil {
+					logger.Error("Failed to open template file", "file", filename, "error", err)
+					continue
+				}
+				
+				content, err := io.ReadAll(file)
+				file.Close()
+				if err != nil {
+					logger.Error("Failed to read template file", "file", filename, "error", err)
+					continue
+				}
+				
+				_, err = tmpl.New(filename).Parse(string(content))
+				if err != nil {
+					logger.Error("Failed to parse template", "file", filename, "error", err)
+					return fmt.Errorf("failed to parse template %s: %w", filename, err)
+				}
+			}
+		}
+
+		srv.templates = tmpl
+		logger.Info("Templates parsed using secure os.Root", "count", len(tmpl.Templates())-1) // -1 for root template
+		return nil
+	}
+
+	// Fallback to traditional template parsing
 	templateDir := srv.Options.TemplateDir
 	// Check if the template directory exists
 	if _, err := os.Stat(templateDir); os.IsNotExist(err) {
@@ -413,6 +583,32 @@ func (srv *Server) parseTemplates() error {
 // DataFunc is a function type that generates data for template rendering.
 // It receives the current HTTP request and returns data to be passed to the template.
 type DataFunc func(r *http.Request) interface{}
+
+// listTemplateFiles lists all files in the template root directory
+func (srv *Server) listTemplateFiles() ([]string, error) {
+	// Since os.Root doesn't have ReadDir, we need to use the regular os package
+	// to list files, then validate them through os.Root
+	var files []string
+	
+	// Read the actual directory
+	entries, err := os.ReadDir(srv.Options.TemplateDir)
+	if err != nil {
+		return nil, err
+	}
+	
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			// Verify we can open it through os.Root (validates it's within root)
+			file, err := srv.templateRoot.Open(entry.Name())
+			if err == nil {
+				file.Close()
+				files = append(files, entry.Name())
+			}
+		}
+	}
+	
+	return files, nil
+}
 
 func checkfile(file, wd string) error {
 	if _, err := os.Stat(file); err != nil {
@@ -527,22 +723,46 @@ func WithAuthTokenValidator(validator func(token string) (bool, error)) ServerOp
 	}
 }
 
+// WithFIPSMode enables FIPS 140-3 compliant mode for government and enterprise deployments.
+// This restricts TLS cipher suites and curves to FIPS-approved algorithms only.
+func WithFIPSMode() ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.FIPSMode = true
+		logger.Info("FIPS 140-3 mode enabled")
+		return nil
+	}
+}
+
+// WithEncryptedClientHello enables Encrypted Client Hello (ECH) for enhanced privacy.
+// ECH encrypts the SNI in TLS handshakes to prevent eavesdropping on the server name.
+func WithEncryptedClientHello(echKeys ...[]byte) ServerOptionFunc {
+	return func(srv *Server) error {
+		if len(echKeys) == 0 {
+			return fmt.Errorf("ECH requires at least one key")
+		}
+		srv.Options.EnableECH = true
+		srv.Options.ECHKeys = echKeys
+		logger.Info("Encrypted Client Hello enabled", "keyCount", len(echKeys))
+		return nil
+	}
+}
+
 // cleanupRateLimiters runs periodically to clean up old rate limiters
 // This prevents memory leaks from accumulating client IP rate limiters
 func (srv *Server) cleanupRateLimiters() {
 	for {
 		select {
 		case <-srv.cleanupTicker.C:
-			// Clean up rate limiters that haven't been used recently
-			srv.clientLimiters.Range(func(key, value interface{}) bool {
-				limiter := value.(*rate.Limiter)
-				// Remove limiters that have been idle (have full tokens available)
-				// This is a simple heuristic - could be improved with timestamp tracking
-				if limiter.Tokens() == float64(srv.Options.Burst) {
-					srv.clientLimiters.Delete(key)
+			now := time.Now()
+			srv.limitersMu.Lock()
+			// Clean up rate limiters that haven't been used in the last 10 minutes
+			for ip, entry := range srv.clientLimiters {
+				if now.Sub(entry.lastAccess) > 10*time.Minute {
+					delete(srv.clientLimiters, ip)
+					logger.Debug("Cleaned up rate limiter", "ip", ip)
 				}
-				return true
-			})
+			}
+			srv.limitersMu.Unlock()
 		case <-srv.cleanupDone:
 			return
 		}

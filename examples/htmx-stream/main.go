@@ -49,8 +49,18 @@ func numbersStreamHandler(w http.ResponseWriter, r *http.Request) {
 			log.Println("SSE connection closed", r.Context().Err())
 			return
 		case <-ticker.C:
-			sseMessage.Data = rand.Intn(100)
-			fmt.Fprint(w, sseMessage.String())
+			// Create dynamic data
+			data := map[string]interface{}{
+				"value": rand.Intn(100),
+				"timestamp": time.Now().Format("15:04:05"),
+			}
+			
+			// Use the improved SSE message formatting
+			sseMessage := hs.NewSSEMessage(data)
+			if _, err := fmt.Fprint(w, sseMessage); err != nil {
+				log.Println("Error sending SSE message:", err)
+				return
+			}
 			flusher.Flush() // Ensure the message is sent immediately
 		}
 	}
