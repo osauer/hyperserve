@@ -10,6 +10,7 @@ import (
 )
 
 func TestMetricsMiddlewareIncrementsTotalRequests(t *testing.T) {
+	t.Parallel()
 	srv, _ := NewServer()
 	handler := MetricsMiddleware(srv)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -26,6 +27,7 @@ func TestMetricsMiddlewareIncrementsTotalRequests(t *testing.T) {
 }
 
 func TestAuthMiddlewareValidToken(t *testing.T) {
+	t.Parallel()
 	options := &ServerOptions{
 		AuthTokenValidatorFunc: func(token string) (bool, error) {
 			return token == "valid-token", nil
@@ -44,6 +46,7 @@ func TestAuthMiddlewareValidToken(t *testing.T) {
 }
 
 func TestAuthMiddlewareMissingToken(t *testing.T) {
+	t.Parallel()
 	options := &ServerOptions{
 		AuthTokenValidatorFunc: func(token string) (bool, error) {
 			return false, nil
@@ -61,6 +64,7 @@ func TestAuthMiddlewareMissingToken(t *testing.T) {
 }
 
 func TestRecoveryMiddlewareRecoversFromPanic(t *testing.T) {
+	t.Parallel()
 	handler := RecoveryMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		panic("test panic")
 	}))
@@ -73,8 +77,11 @@ func TestRecoveryMiddlewareRecoversFromPanic(t *testing.T) {
 }
 
 func TestRateLimitMiddlewareAllowsRequest(t *testing.T) {
-	options := &ServerOptions{RateLimit: rate.Every(time.Second), Burst: 1}
-	handler := RateLimitMiddleware(options)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	srv, _ := NewServer()
+	srv.Options.RateLimit = rate.Every(time.Second)
+	srv.Options.Burst = 1
+	handler := RateLimitMiddleware(srv)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	req := httptest.NewRequest("GET", "/", nil)
@@ -87,8 +94,11 @@ func TestRateLimitMiddlewareAllowsRequest(t *testing.T) {
 }
 
 func TestRateLimitMiddlewareBlocksRequest(t *testing.T) {
-	options := &ServerOptions{RateLimit: rate.Every(time.Second), Burst: 1}
-	handler := RateLimitMiddleware(options)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	srv, _ := NewServer()
+	srv.Options.RateLimit = rate.Every(time.Second)
+	srv.Options.Burst = 1
+	handler := RateLimitMiddleware(srv)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	req := httptest.NewRequest("GET", "/", nil)

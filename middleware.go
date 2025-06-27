@@ -114,10 +114,10 @@ func DefaultMiddleware(server *Server) MiddlewareStack {
 
 // SecureAPI returns a middleware stack configured for secure API endpoints.
 // Includes authentication and rate limiting middleware.
-func SecureAPI(options *ServerOptions) MiddlewareStack {
+func SecureAPI(srv *Server) MiddlewareStack {
 	return MiddlewareStack{
-		AuthMiddleware(options),
-		RateLimitMiddleware(options)}
+		AuthMiddleware(srv.Options),
+		RateLimitMiddleware(srv)}
 }
 
 // SecureWeb returns a middleware stack configured for secure web endpoints.
@@ -265,18 +265,22 @@ func RecoveryMiddleware(next http.Handler) http.HandlerFunc {
 // RateLimitMiddleware returns a middleware function that enforces rate limiting per client IP address.
 // Uses token bucket algorithm with configurable rate limit and burst capacity.
 // Returns 429 Too Many Requests when rate limit is exceeded.
-func RateLimitMiddleware(options *ServerOptions) MiddlewareFunc {
+func RateLimitMiddleware(srv *Server) MiddlewareFunc {
 	logger.Info("RateLimitMiddleware enabled")
 	return func(next http.Handler) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			ip, _, _ := net.SplitHostPort(r.RemoteAddr)
-			limiterInterface, _ := clientLimiters.LoadOrStore(ip, rate.NewLimiter(options.RateLimit, options.Burst))
+			limiterInterface, _ := srv.clientLimiters.LoadOrStore(ip, rate.NewLimiter(srv.Options.RateLimit, srv.Options.Burst))
 			limiter := limiterInterface.(*rate.Limiter)
 			if limiter.Allow() {
-				// todo: add a header to the response to indicate the rate limit, left tokens etc.
+				// Add rate limit headers to inform clients of their current status
+				w.Header().Set("X-RateLimit-Limit", fmt.Sprintf("%.0f", float64(srv.Options.RateLimit)))
+				w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%.0f", limiter.Tokens()))
+				w.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", time.Now().Add(time.Second).Unix()))
 				next.ServeHTTP(w, r)
 			} else {
-				// todo be gentle with the response and provide a retry-after header
+				// Add retry-after header for better client behavior
+				w.Header().Set("Retry-After", "1")
 				writeErrorResponse(w, http.StatusTooManyRequests, "Rate limit exceeded")
 			}
 			return
@@ -286,18 +290,20 @@ func RateLimitMiddleware(options *ServerOptions) MiddlewareFunc {
 
 // securityHeaders provide headers for HeadersMiddleware
 var securityHeaders = []Header{
-	{"X-Content-Type-Options", "nosniff"},                                // Prevent MIME-type sniffing
-	{"X-Frame-Options", "DENY"},                                          // Mitigate clickjacking
-	{"X-XSS-Protection", "1; mode=block"},                                // Enable XSS protection in browsers
-	{"Strict-Transport-Security", "max-age=63072000; includeSubDomains"}, // Enforce HTTPS (if applicable)
-	{"Referrer-Policy", "no-referrer"},                                   // Reduce referrer leakage
-	{"Feature-Policy", "geolocation 'none'; midi 'none'; notifications 'none'; push 'none'; sync-xhr 'none'; microphone 'none'; camera 'none'; magnetometer 'none'; gyroscope 'none'; speaker 'none'; vibrate 'none'; fullscreen 'self'; payment 'none';"},
-	{"Expect-CT", "max-age=86400, enforce, report-uri='https://example.com/report-ct'"}, // Expect Certificate Transparency
-	{"Content-Security-Policy", "default-src 'self'"},                                   // Control resources the client is allowed to load
-	{"Access-Control-Allow-Methods", "GET, POST, OPTIONS"},                              // Allowed methods
-	{"Access-Control-Allow-Headers", "Content-Type, Authorization"},                     // Allowed headers
-	{"Access-Control-Allow-Credentials", "true"},                                        // If cookies or credentials are needed
-	{"Access-Control-Max-Age", "600"},                                                   // Pre-flight request cache
+	{"X-Content-Type-Options", "nosniff"},                                            // Prevent MIME-type sniffing
+	{"X-Frame-Options", "DENY"},                                                      // Mitigate clickjacking
+	{"Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload"},   // Enforce HTTPS with preload
+	{"Referrer-Policy", "strict-origin-when-cross-origin"},                          // Balance privacy and functionality
+	{"Permissions-Policy", "geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), speaker=(), fullscreen=(self)"}, // Modern replacement for Feature-Policy
+	{"Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; media-src 'self'; object-src 'none'; child-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"}, // Comprehensive CSP
+	{"Cross-Origin-Embedder-Policy", "require-corp"},                                // Prevent cross-origin attacks
+	{"Cross-Origin-Opener-Policy", "same-origin"},                                   // Isolate browsing context
+	{"Cross-Origin-Resource-Policy", "same-origin"},                                 // Control cross-origin resource sharing
+	{"X-Permitted-Cross-Domain-Policies", "none"},                                   // Restrict Flash/PDF cross-domain access
+	{"Access-Control-Allow-Methods", "GET, POST, OPTIONS"},                          // Allowed methods
+	{"Access-Control-Allow-Headers", "Content-Type, Authorization"},                 // Allowed headers
+	{"Access-Control-Allow-Credentials", "true"},                                    // If cookies or credentials are needed
+	{"Access-Control-Max-Age", "600"},                                               // Pre-flight request cache
 }
 
 // HeadersMiddleware returns a middleware function that adds security headers to responses.

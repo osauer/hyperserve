@@ -40,9 +40,6 @@ const (
 	paramFileName   = "options.json"
 )
 
-var (
-	clientLimiters = sync.Map{}
-)
 
 // rateLimit limits requests per second that can be requested from the httpServer. Requires to add [RateLimitMiddleware]
 type rateLimit = rate.Limit
@@ -63,6 +60,9 @@ type Server struct {
 	totalRequests     atomic.Uint64
 	totalResponseTime atomic.Int64
 	serverStart       time.Time
+	clientLimiters    sync.Map
+	cleanupTicker     *time.Ticker
+	cleanupDone       chan bool
 }
 
 // NewServer creates a new instance of the Server with the given options.
@@ -71,10 +71,12 @@ type Server struct {
 func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 	// init new httpServer
 	srv := &Server{
-		mux:         http.NewServeMux(),
-		Options:     NewServerOptions(),
-		templates:   nil,
-		templatesMu: sync.Mutex{},
+		mux:           http.NewServeMux(),
+		Options:       NewServerOptions(),
+		templates:     nil,
+		templatesMu:   sync.Mutex{},
+		clientLimiters: sync.Map{},
+		cleanupDone:   make(chan bool),
 	}
 	srv.middleware = NewMiddlewareRegistry(DefaultMiddleware(srv))
 
@@ -84,6 +86,10 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 			return nil, err
 		}
 	}
+
+	// Start cleanup ticker for rate limiters (run every 5 minutes)
+	srv.cleanupTicker = time.NewTicker(5 * time.Minute)
+	go srv.cleanupRateLimiters()
 
 	srv.isReady.Store(true)
 	return srv, nil
@@ -518,5 +524,37 @@ func WithAuthTokenValidator(validator func(token string) (bool, error)) ServerOp
 	return func(srv *Server) error {
 		srv.Options.AuthTokenValidatorFunc = validator
 		return nil
+	}
+}
+
+// cleanupRateLimiters runs periodically to clean up old rate limiters
+// This prevents memory leaks from accumulating client IP rate limiters
+func (srv *Server) cleanupRateLimiters() {
+	for {
+		select {
+		case <-srv.cleanupTicker.C:
+			// Clean up rate limiters that haven't been used recently
+			srv.clientLimiters.Range(func(key, value interface{}) bool {
+				limiter := value.(*rate.Limiter)
+				// Remove limiters that have been idle (have full tokens available)
+				// This is a simple heuristic - could be improved with timestamp tracking
+				if limiter.Tokens() == float64(srv.Options.Burst) {
+					srv.clientLimiters.Delete(key)
+				}
+				return true
+			})
+		case <-srv.cleanupDone:
+			return
+		}
+	}
+}
+
+// stopCleanup stops the rate limiter cleanup goroutine
+func (srv *Server) stopCleanup() {
+	if srv.cleanupTicker != nil {
+		srv.cleanupTicker.Stop()
+	}
+	if srv.cleanupDone != nil {
+		close(srv.cleanupDone)
 	}
 }
