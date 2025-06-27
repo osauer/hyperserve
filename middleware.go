@@ -116,7 +116,7 @@ func DefaultMiddleware(server *Server) MiddlewareStack {
 // Includes authentication and rate limiting middleware.
 func SecureAPI(options ServerOptions) MiddlewareStack {
 	return MiddlewareStack{
-		AuthMiddleware,
+		AuthMiddleware(options),
 		RateLimitMiddleware(options)}
 }
 
@@ -169,24 +169,38 @@ func MetricsMiddleware(srv *Server) MiddlewareFunc {
 func AuthMiddleware(next http.Handler) http.HandlerFunc {
 	// Todo: implement auth MiddlewareFunc
 	logger.Info("AuthMiddleware enabled")
-	return func(w http.ResponseWriter, r *http.Request) {
-		// Check for auth token
-		authHeader := r.Header.Get(authorizationHeader)
+	return func(next http.Handler) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			// Check for auth token
+			authHeader := r.Header.Get(authorizationHeader)
 
-		// check if header has bearer token
-		if !strings.HasPrefix(authHeader, bearerTokenPrefix) {
-			http.Error(w, "Unauthorized: Bearer token required", http.StatusUnauthorized)
-			return
-		}
-		sessionId := strings.TrimPrefix(authHeader, bearerTokenPrefix)
-		if sessionId == "" {
-			http.Error(w, "Unauthorized: Bearer token invalid", http.StatusUnauthorized)
-			return
-		}
+			// check if header has bearer token
+			if !strings.HasPrefix(authHeader, bearerTokenPrefix) {
+				http.Error(w, "Unauthorized: Bearer token required", http.StatusUnauthorized)
+				return
+			}
+			token := strings.TrimPrefix(authHeader, bearerTokenPrefix)
+			if token == "" {
+				http.Error(w, "Unauthorized: Bearer token invalid", http.StatusUnauthorized)
+				return
+			}
 
-		// add session and ID to the context
-		ctx := context.WithValue(r.Context(), sessionIDKey, sessionId)
-		next.ServeHTTP(w, r.WithContext(ctx))
+			// validate token
+			valid, err := options.AuthTokenValidatorFunc(token)
+			if err != nil {
+				logger.Error("error validating token", "error", err)
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
+			if !valid {
+				http.Error(w, "Unauthorized: Bearer token invalid", http.StatusUnauthorized)
+				return
+			}
+
+			// add session and ID to the context
+			ctx := context.WithValue(r.Context(), sessionIDKey, token)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		}
 	}
 }
 

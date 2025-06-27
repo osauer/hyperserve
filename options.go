@@ -10,51 +10,53 @@ import (
 // ServerOptions contains all configuration settings for the HTTP server.
 // Options are loaded from environment variables, configuration files, and defaults in that priority order.
 type ServerOptions struct {
-	Addr              string        `json:"addr,omitempty"`
-	EnableTLS         bool          `json:"tls,omitempty"`
-	TLSAddr           string        `json:"tls_addr,omitempty"`
-	TLSHealthAddr     string        `json:"tls_health_addr,omitempty"`
-	KeyFile           string        `json:"key_file,omitempty"`
-	CertFile          string        `json:"cert_file,omitempty"`
-	HealthAddr        string        `json:"health_addr,omitempty"`
-	RateLimit         rateLimit     `json:"rate_limit,omitempty"`
-	Burst             int           `json:"burst,omitempty"`
-	ReadTimeout       time.Duration `json:"read_timeout,omitempty"`
-	WriteTimeout      time.Duration `json:"write_timeout,omitempty"`
-	IdleTimeout       time.Duration `json:"idle_timeout,omitempty"`
-	StaticDir         string        `json:"static_dir,omitempty"`
-	TemplateDir       string        `json:"template_dir,omitempty"`
-	RunHealthServer   bool          `json:"run_health_server,omitempty"`
-	ChaosMode         bool          `json:"chaos_mode,omitempty"`
-	ChaosMaxLatency   time.Duration `json:"chaos_max_latency,omitempty"`
-	ChaosMinLatency   time.Duration `json:"chaos_min_latency,omitempty"`
-	ChaosErrorRate    float64       `json:"chaos_error_rate,omitempty"`
-	ChaosThrottleRate float64       `json:"chaos_throttle_rate,omitempty"`
-	ChaosPanicRate    float64       `json:"chaos_panic_rate,omitempty"`
+	Addr                   string        `json:"addr,omitempty"`
+	EnableTLS              bool          `json:"tls,omitempty"`
+	TLSAddr                string        `json:"tls_addr,omitempty"`
+	TLSHealthAddr          string        `json:"tls_health_addr,omitempty"`
+	KeyFile                string        `json:"key_file,omitempty"`
+	CertFile               string        `json:"cert_file,omitempty"`
+	HealthAddr             string        `json:"health_addr,omitempty"`
+	RateLimit              rateLimit     `json:"rate_limit,omitempty"`
+	Burst                  int           `json:"burst,omitempty"`
+	ReadTimeout            time.Duration `json:"read_timeout,omitempty"`
+	WriteTimeout           time.Duration `json:"write_timeout,omitempty"`
+	IdleTimeout            time.Duration `json:"idle_timeout,omitempty"`
+	StaticDir              string        `json:"static_dir,omitempty"`
+	TemplateDir            string        `json:"template_dir,omitempty"`
+	RunHealthServer        bool          `json:"run_health_server,omitempty"`
+	ChaosMode              bool          `json:"chaos_mode,omitempty"`
+	ChaosMaxLatency        time.Duration `json:"chaos_max_latency,omitempty"`
+	ChaosMinLatency        time.Duration `json:"chaos_min_latency,omitempty"`
+	ChaosErrorRate         float64       `json:"chaos_error_rate,omitempty"`
+	ChaosThrottleRate      float64       `json:"chaos_throttle_rate,omitempty"`
+	ChaosPanicRate         float64       `json:"chaos_panic_rate,omitempty"`
+	AuthTokenValidatorFunc func(token string) (bool, error)
 }
 
 var defaultServerOptions = &ServerOptions{
-	Addr:              ":8080",
-	TLSAddr:           ":8443",
-	HealthAddr:        ":9080",
-	TLSHealthAddr:     ":9443",
-	EnableTLS:         false,
-	KeyFile:           "server.key",
-	CertFile:          "server.crt",
-	RateLimit:         1,
-	Burst:             10,
-	ReadTimeout:       5 * time.Second,
-	WriteTimeout:      10 * time.Second,
-	IdleTimeout:       120 * time.Second,
-	StaticDir:         "static/",
-	TemplateDir:       "template/",
-	RunHealthServer:   true,
-	ChaosMode:         true,
-	ChaosMaxLatency:   2 * time.Second,
-	ChaosMinLatency:   500 * time.Millisecond,
-	ChaosErrorRate:    0.1,
-	ChaosThrottleRate: 0.05,
-	ChaosPanicRate:    0.01,
+	Addr:                   ":8080",
+	TLSAddr:                ":8443",
+	HealthAddr:             ":9080",
+	TLSHealthAddr:          ":9443",
+	EnableTLS:              false,
+	KeyFile:                "server.key",
+	CertFile:               "server.crt",
+	RateLimit:              1,
+	Burst:                  10,
+	ReadTimeout:            5 * time.Second,
+	WriteTimeout:           10 * time.Second,
+	IdleTimeout:            120 * time.Second,
+	StaticDir:              "static/",
+	TemplateDir:            "template/",
+	RunHealthServer:        true,
+	ChaosMode:              true,
+	ChaosMaxLatency:        2 * time.Second,
+	ChaosMinLatency:        500 * time.Millisecond,
+	ChaosErrorRate:         0.1,
+	ChaosThrottleRate:      0.05,
+	ChaosPanicRate:         0.01,
+	AuthTokenValidatorFunc: func(token string) (bool, error) { return false, nil },
 }
 
 // Log level constants for server configuration.

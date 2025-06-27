@@ -512,3 +512,11 @@ func WithTemplateDir(dir string) ServerOptionFunc {
 		return nil
 	}
 }
+
+// WithAuthTokenValidator sets the token validator for the server.
+func WithAuthTokenValidator(validator func(token string) (bool, error)) ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.AuthTokenValidatorFunc = validator
+		return nil
+	}
+}
