@@ -96,6 +96,21 @@ This structure reduces root directory clutter and follows standard Go project or
 
 ## Architecture
 
+### Architecture Decision Records (ADRs)
+
+Key architecture decisions are documented in [`docs/adr/`](docs/adr/):
+
+- [ADR-0001: Minimal External Dependencies](docs/adr/0001-minimal-external-dependencies.md) - Only use `golang.org/x/time`, implement everything else
+- [ADR-0002: Functional Options Pattern](docs/adr/0002-functional-options-pattern.md) - Use `WithX()` functions for configuration
+- [ADR-0003: Layered Middleware Architecture](docs/adr/0003-layered-middleware-architecture.md) - Global, route-specific, and exclusion system
+- [ADR-0004: Configuration Precedence](docs/adr/0004-configuration-precedence-hierarchy.md) - Env vars > JSON > defaults
+- [ADR-0005: Separate Health Check Server](docs/adr/0005-separate-health-check-server.md) - Health endpoints on dedicated port
+- [ADR-0006: Go 1.24 Minimum Version](docs/adr/0006-go-1-24-minimum-version.md) - Leverage modern Go features
+- [ADR-0007: Template System Integration](docs/adr/0007-template-system-integration.md) - Optional HTML templating support
+- [ADR-0008: Graceful Shutdown Design](docs/adr/0008-graceful-shutdown-design.md) - Context-based shutdown with timeout
+- [ADR-0009: Single Package Architecture](docs/adr/0009-single-package-architecture.md) - Everything in one package
+- [ADR-0010: Server-Sent Events Support](docs/adr/0010-server-sent-events-support.md) - SSE as first-class feature
+
 ### Core Components
 
 **Server (`server.go`)**: Main HTTP server implementation with:
