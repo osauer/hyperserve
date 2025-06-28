@@ -25,7 +25,7 @@ paths:
           in: query
           required: false
           description:
-            The name of the commit/branch/tag. Default: the repository’s default branch.
+            The name of the commit/branch/tag. Default: the repository's default branch.
           schema:
             type: string
       responses:

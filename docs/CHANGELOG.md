@@ -59,7 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.8.0] and earlier
 
-See [RELEASE_NOTES.md](./RELEASE_NOTES.md) for detailed information about earlier releases.
+See [RELEASE_NOTES.md](../RELEASE_NOTES.md) for detailed information about earlier releases.
 
 ---
 
@@ -72,9 +72,9 @@ See [RELEASE_NOTES.md](./RELEASE_NOTES.md) for detailed information about earlie
 ## Upgrade Guides
 
 For detailed upgrade instructions between versions, see:
-- [MIGRATION_GUIDE.md](./MIGRATION_GUIDE.md) - Go 1.24 features and migration
-- [RELEASE_NOTES.md](./RELEASE_NOTES.md) - Detailed release notes with upgrade steps
+- [MIGRATION_GUIDE.md](../MIGRATION_GUIDE.md) - Go 1.24 features and migration
+- [RELEASE_NOTES.md](../RELEASE_NOTES.md) - Detailed release notes with upgrade steps
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for information on how to contribute to this project.
+See [CONTRIBUTING.md](../CONTRIBUTING.md) for information on how to contribute to this project.

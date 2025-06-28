@@ -59,6 +59,41 @@ go vet ./...
 docker run --rm -it -v $(pwd):/data/project -p 8080:8080 jetbrains/qodana-go:latest
 ```
 
+## Directory Structure
+
+The repository follows Go project layout best practices with organized directories:
+
+```
+hyperserve/
+├── README.md               # Project overview and quick start
+├── LICENSE                 # MIT license
+├── CONTRIBUTING.md         # Contribution guidelines
+├── CLAUDE.md              # This file - AI assistance guidance
+├── go.mod, go.sum         # Go module files
+├── *.go, *_test.go        # Main library source and test files
+├── docs/                  # Documentation files
+│   ├── API_STABILITY.md   # API stability commitments
+│   ├── CHANGELOG.md       # Version history and changes
+│   ├── LESSONS_LEARNED.md # Development insights and patterns
+│   ├── MIGRATION_GUIDE.md # Go 1.24 migration instructions
+│   ├── PERFORMANCE.md     # Performance guide and benchmarks
+│   ├── PUBLISH_CHECKLIST.md # Pre-publication checklist
+│   └── RELEASE_NOTES.md   # Detailed release information
+├── configs/               # Configuration files
+│   ├── github_api.yaml    # GitHub API OpenAPI specification
+│   ├── htmx-spec.json     # HTMX attributes configuration
+│   └── qodana.yaml        # Qodana code analysis configuration
+├── benchmarks/            # Benchmark results and analysis
+└── examples/              # Example applications
+    ├── auth/              # Authentication example
+    ├── chaos/             # Chaos engineering example
+    ├── enterprise/        # FIPS and security features
+    ├── htmx-dynamic/      # Dynamic HTMX content
+    └── htmx-stream/       # Server-sent events with HTMX
+```
+
+This structure reduces root directory clutter and follows standard Go project organization patterns.
+
 ## Architecture
 
 ### Core Components

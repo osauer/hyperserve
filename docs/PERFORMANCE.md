@@ -159,4 +159,4 @@ Areas we're exploring for even better performance:
 
 ## Contributing
 
-Have ideas for performance improvements? See our [Contributing Guide](CONTRIBUTING.md) and run benchmarks before/after your changes to measure impact.
+Have ideas for performance improvements? See our [Contributing Guide](../CONTRIBUTING.md) and run benchmarks before/after your changes to measure impact.
