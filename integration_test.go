@@ -1,11 +1,11 @@
 package hyperserve
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"strings"
 	"testing"
 	"time"
 )
@@ -19,15 +19,24 @@ func TestServerStartStopIntegration(t *testing.T) {
 		t.Fatalf("failed to create server: %v", err)
 	}
 
+	// Disable health server for this test to avoid port conflicts
+	srv.Options.RunHealthServer = false
+
+	// Channel to signal server started
+	serverStarted := make(chan bool)
+	
 	// Test server startup and shutdown
 	go func() {
+		serverStarted <- true
 		err := srv.Run()
-		if err != nil && !strings.Contains(err.Error(), "Server stopped") {
+		// The server should exit with ErrServerClosed when stopped gracefully
+		if err != nil && err != http.ErrServerClosed {
 			t.Errorf("server run failed: %v", err)
 		}
 	}()
 
-	// Wait a bit for server to start
+	// Wait for server to start
+	<-serverStarted
 	time.Sleep(100 * time.Millisecond)
 
 	// Stop the server
@@ -49,10 +58,13 @@ func TestMiddlewareStackIntegration(t *testing.T) {
 		w.Write([]byte("test response"))
 	})
 
+	// Apply middleware to the mux to create the handler
+	handler := srv.middleware.applyToMux(srv.mux)
+
 	// Test that default middleware stack is applied
 	req, _ := http.NewRequest("GET", "/test", nil)
 	rec := httptest.NewRecorder()
-	srv.mux.ServeHTTP(rec, req)
+	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("expected status %v, got %v", http.StatusOK, rec.Code)
@@ -66,39 +78,57 @@ func TestMiddlewareStackIntegration(t *testing.T) {
 
 func TestHealthEndpointsIntegration(t *testing.T) {
 	t.Parallel()
+	// Create server without health server to avoid port conflicts
 	srv, err := NewServer()
 	if err != nil {
 		t.Fatalf("failed to create server: %v", err)
 	}
 
-	// Test health endpoints
-	healthEndpoints := []string{"/healthz", "/readyz", "/livez"}
+	// Disable automatic health server and set unique port
+	srv.Options.RunHealthServer = false
+	srv.Options.HealthAddr = fmt.Sprintf(":0") // Let OS assign port
+
+	// Initialize the health server manually to set up the endpoints
+	if err := srv.initHealthServer(); err != nil {
+		t.Fatalf("failed to initialize health server: %v", err)
+	}
+
+	// The server should be ready (created) and running (health server started)
+	// For testing purposes, manually set the server as running since we're not calling Run()
+	srv.isRunning.Store(true)
 	
+	// Test health endpoints on the health server mux
+	healthEndpoints := []string{"/healthz/", "/readyz/", "/livez/"} // Note: handlers use trailing slash
+
 	for _, endpoint := range healthEndpoints {
 		req, _ := http.NewRequest("GET", endpoint, nil)
 		rec := httptest.NewRecorder()
-		srv.mux.ServeHTTP(rec, req)
+		srv.healthMux.ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Errorf("health endpoint %s returned status %v, expected %v", endpoint, rec.Code, http.StatusOK)
+			// Log the actual response for debugging
+			t.Logf("Response body: %s", rec.Body.String())
 		}
+	}
+
+	// Cleanup health server
+	if srv.healthServer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+		srv.healthServer.Shutdown(ctx)
 	}
 }
 
 func TestTemplateRenderingIntegration(t *testing.T) {
 	t.Parallel()
-	srv, err := NewServer()
-	if err != nil {
-		t.Fatalf("failed to create server: %v", err)
-	}
-
+	
 	// Create unique template directory
 	templateDir := fmt.Sprintf("./test_integration_templates_%d_%d", time.Now().UnixNano(), os.Getpid())
-	srv.Options.TemplateDir = templateDir
 	defer os.RemoveAll(templateDir)
 
-	// Create template file
-	err = os.MkdirAll(templateDir, 0755)
+	// Create template file BEFORE creating the server
+	err := os.MkdirAll(templateDir, 0755)
 	if err != nil {
 		t.Fatalf("failed to create template directory: %v", err)
 	}
@@ -108,6 +138,14 @@ func TestTemplateRenderingIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to write template file: %v", err)
 	}
+
+	// Now create the server with the template directory already set up
+	srv, err := NewServer(WithTemplateDir(templateDir))
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+	
+	// Templates will be parsed lazily when HandleFuncDynamic is called
 
 	// Add template endpoint
 	err = srv.HandleFuncDynamic("/template-test", "test.html", func(r *http.Request) interface{} {
@@ -153,13 +191,13 @@ func TestRateLimitingIntegration(t *testing.T) {
 	req, _ := http.NewRequest("GET", "/rate-test", nil)
 	req.RemoteAddr = "127.0.0.1:12345"
 	rec1 := httptest.NewRecorder()
-	
+
 	// Apply middleware manually for testing
 	handler := RateLimitMiddleware(srv)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("success"))
 	}))
-	
+
 	handler.ServeHTTP(rec1, req)
 	if rec1.Code != http.StatusOK {
 		t.Errorf("first request should succeed, got status %v", rec1.Code)
@@ -195,13 +233,13 @@ func TestSecurityHeadersIntegration(t *testing.T) {
 	// Test that security headers are applied
 	req, _ := http.NewRequest("GET", "/secure-test", nil)
 	rec := httptest.NewRecorder()
-	
+
 	// Apply middleware manually for testing
 	handler := HeadersMiddleware(srv.Options)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("secure"))
 	}))
-	
+
 	handler.ServeHTTP(rec, req)
 
 	// Check for key security headers

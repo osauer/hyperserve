@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
-
 )
 
 // BenchmarkBaseline measures the raw performance of a minimal HyperServe handler
@@ -161,7 +160,7 @@ func BenchmarkJSON(b *testing.B) {
 	}
 
 	type Response struct {
-		Status string            `json:"status"`
+		Status string                 `json:"status"`
 		Data   map[string]interface{} `json:"data"`
 	}
 
@@ -170,12 +169,12 @@ func BenchmarkJSON(b *testing.B) {
 		resp := Response{
 			Status: "success",
 			Data: map[string]interface{}{
-				"id":        12345,
-				"name":      "Test User",
-				"email":     "test@example.com",
-				"active":    true,
-				"score":     98.5,
-				"tags":      []string{"premium", "verified"},
+				"id":     12345,
+				"name":   "Test User",
+				"email":  "test@example.com",
+				"active": true,
+				"score":  98.5,
+				"tags":   []string{"premium", "verified"},
 			},
 		}
 		if err := json.NewEncoder(w).Encode(resp); err != nil {

@@ -33,9 +33,9 @@ type ServerOptions struct {
 	ChaosThrottleRate      float64       `json:"chaos_throttle_rate,omitempty"`
 	ChaosPanicRate         float64       `json:"chaos_panic_rate,omitempty"`
 	AuthTokenValidatorFunc func(token string) (bool, error)
-	FIPSMode               bool          `json:"fips_mode,omitempty"`
-	EnableECH              bool          `json:"enable_ech,omitempty"`
-	ECHKeys                [][]byte      `json:"-"` // ECH keys are sensitive, don't serialize
+	FIPSMode               bool     `json:"fips_mode,omitempty"`
+	EnableECH              bool     `json:"enable_ech,omitempty"`
+	ECHKeys                [][]byte `json:"-"` // ECH keys are sensitive, don't serialize
 }
 
 var defaultServerOptions = &ServerOptions{
@@ -71,9 +71,9 @@ const (
 	// LevelDebug enables debug-level logging with detailed information
 	LevelDebug = slog.LevelDebug
 	// LevelInfo enables info-level logging for general information
-	LevelInfo  = slog.LevelInfo
+	LevelInfo = slog.LevelInfo
 	// LevelWarn enables warning-level logging for important but non-critical events
-	LevelWarn  = slog.LevelWarn
+	LevelWarn = slog.LevelWarn
 	// LevelError enables error-level logging for error conditions only
 	LevelError = slog.LevelError
 )

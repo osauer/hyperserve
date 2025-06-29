@@ -51,10 +51,10 @@ func numbersStreamHandler(w http.ResponseWriter, r *http.Request) {
 		case <-ticker.C:
 			// Create dynamic data
 			data := map[string]interface{}{
-				"value": rand.Intn(100),
+				"value":     rand.Intn(100),
 				"timestamp": time.Now().Format("15:04:05"),
 			}
-			
+
 			// Use the improved SSE message formatting
 			sseMessage := hs.NewSSEMessage(data)
 			if _, err := fmt.Fprint(w, sseMessage); err != nil {

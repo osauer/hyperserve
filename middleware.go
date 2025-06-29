@@ -190,14 +190,14 @@ func AuthMiddleware(options *ServerOptions) MiddlewareFunc {
 				http.Error(w, "Internal Server Error: Auth not configured", http.StatusInternalServerError)
 				return
 			}
-			
+
 			// Use crypto/subtle.WithDataIndependentTiming for constant-time token validation
 			var valid bool
 			var err error
 			subtle.WithDataIndependentTiming(func() {
 				valid, err = options.AuthTokenValidatorFunc(token)
 			})
-			
+
 			if err != nil {
 				logger.Error("error validating token", "error", err)
 				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -279,12 +279,12 @@ func RateLimitMiddleware(srv *Server) MiddlewareFunc {
 	return func(next http.Handler) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			ip, _, _ := net.SplitHostPort(r.RemoteAddr)
-			
+
 			// Try to get existing limiter with read lock (fast path)
 			srv.limitersMu.RLock()
 			entry, exists := srv.clientLimiters[ip]
 			srv.limitersMu.RUnlock()
-			
+
 			if !exists {
 				// Create new limiter with write lock
 				srv.limitersMu.Lock()
@@ -304,7 +304,7 @@ func RateLimitMiddleware(srv *Server) MiddlewareFunc {
 				entry.lastAccess = time.Now()
 				srv.limitersMu.Unlock()
 			}
-			
+
 			if entry.limiter.Allow() {
 				// Add rate limit headers to inform clients of their current status
 				w.Header().Set("X-RateLimit-Limit", fmt.Sprintf("%.0f", float64(srv.Options.RateLimit)))
@@ -323,20 +323,20 @@ func RateLimitMiddleware(srv *Server) MiddlewareFunc {
 
 // securityHeaders provide headers for HeadersMiddleware
 var securityHeaders = []Header{
-	{"X-Content-Type-Options", "nosniff"},                                            // Prevent MIME-type sniffing
-	{"X-Frame-Options", "DENY"},                                                      // Mitigate clickjacking
-	{"Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload"},   // Enforce HTTPS with preload
-	{"Referrer-Policy", "strict-origin-when-cross-origin"},                          // Balance privacy and functionality
-	{"Permissions-Policy", "geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), speaker=(), fullscreen=(self)"}, // Modern replacement for Feature-Policy
+	{"X-Content-Type-Options", "nosniff"},                                         // Prevent MIME-type sniffing
+	{"X-Frame-Options", "DENY"},                                                   // Mitigate clickjacking
+	{"Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload"}, // Enforce HTTPS with preload
+	{"Referrer-Policy", "strict-origin-when-cross-origin"},                        // Balance privacy and functionality
+	{"Permissions-Policy", "geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), speaker=(), fullscreen=(self)"},                                                                                                                                                  // Modern replacement for Feature-Policy
 	{"Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; media-src 'self'; object-src 'none'; child-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"}, // Comprehensive CSP
-	{"Cross-Origin-Embedder-Policy", "require-corp"},                                // Prevent cross-origin attacks
-	{"Cross-Origin-Opener-Policy", "same-origin"},                                   // Isolate browsing context
-	{"Cross-Origin-Resource-Policy", "same-origin"},                                 // Control cross-origin resource sharing
-	{"X-Permitted-Cross-Domain-Policies", "none"},                                   // Restrict Flash/PDF cross-domain access
-	{"Access-Control-Allow-Methods", "GET, POST, OPTIONS"},                          // Allowed methods
-	{"Access-Control-Allow-Headers", "Content-Type, Authorization"},                 // Allowed headers
-	{"Access-Control-Allow-Credentials", "true"},                                    // If cookies or credentials are needed
-	{"Access-Control-Max-Age", "600"},                                               // Pre-flight request cache
+	{"Cross-Origin-Embedder-Policy", "require-corp"},                // Prevent cross-origin attacks
+	{"Cross-Origin-Opener-Policy", "same-origin"},                   // Isolate browsing context
+	{"Cross-Origin-Resource-Policy", "same-origin"},                 // Control cross-origin resource sharing
+	{"X-Permitted-Cross-Domain-Policies", "none"},                   // Restrict Flash/PDF cross-domain access
+	{"Access-Control-Allow-Methods", "GET, POST, OPTIONS"},          // Allowed methods
+	{"Access-Control-Allow-Headers", "Content-Type, Authorization"}, // Allowed headers
+	{"Access-Control-Allow-Credentials", "true"},                    // If cookies or credentials are needed
+	{"Access-Control-Max-Age", "600"},                               // Pre-flight request cache
 }
 
 // HeadersMiddleware returns a middleware function that adds security headers to responses.

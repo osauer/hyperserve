@@ -41,7 +41,6 @@ const (
 	paramFileName   = "options.json"
 )
 
-
 // rateLimit limits requests per second that can be requested from the httpServer. Requires to add [RateLimitMiddleware]
 type rateLimit = rate.Limit
 
@@ -243,6 +242,7 @@ func (srv *Server) tlsConfig() *tls.Config {
 func (srv *Server) AddMiddleware(route string, mw MiddlewareFunc) {
 	srv.middleware.Add(route, MiddlewareStack{mw})
 }
+
 // AddMiddlewareStack adds a collection of middleware functions to the specified route.
 // The middleware stack is applied in the order provided.
 func (srv *Server) AddMiddlewareStack(route string, mw MiddlewareStack) {
@@ -349,7 +349,7 @@ func (srv *Server) shutdown(ctx context.Context) error {
 
 	// Clean up resources
 	srv.stopCleanup()
-	
+
 	// Close os.Root handles if they exist
 	if srv.staticRoot != nil {
 		if err := srv.staticRoot.Close(); err != nil {
@@ -421,6 +421,12 @@ func (srv *Server) HandleFuncDynamic(pattern, tmplName string, dataFunc DataFunc
 		logger.Error("Failed to parse templates", "error", err)
 		return err
 	}
+	
+	// Check if the template exists
+	if srv.templates != nil && srv.templates.Lookup(tmplName) == nil {
+		return fmt.Errorf("template %s not found", tmplName)
+	}
+	
 	srv.mux.HandleFunc(pattern,
 		// todo return error if template execution fails
 		func(w http.ResponseWriter, r *http.Request) {
@@ -502,10 +508,15 @@ func (srv *Server) rootFileServer() http.Handler {
 // Unlike HandleFuncDynamic, the data is provided once at registration time.
 // Returns an error if template parsing fails.
 func (srv *Server) HandleTemplate(pattern, t string, data interface{}) error {
-	srv.Options.TemplateDir = EnsureTrailingSlash(srv.Options.TemplateDir)
 	if err := srv.parseTemplates(); err != nil {
 		return fmt.Errorf("Failed to parse templates. %w", err)
 	}
+	
+	// Check if the template exists
+	if srv.templates != nil && srv.templates.Lookup(t) == nil {
+		return fmt.Errorf("template %s not found", t)
+	}
+	
 	srv.mux.HandleFunc(pattern, srv.templateHandler(t, data))
 	return nil
 }
@@ -523,7 +534,7 @@ func (srv *Server) parseTemplates() error {
 	if srv.templateRoot != nil {
 		// Use secure os.Root for template parsing (Go 1.24+)
 		tmpl := template.New("root")
-		
+
 		// List directory contents using a helper function
 		templateFiles, err := srv.listTemplateFiles()
 		if err != nil {
@@ -538,14 +549,14 @@ func (srv *Server) parseTemplates() error {
 					logger.Error("Failed to open template file", "file", filename, "error", err)
 					continue
 				}
-				
+
 				content, err := io.ReadAll(file)
 				file.Close()
 				if err != nil {
 					logger.Error("Failed to read template file", "file", filename, "error", err)
 					continue
 				}
-				
+
 				_, err = tmpl.New(filename).Parse(string(content))
 				if err != nil {
 					logger.Error("Failed to parse template", "file", filename, "error", err)
@@ -589,13 +600,13 @@ func (srv *Server) listTemplateFiles() ([]string, error) {
 	// Since os.Root doesn't have ReadDir, we need to use the regular os package
 	// to list files, then validate them through os.Root
 	var files []string
-	
+
 	// Read the actual directory
 	entries, err := os.ReadDir(srv.Options.TemplateDir)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			// Verify we can open it through os.Root (validates it's within root)
@@ -606,7 +617,7 @@ func (srv *Server) listTemplateFiles() ([]string, error) {
 			}
 		}
 	}
-	
+
 	return files, nil
 }
 

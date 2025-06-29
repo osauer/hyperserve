@@ -14,6 +14,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Individual middleware measurements show relative costs
   - Hardware-independent metrics focus on efficiency
 - **Performance Documentation**: Added detailed analysis with focus on relative performance
+- **Architecture Decision Records (ADRs)**: Documented 10 key architecture decisions
+  - Minimal external dependencies strategy
+  - Functional options configuration pattern
+  - Layered middleware architecture
+  - Configuration precedence hierarchy
+  - Separate health check server design
+  - Go 1.24 minimum version requirement
+  - Optional template system integration
+  - Context-based graceful shutdown
+  - Single package architecture choice
+  - Server-Sent Events as first-class feature
+
+### Fixed
+- **Test failures**: Fixed all test issues including:
+  - Unused imports in enterprise example
+  - Template parsing with os.Root security
+  - Middleware test integration
+  - Health endpoint testing on correct server
+  - Parallel test execution conflicts
+- **Template directory modification**: Removed side effect in HandleTemplate that modified Options.TemplateDir
 
 ## [0.9.0] - 2025-06-27
 

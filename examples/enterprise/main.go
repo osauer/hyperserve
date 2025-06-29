@@ -3,7 +3,6 @@ package main
 
 import (
 	"crypto/rand"
-	"encoding/base64"
 	"fmt"
 	"log"
 	"net/http"
@@ -25,25 +24,25 @@ func main() {
 		// Basic configuration
 		hyperserve.WithAddr(":8443"),
 		hyperserve.WithHealthServer(),
-		
+
 		// Enable FIPS 140-3 mode for government compliance
 		hyperserve.WithFIPSMode(),
-		
+
 		// Enable TLS with certificates
 		hyperserve.WithTLS("cert.pem", "key.pem"),
-		
+
 		// Enable Encrypted Client Hello for privacy
 		hyperserve.WithEncryptedClientHello(echKey),
-		
+
 		// Configure rate limiting
 		hyperserve.WithRateLimit(100, 200),
-		
+
 		// Set strict timeouts
 		hyperserve.WithTimeouts(30*time.Second, 30*time.Second, 120*time.Second),
-		
+
 		// Configure authentication
 		hyperserve.WithAuthTokenValidator(validateToken),
-		
+
 		// Set template and static directories
 		hyperserve.WithTemplateDir("./templates"),
 	)
@@ -53,18 +52,18 @@ func main() {
 
 	// Apply security middleware stack to all routes
 	srv.AddMiddlewareStack("*", hyperserve.SecureWeb(srv.Options))
-	
+
 	// Apply API security to /api routes
 	srv.AddMiddlewareStack("/api", hyperserve.SecureAPI(srv))
-	
+
 	// Public endpoints
 	srv.HandleFunc("/", homeHandler)
 	srv.HandleFunc("/health", healthHandler)
-	
+
 	// Protected API endpoints
 	srv.HandleFunc("/api/status", apiStatusHandler)
 	srv.HandleFunc("/api/data", apiDataHandler)
-	
+
 	// Serve static files securely (uses os.Root in Go 1.24)
 	srv.HandleStatic("/static/")
 
@@ -76,7 +75,7 @@ func main() {
 	log.Println("- Timing-safe authentication")
 	log.Println("- Secure file serving with os.Root")
 	log.Println("- Swiss Tables optimized rate limiting")
-	
+
 	if err := srv.Run(); err != nil {
 		log.Fatal("Server failed:", err)
 	}
@@ -90,12 +89,12 @@ func validateToken(token string) (bool, error) {
 		"enterprise-key-123": true,
 		"admin-token-456":    true,
 	}
-	
+
 	// Check if token exists
 	if valid, exists := validTokens[token]; exists && valid {
 		return true, nil
 	}
-	
+
 	// Simulate database lookup time to prevent timing attacks
 	time.Sleep(10 * time.Millisecond)
 	return false, nil
@@ -189,12 +188,12 @@ func apiDataHandler(w http.ResponseWriter, r *http.Request) {
 			{"id": 2, "value": "Enterprise data 2", "classified": true},
 		},
 		"metadata": map[string]interface{}{
-			"total": 2,
-			"filtered": 0,
+			"total":      2,
+			"filtered":   0,
 			"encryption": "AES-256-GCM",
 		},
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	// In production, use json.NewEncoder(w).Encode(data)
 	fmt.Fprintf(w, `%v`, data)
@@ -204,7 +203,7 @@ func init() {
 	// Set GOFIPS140 environment variable for FIPS mode
 	// This should be done at the system level in production
 	os.Setenv("GOFIPS140", "1")
-	
+
 	// Ensure we're using a FIPS-compliant random source
 	// Go 1.24 handles this automatically when GOFIPS140 is set
 }
