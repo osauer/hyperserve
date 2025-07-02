@@ -45,6 +45,7 @@ type ServerOptions struct {
 	MCPToolsEnabled        bool     `json:"mcp_tools_enabled,omitempty"`
 	MCPResourcesEnabled    bool     `json:"mcp_resources_enabled,omitempty"`
 	MCPFileToolRoot        string   `json:"mcp_file_tool_root,omitempty"`
+	MCPLogResourceSize     int      `json:"mcp_log_resource_size,omitempty"`
 }
 
 var defaultServerOptions = &ServerOptions{
@@ -81,6 +82,7 @@ var defaultServerOptions = &ServerOptions{
 	MCPToolsEnabled:        true,
 	MCPResourcesEnabled:    true,
 	MCPFileToolRoot:        "",
+	MCPLogResourceSize:     100,
 }
 
 // Log level constants for server configuration.

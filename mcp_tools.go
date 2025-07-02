@@ -138,9 +138,14 @@ func (t *ListDirectoryTool) Execute(params map[string]interface{}) (interface{},
 	var err error
 	
 	if t.root != nil {
-		// For os.Root, we need to read from the actual directory
-		// but validate access through the root
-		entries, err = os.ReadDir(filepath.Join(t.root.String(), path))
+		// Use secure os.Root for directory access
+		file, err := t.root.Open(path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open directory: %w", err)
+		}
+		defer file.Close()
+		
+		entries, err = file.ReadDir(-1)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read directory: %w", err)
 		}

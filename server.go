@@ -154,7 +154,7 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 			srv.mcpHandler.RegisterResource(NewConfigResource(srv.Options))
 			srv.mcpHandler.RegisterResource(NewMetricsResource(srv))
 			srv.mcpHandler.RegisterResource(NewSystemResource())
-			srv.mcpHandler.RegisterResource(NewLogResource(100)) // Keep last 100 log entries
+			srv.mcpHandler.RegisterResource(NewLogResource(srv.Options.MCPLogResourceSize))
 		}
 		
 		// Register MCP endpoint

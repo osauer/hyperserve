@@ -3,6 +3,7 @@ package hyperserve
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -120,9 +121,8 @@ func (h *MCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	// Read request body
-	body := make([]byte, r.ContentLength)
-	_, err := r.Body.Read(body)
-	if err != nil && err.Error() != "EOF" {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
 		h.logger.Error("Failed to read request body", "error", err)
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
 		return
