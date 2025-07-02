@@ -1,7 +1,6 @@
 package hyperserve
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"

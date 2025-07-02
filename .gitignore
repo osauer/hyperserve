@@ -57,3 +57,17 @@ coverage.html
 # Build artifacts
 /bin/
 /dist/
+
+# Example binaries
+examples/hello-world/hello-world
+examples/static-files/static-files
+examples/json-api/json-api
+examples/middleware-basics/middleware-basics
+examples/configuration/configuration
+examples/auth/auth
+examples/chaos/chaos
+examples/enterprise/enterprise
+examples/htmx-dynamic/htmx-dynamic
+examples/htmx-stream/htmx-stream
+examples/mcp/mcp
+examples/mcp/sandbox/

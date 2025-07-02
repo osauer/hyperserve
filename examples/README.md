@@ -93,6 +93,14 @@ Enterprise-grade security features (Go 1.24+ required).
 - **Setup:** See [enterprise/README.md](enterprise/README.md) for certificate generation
 - **Run:** `cd examples/enterprise && ./generate_certs.sh && go run main.go`
 
+#### [mcp](mcp/) ⭐⭐⭐⭐
+Model Context Protocol (MCP) support for AI assistants.
+- JSON-RPC 2.0 protocol implementation
+- Built-in tools (calculator, file operations, HTTP)
+- Built-in resources (config, metrics, system info)
+- Secure sandboxed file access
+- **Run:** `go run examples/mcp/main.go`
+
 ## 🚀 Running Examples
 
 All examples can be run directly:

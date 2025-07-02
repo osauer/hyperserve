@@ -242,7 +242,7 @@ Content-Type: application/json
 		slog.Info("Received shutdown signal", "signal", sig)
 		
 		// Create context with timeout for shutdown
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		_, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		
 		if err := srv.Stop(); err != nil {

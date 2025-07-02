@@ -1,58 +1,48 @@
 # MCP (Model Context Protocol) Example
 
-This example demonstrates how to use Hyperserve with MCP (Model Context Protocol) support to create a server that AI assistants can connect to and interact with.
+This example demonstrates HyperServe's native support for the Model Context Protocol (MCP), enabling AI assistants to connect and interact with the server through standardized tools and resources.
 
 ## What is MCP?
 
-The Model Context Protocol (MCP) is an open standard that allows AI assistants to securely connect to data sources and tools. It provides:
+The Model Context Protocol is an open standard that allows AI assistants like Claude to interact with servers through:
+- **Tools**: Execute operations (calculations, file reading, HTTP requests)
+- **Resources**: Access server information (config, metrics, logs)
+- **JSON-RPC 2.0**: Standardized communication protocol
+- **Security**: Sandboxed file operations using Go 1.24's `os.Root`
 
-- **Standardized access** to external data sources
-- **Tool execution** capabilities
-- **Real-time data streaming** to AI models
-- **Security-focused** design with capability negotiation
+## Running the Example
+
+```bash
+go run main.go
+```
+
+The server will start on:
+- Main server: http://localhost:8080
+- Health checks: http://localhost:9080
+- MCP endpoint: http://localhost:8080/mcp
 
 ## Features Demonstrated
 
 ### 🛠️ Built-in Tools
-- **Calculator** - Basic mathematical operations (add, subtract, multiply, divide)
-- **File Reader** - Secure file access within sandbox directory
-- **Directory Lister** - List directory contents
-- **HTTP Client** - Make HTTP requests to external services
+1. **calculator** - Basic math operations (add, subtract, multiply, divide)
+2. **read_file** - Read files from the sandbox directory
+3. **list_directory** - List directory contents
+4. **http_request** - Make HTTP requests to external services
 
 ### 📊 Built-in Resources
-- **Server Configuration** - Access to server settings (sanitized)
-- **Performance Metrics** - Real-time server statistics
-- **System Information** - Runtime and system details
-- **Recent Logs** - Access to recent log entries
+1. **config://server/options** - Server configuration (sanitized)
+2. **metrics://server/stats** - Performance metrics
+3. **system://runtime/info** - System and Go runtime information
+4. **logs://server/recent** - Recent log entries
 
 ### 🔒 Security Features
-- **Sandboxed File Access** - File operations restricted to `./sandbox/` directory
-- **os.Root Integration** - Uses Go 1.24's secure file access
-- **JSON-RPC 2.0** - Standard protocol implementation
-- **Capability Negotiation** - Clients can only access enabled features
+- File operations restricted to `./sandbox/` directory
+- Uses Go 1.24's `os.Root` for secure file access
+- Sanitized configuration output (no sensitive data)
 
-## Running the Example
-
-1. **Start the server:**
-   ```bash
-   cd examples/mcp
-   go run main.go
-   ```
-
-2. **Access the web interface:**
-   Open your browser to `http://localhost:8080` to see the example documentation and request samples.
-
-3. **Health checks:**
-   - General health: `http://localhost:9080/healthz/`
-   - Readiness: `http://localhost:9080/readyz/`
-   - Liveness: `http://localhost:9080/livez/`
-
-## MCP Protocol Usage
+## Testing the MCP Protocol
 
 ### 1. Initialize Connection
-
-First, establish a connection with the MCP server:
-
 ```bash
 curl -X POST http://localhost:8080/mcp \
   -H "Content-Type: application/json" \
@@ -62,29 +52,20 @@ curl -X POST http://localhost:8080/mcp \
     "params": {
       "protocolVersion": "2024-11-05",
       "capabilities": {},
-      "clientInfo": {
-        "name": "example-client",
-        "version": "1.0.0"
-      }
+      "clientInfo": {"name": "test-client", "version": "1.0"}
     },
     "id": 1
   }'
 ```
 
 ### 2. List Available Tools
-
 ```bash
 curl -X POST http://localhost:8080/mcp \
   -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "method": "tools/list",
-    "id": 2
-  }'
+  -d '{"jsonrpc": "2.0", "method": "tools/list", "id": 2}'
 ```
 
-### 3. Use the Calculator Tool
-
+### 3. Use Calculator
 ```bash
 curl -X POST http://localhost:8080/mcp \
   -H "Content-Type: application/json" \
@@ -93,18 +74,13 @@ curl -X POST http://localhost:8080/mcp \
     "method": "tools/call",
     "params": {
       "name": "calculator",
-      "arguments": {
-        "operation": "multiply",
-        "a": 15,
-        "b": 4
-      }
+      "arguments": {"operation": "multiply", "a": 15, "b": 4}
     },
     "id": 3
   }'
 ```
 
-### 4. Read a File from Sandbox
-
+### 4. Read a File
 ```bash
 curl -X POST http://localhost:8080/mcp \
   -H "Content-Type: application/json" \
@@ -113,16 +89,13 @@ curl -X POST http://localhost:8080/mcp \
     "method": "tools/call",
     "params": {
       "name": "read_file",
-      "arguments": {
-        "path": "welcome.txt"
-      }
+      "arguments": {"path": "welcome.txt"}
     },
     "id": 4
   }'
 ```
 
-### 5. List Directory Contents
-
+### 5. List Directory
 ```bash
 curl -X POST http://localhost:8080/mcp \
   -H "Content-Type: application/json" \
@@ -131,102 +104,93 @@ curl -X POST http://localhost:8080/mcp \
     "method": "tools/call",
     "params": {
       "name": "list_directory",
-      "arguments": {
-        "path": "."
-      }
+      "arguments": {"path": "."}
     },
     "id": 5
   }'
 ```
 
-### 6. Access Server Resources
-
-List available resources:
-```bash
-curl -X POST http://localhost:8080/mcp \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "method": "resources/list",
-    "id": 6
-  }'
-```
-
-Read system information:
+### 6. Read System Information
 ```bash
 curl -X POST http://localhost:8080/mcp \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
     "method": "resources/read",
-    "params": {
-      "uri": "system://runtime/info"
-    },
-    "id": 7
+    "params": {"uri": "system://runtime/info"},
+    "id": 6
   }'
 ```
 
-## Sandbox Directory
+## Sample Files
 
-The example creates a `./sandbox/` directory with sample files:
-
-- `welcome.txt` - Welcome message and documentation
+The example creates several sample files in the `./sandbox/` directory:
+- `welcome.txt` - Introduction to MCP features
 - `data.json` - Sample JSON data
-- `numbers.txt` - Simple list of numbers
-- `config.yaml` - Sample configuration file
+- `numbers.txt` - Simple number list
+- `config.yaml` - Sample configuration
 - `subdir/nested.txt` - File in subdirectory
 
-All file operations are restricted to this directory for security.
+## Using with AI Assistants
 
-## Configuration Options
+This server is designed to work with AI assistants that support MCP. The assistant can:
+1. Connect to the MCP endpoint
+2. Discover available tools and resources
+3. Execute tools to perform tasks
+4. Read resources to understand server state
 
-The example demonstrates various MCP configuration options:
+## Customization
+
+To add custom tools or resources:
 
 ```go
-srv, err := hyperserve.NewServer(
-    hyperserve.WithAddr(":8080"),
-    hyperserve.WithMCPSupport(),                    // Enable MCP
-    hyperserve.WithMCPEndpoint("/mcp"),             // Custom endpoint
-    hyperserve.WithMCPServerInfo("name", "1.0.0"), // Server identification
-    hyperserve.WithMCPFileToolRoot(sandboxDir),    // Restrict file access
-    // hyperserve.WithMCPToolsDisabled(),           // Disable tools
-    // hyperserve.WithMCPResourcesDisabled(),       // Disable resources
-)
+// Custom tool
+type MyTool struct{}
+
+func (t *MyTool) Name() string { return "my_tool" }
+func (t *MyTool) Description() string { return "My custom tool" }
+func (t *MyTool) Schema() map[string]interface{} { 
+    return map[string]interface{}{
+        "type": "object",
+        "properties": map[string]interface{}{
+            "input": map[string]interface{}{
+                "type": "string",
+                "description": "Input parameter",
+            },
+        },
+        "required": []string{"input"},
+    }
+}
+func (t *MyTool) Execute(params map[string]interface{}) (interface{}, error) {
+    // Implementation
+    return map[string]interface{}{"result": "success"}, nil
+}
+
+// Register in main.go after server creation
+if srv.mcpHandler != nil {
+    srv.mcpHandler.RegisterTool(&MyTool{})
+}
 ```
 
-## Error Handling
+## Architecture
 
-The MCP implementation includes comprehensive error handling:
+The MCP implementation consists of:
+- `mcp.go` - Core MCP handler and protocol implementation
+- `mcp_tools.go` - Built-in tool implementations
+- `mcp_resources.go` - Built-in resource implementations
+- `jsonrpc.go` - JSON-RPC 2.0 protocol handling
 
-- **Parse Errors** - Invalid JSON requests
-- **Method Not Found** - Unknown MCP methods
-- **Invalid Parameters** - Missing or incorrect parameters
-- **Tool Errors** - Tool execution failures
-- **Resource Errors** - Resource access failures
+## Performance
 
-All errors are returned in standard JSON-RPC 2.0 error format.
+- Zero overhead when MCP is disabled
+- Lazy initialization of components
+- Direct handler registration (not middleware-based)
+- Efficient JSON-RPC routing
 
-## Integration with AI Assistants
+## Security Considerations
 
-This server can be used with any MCP-compatible AI assistant. The assistant can:
-
-1. Connect to the server using the MCP protocol
-2. Discover available tools and resources
-3. Execute tools to perform operations
-4. Read resources to access server information
-5. Use the data to provide intelligent responses
-
-## Next Steps
-
-- **Add Custom Tools** - Implement application-specific tools
-- **Add Custom Resources** - Expose application data as resources
-- **Authentication** - Add token-based authentication if needed
-- **TLS** - Enable HTTPS for production deployments
-- **Rate Limiting** - Configure appropriate rate limits
-- **Monitoring** - Use the metrics endpoint for monitoring
-
-## Learn More
-
-- [MCP Specification](https://modelcontextprotocol.io/)
-- [Hyperserve Documentation](../../README.md)
-- [Go 1.24 os.Root Documentation](https://pkg.go.dev/os#Root)
+1. **File Access**: Restricted to sandbox directory
+2. **HTTP Requests**: Consider adding URL filtering for production
+3. **Rate Limiting**: Apply standard HyperServe rate limiting
+4. **Authentication**: Can be combined with auth middleware
+5. **Resource Access**: Sensitive data is filtered from config resource
