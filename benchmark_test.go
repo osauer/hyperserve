@@ -478,7 +478,7 @@ func BenchmarkMCPWithMiddleware(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		w := httptest.NewRecorder()
-		handler := srv.middleware.WrapHandler(srv.mux)
+		handler := srv.middleware.applyToMux(srv.mux)
 		handler.ServeHTTP(w, req)
 	}
 }

@@ -3,6 +3,7 @@ package hyperserve
 import (
 	"encoding/json"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -163,10 +164,10 @@ func TestConfigResource(t *testing.T) {
 func TestMetricsResource(t *testing.T) {
 	// Create a test server
 	srv := &Server{
-		totalRequests:     &atomic.Uint64{},
-		totalResponseTime: &atomic.Int64{},
-		isRunning:         &atomic.Bool{},
-		isReady:           &atomic.Bool{},
+		totalRequests:     atomic.Uint64{},
+		totalResponseTime: atomic.Int64{},
+		isRunning:         atomic.Bool{},
+		isReady:           atomic.Bool{},
 		serverStart:       time.Now().Add(-time.Hour), // Started 1 hour ago
 	}
 	
