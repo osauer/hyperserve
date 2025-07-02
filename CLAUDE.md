@@ -12,12 +12,14 @@ cd examples/chaos && go build
 cd examples/htmx-dynamic && go build
 cd examples/htmx-stream && go build
 cd examples/enterprise && go build
+cd examples/mcp && go build
 
 # Run examples
 go run examples/chaos/main.go
 go run examples/htmx-dynamic/main.go
 go run examples/htmx-stream/main.go
 go run examples/enterprise/main.go
+go run examples/mcp/main.go
 
 # Generate certificates for enterprise example
 cd examples/enterprise && ./generate_certs.sh
@@ -89,7 +91,8 @@ hyperserve/
     ├── chaos/             # Chaos engineering example
     ├── enterprise/        # FIPS and security features
     ├── htmx-dynamic/      # Dynamic HTMX content
-    └── htmx-stream/       # Server-sent events with HTMX
+    ├── htmx-stream/       # Server-sent events with HTMX
+    └── mcp/               # Model Context Protocol (MCP) example
 ```
 
 This structure reduces root directory clutter and follows standard Go project organization patterns.
@@ -110,6 +113,7 @@ Key architecture decisions are documented in [`docs/adr/`](docs/adr/):
 - [ADR-0008: Graceful Shutdown Design](docs/adr/0008-graceful-shutdown-design.md) - Context-based shutdown with timeout
 - [ADR-0009: Single Package Architecture](docs/adr/0009-single-package-architecture.md) - Everything in one package
 - [ADR-0010: Server-Sent Events Support](docs/adr/0010-server-sent-events-support.md) - SSE as first-class feature
+- [ADR-0011: MCP Protocol Support](docs/adr/0011-mcp-protocol-support.md) - Model Context Protocol for AI assistant integration
 
 ### Core Components
 
@@ -232,4 +236,204 @@ srv.AddMiddleware("/api", hyperserve.AuthMiddleware(srv.Options))
 go srv.Run()
 // ... later ...
 srv.Stop()
+```
+
+## MCP (Model Context Protocol) Support
+
+Hyperserve provides native support for the Model Context Protocol (MCP), enabling AI assistants to connect and interact with the server through standardized tools and resources.
+
+### What is MCP?
+
+The Model Context Protocol is an open standard that allows AI assistants to:
+- **Execute Tools**: Perform operations like file reading, calculations, HTTP requests
+- **Access Resources**: Read configuration, metrics, and system information
+- **Secure Communication**: JSON-RPC 2.0 with capability negotiation
+- **Sandboxed Operations**: Safe file access using Go 1.24's os.Root
+
+### Quick Start
+
+Enable MCP support in your server:
+
+```go
+srv, err := hyperserve.NewServer(
+    hyperserve.WithAddr(":8080"),
+    hyperserve.WithMCPSupport(),                    // Enable MCP
+    hyperserve.WithMCPEndpoint("/mcp"),             // Custom endpoint (default: /mcp)
+    hyperserve.WithMCPServerInfo("my-app", "1.0"),  // Server identification
+    hyperserve.WithMCPFileToolRoot("./sandbox"),    // Secure file access root
+)
+```
+
+### Built-in Tools
+
+MCP includes these tools out of the box:
+
+- **`calculator`**: Basic math operations (add, subtract, multiply, divide)
+- **`read_file`**: Read file contents (sandboxed to configured root)
+- **`list_directory`**: List directory contents (sandboxed)
+- **`http_request`**: Make HTTP requests to external services
+
+### Built-in Resources
+
+Access server information through these resources:
+
+- **`config://server/options`**: Server configuration (sanitized)
+- **`metrics://server/stats`**: Performance metrics and statistics
+- **`system://runtime/info`**: Go runtime and system information
+- **`logs://server/recent`**: Recent log entries (if enabled)
+
+### Configuration Options
+
+```go
+type ServerOptions struct {
+    MCPEnabled             bool     // Enable/disable MCP support
+    MCPEndpoint            string   // HTTP endpoint for MCP (default: "/mcp")
+    MCPServerName          string   // Server name for identification
+    MCPServerVersion       string   // Server version for identification
+    MCPToolsEnabled        bool     // Enable/disable tools (default: true)
+    MCPResourcesEnabled    bool     // Enable/disable resources (default: true)
+    MCPFileToolRoot        string   // Root directory for file tools (optional)
+}
+```
+
+### Environment Variables
+
+Configure MCP via environment variables:
+
+- `HS_MCP_ENABLED`: Enable MCP support (true/false)
+- `HS_MCP_ENDPOINT`: MCP endpoint path
+- `HS_MCP_SERVER_NAME`: Server identification name
+- `HS_MCP_SERVER_VERSION`: Server version
+- `HS_MCP_FILE_TOOL_ROOT`: Root directory for file operations
+
+### Security Features
+
+1. **Sandboxed File Access**: Uses Go 1.24's `os.Root` for secure file operations
+2. **Configurable Root**: File tools restricted to specified directory
+3. **Sanitized Configuration**: Sensitive data excluded from config resource
+4. **Optional Authentication**: Integrates with existing auth middleware
+5. **Rate Limiting**: Standard rate limiting applies to MCP endpoints
+
+### Example Usage
+
+#### Initialize MCP Connection
+
+```bash
+curl -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "initialize",
+    "params": {
+      "protocolVersion": "2024-11-05",
+      "capabilities": {},
+      "clientInfo": {"name": "my-client", "version": "1.0.0"}
+    },
+    "id": 1
+  }'
+```
+
+#### Use Calculator Tool
+
+```bash
+curl -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "params": {
+      "name": "calculator",
+      "arguments": {"operation": "multiply", "a": 15, "b": 4}
+    },
+    "id": 2
+  }'
+```
+
+#### Read System Information
+
+```bash
+curl -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0", 
+    "method": "resources/read",
+    "params": {"uri": "system://runtime/info"},
+    "id": 3
+  }'
+```
+
+### Custom Tools and Resources
+
+Extend MCP with custom capabilities:
+
+```go
+// Custom tool implementation
+type MyTool struct{}
+
+func (t *MyTool) Name() string { return "my_tool" }
+func (t *MyTool) Description() string { return "Custom tool description" }
+func (t *MyTool) Schema() map[string]interface{} { /* JSON schema */ }
+func (t *MyTool) Execute(params map[string]interface{}) (interface{}, error) {
+    // Tool implementation
+}
+
+// Register custom tool
+srv.mcpHandler.RegisterTool(&MyTool{})
+```
+
+### Testing MCP Implementation
+
+```bash
+# Run MCP-specific tests
+go test -v -run TestMCP
+
+# Run integration tests
+go test -v -run TestMCPIntegration
+
+# Run all tests including MCP
+go test ./... -v
+```
+
+### Example Application
+
+See the complete MCP example:
+
+```bash
+# Run the MCP example server
+cd examples/mcp
+go run main.go
+
+# Open browser to see documentation
+open http://localhost:8080
+```
+
+### Performance Impact
+
+- **Zero Overhead**: No performance impact when MCP is disabled
+- **Lazy Initialization**: MCP components only created when enabled
+- **Efficient Routing**: Direct handler registration, not middleware-based
+- **Memory Management**: Proper cleanup and resource management
+
+### Common Patterns
+
+```go
+// Secure AI assistant server
+srv, _ := hyperserve.NewServer(
+    hyperserve.WithMCPSupport(),
+    hyperserve.WithMCPFileToolRoot("/safe/directory"),
+    hyperserve.WithAuthTokenValidator(validateToken),
+    hyperserve.WithRateLimit(50, 100), // Protect against abuse
+)
+
+// MCP with custom tools only
+srv, _ := hyperserve.NewServer(
+    hyperserve.WithMCPSupport(),
+    hyperserve.WithMCPResourcesDisabled(), // Only tools, no resources
+)
+
+// Minimal MCP server
+srv, _ := hyperserve.NewServer(
+    hyperserve.WithMCPSupport(),
+    hyperserve.WithMCPEndpoint("/ai"),
+)
 ```

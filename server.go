@@ -73,6 +73,7 @@ type Server struct {
 	cleanupDone       chan bool
 	staticRoot        *os.Root
 	templateRoot      *os.Root
+	mcpHandler        *MCPHandler
 }
 
 // NewServer creates a new instance of the Server with the given options.
@@ -116,6 +117,49 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 			srv.templateRoot = templateRoot
 			logger.Info("Template root initialized", "dir", srv.Options.TemplateDir)
 		}
+	}
+
+	// Initialize MCP handler if enabled
+	if srv.Options.MCPEnabled {
+		serverInfo := MCPServerInfo{
+			Name:    srv.Options.MCPServerName,
+			Version: srv.Options.MCPServerVersion,
+		}
+		srv.mcpHandler = NewMCPHandler(serverInfo)
+		
+		// Register built-in tools if enabled
+		if srv.Options.MCPToolsEnabled {
+			// File tools
+			fileReadTool, err := NewFileReadTool(srv.Options.MCPFileToolRoot)
+			if err != nil {
+				logger.Warn("Failed to create file read tool", "error", err)
+			} else {
+				srv.mcpHandler.RegisterTool(fileReadTool)
+			}
+			
+			listDirTool, err := NewListDirectoryTool(srv.Options.MCPFileToolRoot)
+			if err != nil {
+				logger.Warn("Failed to create list directory tool", "error", err)
+			} else {
+				srv.mcpHandler.RegisterTool(listDirTool)
+			}
+			
+			// HTTP and calculator tools
+			srv.mcpHandler.RegisterTool(NewHTTPRequestTool())
+			srv.mcpHandler.RegisterTool(NewCalculatorTool())
+		}
+		
+		// Register built-in resources if enabled
+		if srv.Options.MCPResourcesEnabled {
+			srv.mcpHandler.RegisterResource(NewConfigResource(srv.Options))
+			srv.mcpHandler.RegisterResource(NewMetricsResource(srv))
+			srv.mcpHandler.RegisterResource(NewSystemResource())
+			srv.mcpHandler.RegisterResource(NewLogResource(100)) // Keep last 100 log entries
+		}
+		
+		// Register MCP endpoint
+		srv.mux.Handle(srv.Options.MCPEndpoint, srv.mcpHandler)
+		logger.Info("MCP handler initialized", "endpoint", srv.Options.MCPEndpoint)
 	}
 
 	// Start cleanup ticker for rate limiters (run every 5 minutes)
@@ -774,6 +818,67 @@ func WithEncryptedClientHello(echKeys ...[]byte) ServerOptionFunc {
 		srv.Options.EnableECH = true
 		srv.Options.ECHKeys = echKeys
 		logger.Info("Encrypted Client Hello enabled", "keyCount", len(echKeys))
+		return nil
+	}
+}
+
+// WithMCPSupport enables MCP (Model Context Protocol) support on the server.
+// This allows AI assistants to connect and use tools/resources provided by the server.
+func WithMCPSupport() ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.MCPEnabled = true
+		logger.Info("MCP (Model Context Protocol) support enabled")
+		return nil
+	}
+}
+
+// WithMCPEndpoint configures the MCP endpoint path.
+// Default is "/mcp" if not specified.
+func WithMCPEndpoint(endpoint string) ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.MCPEndpoint = endpoint
+		logger.Info("MCP endpoint configured", "endpoint", endpoint)
+		return nil
+	}
+}
+
+// WithMCPServerInfo configures the MCP server identification.
+// This information is returned to MCP clients during initialization.
+func WithMCPServerInfo(name, version string) ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.MCPServerName = name
+		srv.Options.MCPServerVersion = version
+		logger.Info("MCP server info configured", "name", name, "version", version)
+		return nil
+	}
+}
+
+// WithMCPFileToolRoot configures a root directory for MCP file operations.
+// If specified, file tools will be restricted to this directory using os.Root for security.
+func WithMCPFileToolRoot(rootDir string) ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.MCPFileToolRoot = rootDir
+		logger.Info("MCP file tool root configured", "root", rootDir)
+		return nil
+	}
+}
+
+// WithMCPToolsDisabled disables MCP tools.
+// Resources will still be available if enabled.
+func WithMCPToolsDisabled() ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.MCPToolsEnabled = false
+		logger.Info("MCP tools disabled")
+		return nil
+	}
+}
+
+// WithMCPResourcesDisabled disables MCP resources.
+// Tools will still be available if enabled.
+func WithMCPResourcesDisabled() ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.MCPResourcesEnabled = false
+		logger.Info("MCP resources disabled")
 		return nil
 	}
 }

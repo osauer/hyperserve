@@ -37,6 +37,14 @@ type ServerOptions struct {
 	EnableECH              bool     `json:"enable_ech,omitempty"`
 	ECHKeys                [][]byte `json:"-"` // ECH keys are sensitive, don't serialize
 	HardenedMode           bool     `json:"hardened_mode,omitempty"`
+	// MCP (Model Context Protocol) configuration
+	MCPEnabled             bool     `json:"mcp_enabled,omitempty"`
+	MCPEndpoint            string   `json:"mcp_endpoint,omitempty"`
+	MCPServerName          string   `json:"mcp_server_name,omitempty"`
+	MCPServerVersion       string   `json:"mcp_server_version,omitempty"`
+	MCPToolsEnabled        bool     `json:"mcp_tools_enabled,omitempty"`
+	MCPResourcesEnabled    bool     `json:"mcp_resources_enabled,omitempty"`
+	MCPFileToolRoot        string   `json:"mcp_file_tool_root,omitempty"`
 }
 
 var defaultServerOptions = &ServerOptions{
@@ -65,6 +73,14 @@ var defaultServerOptions = &ServerOptions{
 	FIPSMode:               false,
 	EnableECH:              false,
 	HardenedMode:           false,
+	// MCP defaults
+	MCPEnabled:             false,
+	MCPEndpoint:            "/mcp",
+	MCPServerName:          "hyperserve",
+	MCPServerVersion:       "1.0.0",
+	MCPToolsEnabled:        true,
+	MCPResourcesEnabled:    true,
+	MCPFileToolRoot:        "",
 }
 
 // Log level constants for server configuration.
