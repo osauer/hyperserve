@@ -78,8 +78,8 @@ func main() {
 	srv.Options.IdleTimeout = 0
 
 	// Configure template and static directories
-	srv.Options.TemplateDir = "examples/htmx-stream/templates"
-	srv.Options.StaticDir = "examples/htmx-stream/static"
+	srv.Options.TemplateDir = "./templates"
+	srv.Options.StaticDir = "./static"
 	srv.HandleStatic("/static/")
 
 	// Handler for streaming

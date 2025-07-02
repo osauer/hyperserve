@@ -94,6 +94,16 @@ hyperserve/
 
 This structure reduces root directory clutter and follows standard Go project organization patterns.
 
+## Development Guidelines
+
+- **Testing and Documentation**
+  * Always test your changes thoroughly
+  * When building new features or updating existing ones, update:
+    - Examples
+    - Documentation
+    - Metadata files
+  * Ensure comprehensive test coverage for new functionality
+
 ## Architecture
 
 ### Architecture Decision Records (ADRs)

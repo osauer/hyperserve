@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>About - HyperServe Static Files Example</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>About This Example</h1>
+        
+        <div class="info-box">
+            <h2>Static File Serving</h2>
+            <p>This example demonstrates how HyperServe can serve static files like HTML, CSS, and JavaScript.</p>
+            
+            <h3>Features:</h3>
+            <ul>
+                <li><strong>Automatic index.html:</strong> Requests to <code>/</code> serve <code>index.html</code></li>
+                <li><strong>Directory structure:</strong> Files are organized in subdirectories</li>
+                <li><strong>Security headers:</strong> Proper headers for static content</li>
+                <li><strong>Mixed routes:</strong> Static files + custom API endpoints</li>
+            </ul>
+        </div>
+
+        <div class="code-example">
+            <h3>Server Code:</h3>
+            <pre><code>// Serve static files
+server.HandleStatic("/")
+
+// Add custom API routes
+server.HandleFunc("/api/status", handler)</code></pre>
+            <p>That's all you need to serve static files!</p>
+        </div>
+
+        <nav>
+            <a href="/">Back to Home</a>
+        </nav>
+    </div>
+</body>
+</html>
