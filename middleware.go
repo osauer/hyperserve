@@ -346,9 +346,8 @@ func HeadersMiddleware(options *ServerOptions) MiddlewareFunc {
 	logger.Info("HeadersMiddleware enabled")
 	return func(next http.Handler) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			// todo implement hardened mode
-			hardened := false
-			if !hardened {
+			// In hardened mode, suppress server header and apply stricter security policies
+			if !options.HardenedMode {
 				w.Header().Set("Server", "hyperserve")
 			}
 
