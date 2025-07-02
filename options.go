@@ -128,6 +128,34 @@ func applyEnvVars(config *ServerOptions) *ServerOptions {
 			logger.Info("Hardened mode enabled from environment variable", "variable", paramHardenedMode)
 		}
 	}
+	
+	// MCP (Model Context Protocol) environment variables
+	if mcpEnabled := os.Getenv(paramMCPEnabled); mcpEnabled != "" {
+		if mcpEnabled == "true" || mcpEnabled == "1" {
+			config.MCPEnabled = true
+			logger.Info("MCP enabled from environment variable", "variable", paramMCPEnabled)
+		} else if mcpEnabled == "false" || mcpEnabled == "0" {
+			config.MCPEnabled = false
+			logger.Info("MCP disabled from environment variable", "variable", paramMCPEnabled)
+		}
+	}
+	if mcpEndpoint := os.Getenv(paramMCPEndpoint); mcpEndpoint != "" {
+		config.MCPEndpoint = mcpEndpoint
+		logger.Info("MCP endpoint set from environment variable", "variable", paramMCPEndpoint, "endpoint", mcpEndpoint)
+	}
+	if mcpServerName := os.Getenv(paramMCPServerName); mcpServerName != "" {
+		config.MCPServerName = mcpServerName
+		logger.Info("MCP server name set from environment variable", "variable", paramMCPServerName, "name", mcpServerName)
+	}
+	if mcpServerVersion := os.Getenv(paramMCPServerVersion); mcpServerVersion != "" {
+		config.MCPServerVersion = mcpServerVersion
+		logger.Info("MCP server version set from environment variable", "variable", paramMCPServerVersion, "version", mcpServerVersion)
+	}
+	if mcpFileToolRoot := os.Getenv(paramMCPFileToolRoot); mcpFileToolRoot != "" {
+		config.MCPFileToolRoot = mcpFileToolRoot
+		logger.Info("MCP file tool root set from environment variable", "variable", paramMCPFileToolRoot, "root", mcpFileToolRoot)
+	}
+	
 	return config
 }
 
