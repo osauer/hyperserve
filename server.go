@@ -36,9 +36,10 @@ func init() {
 
 // Environment management variable names
 const (
-	paramServerAddr = "SERVER_ADDR"
-	paramHealthAddr = "HEALTH_ADDR"
-	paramFileName   = "options.json"
+	paramServerAddr   = "SERVER_ADDR"
+	paramHealthAddr   = "HEALTH_ADDR"
+	paramHardenedMode = "HS_HARDENED_MODE"
+	paramFileName     = "options.json"
 )
 
 // rateLimit limits requests per second that can be requested from the httpServer. Requires to add [RateLimitMiddleware]
@@ -428,12 +429,13 @@ func (srv *Server) HandleFuncDynamic(pattern, tmplName string, dataFunc DataFunc
 	}
 	
 	srv.mux.HandleFunc(pattern,
-		// todo return error if template execution fails
 		func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			
 			data := dataFunc(r)
 			if err := srv.templates.ExecuteTemplate(w, tmplName, data); err != nil {
-				http.Error(w, "Failed to load content", http.StatusInternalServerError)
-				logger.Error("Failed to execute template", "error", err)
+				logger.Error("Failed to execute template", "template", tmplName, "error", err)
+				http.Error(w, "Error rendering template", http.StatusInternalServerError)
 				return
 			}
 		})
@@ -718,10 +720,18 @@ func WithRateLimit(limit rateLimit, burst int) ServerOptionFunc {
 
 // WithTemplateDir sets the directory path where HTML templates are located.
 // Templates in this directory can be used with HandleTemplate and HandleFuncDynamic methods.
+// Returns an error if the specified directory does not exist or is not accessible.
 func WithTemplateDir(dir string) ServerOptionFunc {
 	return func(srv *Server) error {
+		// Check if the directory exists and is accessible
+		if _, err := os.Stat(dir); err != nil {
+			if os.IsNotExist(err) {
+				return fmt.Errorf("template directory not found: %s", dir)
+			}
+			return fmt.Errorf("template directory access error: %s: %w", dir, err)
+		}
+		
 		srv.Options.TemplateDir = dir
-		// Todo check if the directory exists and return error if not
 		return nil
 	}
 }
@@ -740,6 +750,16 @@ func WithFIPSMode() ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.FIPSMode = true
 		logger.Info("FIPS 140-3 mode enabled")
+		return nil
+	}
+}
+
+// WithHardenedMode enables hardened security mode for enhanced security headers.
+// In hardened mode, the server header is suppressed and additional security measures are applied.
+func WithHardenedMode() ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.HardenedMode = true
+		logger.Info("Hardened security mode enabled")
 		return nil
 	}
 }

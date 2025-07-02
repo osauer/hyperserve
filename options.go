@@ -36,6 +36,7 @@ type ServerOptions struct {
 	FIPSMode               bool     `json:"fips_mode,omitempty"`
 	EnableECH              bool     `json:"enable_ech,omitempty"`
 	ECHKeys                [][]byte `json:"-"` // ECH keys are sensitive, don't serialize
+	HardenedMode           bool     `json:"hardened_mode,omitempty"`
 }
 
 var defaultServerOptions = &ServerOptions{
@@ -63,6 +64,7 @@ var defaultServerOptions = &ServerOptions{
 	AuthTokenValidatorFunc: func(token string) (bool, error) { return false, nil },
 	FIPSMode:               false,
 	EnableECH:              false,
+	HardenedMode:           false,
 }
 
 // Log level constants for server configuration.
@@ -101,6 +103,12 @@ func applyEnvVars(config *ServerOptions) *ServerOptions {
 	if healthAddr := os.Getenv(paramHealthAddr); healthAddr != "" {
 		config.HealthAddr = healthAddr
 		logger.Info("Health endpoint address set from environment variable", "variable", paramHealthAddr, "addr", healthAddr)
+	}
+	if hardenedMode := os.Getenv(paramHardenedMode); hardenedMode != "" {
+		if hardenedMode == "true" || hardenedMode == "1" {
+			config.HardenedMode = true
+			logger.Info("Hardened mode enabled from environment variable", "variable", paramHardenedMode)
+		}
 	}
 	return config
 }

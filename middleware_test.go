@@ -112,3 +112,47 @@ func TestRateLimitMiddlewareBlocksRequest(t *testing.T) {
 		t.Errorf("expected status %v, got %v", http.StatusTooManyRequests, rec2.Code)
 	}
 }
+
+// Test Hardened Mode functionality
+func TestHeadersMiddlewareWithHardenedMode(t *testing.T) {
+	t.Parallel()
+	options := &ServerOptions{
+		HardenedMode: true,
+	}
+	handler := HeadersMiddleware(options)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	
+	// In hardened mode, Server header should not be set
+	serverHeader := rec.Header().Get("Server")
+	if serverHeader != "" {
+		t.Errorf("expected no Server header in hardened mode, got %v", serverHeader)
+	}
+	
+	// Other security headers should still be present
+	if rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Errorf("expected X-Content-Type-Options header to be set")
+	}
+}
+
+func TestHeadersMiddlewareWithoutHardenedMode(t *testing.T) {
+	t.Parallel()
+	options := &ServerOptions{
+		HardenedMode: false,
+	}
+	handler := HeadersMiddleware(options)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	
+	// In normal mode, Server header should be set
+	serverHeader := rec.Header().Get("Server")
+	if serverHeader != "hyperserve" {
+		t.Errorf("expected Server header to be 'hyperserve', got %v", serverHeader)
+	}
+}
