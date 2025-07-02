@@ -3,6 +3,7 @@ package hyperserve
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -154,5 +155,104 @@ func TestHeadersMiddlewareWithoutHardenedMode(t *testing.T) {
 	serverHeader := rec.Header().Get("Server")
 	if serverHeader != "hyperserve" {
 		t.Errorf("expected Server header to be 'hyperserve', got %v", serverHeader)
+	}
+}
+
+// CORS Tests
+func TestHeadersMiddlewareWithoutCORSOrigins(t *testing.T) {
+	t.Parallel()
+	options := &ServerOptions{
+		CORSOrigins: []string{}, // Empty, should default to wildcard
+	}
+	handler := HeadersMiddleware(options)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	
+	corsHeader := rec.Header().Get("Access-Control-Allow-Origin")
+	if corsHeader != "*" {
+		t.Errorf("expected wildcard CORS origin, got %s", corsHeader)
+	}
+}
+
+func TestHeadersMiddlewareWithSingleCORSOrigin(t *testing.T) {
+	t.Parallel()
+	expectedOrigin := "https://example.com"
+	options := &ServerOptions{
+		CORSOrigins: []string{expectedOrigin},
+	}
+	handler := HeadersMiddleware(options)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	
+	corsHeader := rec.Header().Get("Access-Control-Allow-Origin")
+	if corsHeader != expectedOrigin {
+		t.Errorf("expected CORS origin %s, got %s", expectedOrigin, corsHeader)
+	}
+}
+
+func TestHeadersMiddlewareWithMultipleCORSOrigins(t *testing.T) {
+	t.Parallel()
+	origins := []string{"https://example.com", "https://app.example.com", "https://api.example.com"}
+	expectedHeader := "https://example.com, https://app.example.com, https://api.example.com"
+	options := &ServerOptions{
+		CORSOrigins: origins,
+	}
+	handler := HeadersMiddleware(options)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	
+	corsHeader := rec.Header().Get("Access-Control-Allow-Origin")
+	if corsHeader != expectedHeader {
+		t.Errorf("expected CORS origins %s, got %s", expectedHeader, corsHeader)
+	}
+}
+
+func TestWithCORSOriginsFunctionalOption(t *testing.T) {
+	t.Parallel()
+	origins := []string{"https://test1.com", "https://test2.com"}
+	srv, err := NewServer(WithCORSOrigins(origins...))
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+	
+	if len(srv.Options.CORSOrigins) != 2 {
+		t.Errorf("expected 2 CORS origins, got %d", len(srv.Options.CORSOrigins))
+	}
+	
+	for i, expected := range origins {
+		if srv.Options.CORSOrigins[i] != expected {
+			t.Errorf("expected origin %s at index %d, got %s", expected, i, srv.Options.CORSOrigins[i])
+		}
+	}
+}
+
+func TestCORSOriginsFromEnvironmentVariable(t *testing.T) {
+	t.Parallel()
+	// Set environment variable
+	originsStr := "https://env1.com, https://env2.com,https://env3.com"
+	os.Setenv("HS_CORS_ORIGINS", originsStr)
+	defer os.Unsetenv("HS_CORS_ORIGINS")
+	
+	// Create new server options which will read from environment
+	options := NewServerOptions()
+	
+	expectedOrigins := []string{"https://env1.com", "https://env2.com", "https://env3.com"}
+	if len(options.CORSOrigins) != 3 {
+		t.Errorf("expected 3 CORS origins from env var, got %d", len(options.CORSOrigins))
+	}
+	
+	for i, expected := range expectedOrigins {
+		if options.CORSOrigins[i] != expected {
+			t.Errorf("expected origin %s at index %d, got %s", expected, i, options.CORSOrigins[i])
+		}
 	}
 }

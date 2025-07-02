@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"reflect"
+	"strings"
 	"time"
 )
 
@@ -37,6 +38,8 @@ type ServerOptions struct {
 	EnableECH              bool     `json:"enable_ech,omitempty"`
 	ECHKeys                [][]byte `json:"-"` // ECH keys are sensitive, don't serialize
 	HardenedMode           bool     `json:"hardened_mode,omitempty"`
+	// CORS configuration
+	CORSOrigins            []string  `json:"cors_origins,omitempty"`
 	// MCP (Model Context Protocol) configuration
 	MCPEnabled             bool     `json:"mcp_enabled,omitempty"`
 	MCPEndpoint            string   `json:"mcp_endpoint,omitempty"`
@@ -74,6 +77,8 @@ var defaultServerOptions = &ServerOptions{
 	FIPSMode:               false,
 	EnableECH:              false,
 	HardenedMode:           false,
+	// CORS defaults
+	CORSOrigins:            []string{}, // empty means wildcard "*" will be used
 	// MCP defaults
 	MCPEnabled:             false,
 	MCPEndpoint:            "/mcp",
@@ -127,6 +132,16 @@ func applyEnvVars(config *ServerOptions) *ServerOptions {
 			config.HardenedMode = true
 			logger.Info("Hardened mode enabled from environment variable", "variable", paramHardenedMode)
 		}
+	}
+	if corsOrigins := os.Getenv(paramCORSOrigins); corsOrigins != "" {
+		// Parse comma-separated list of origins
+		origins := strings.Split(corsOrigins, ",")
+		// Trim whitespace from each origin
+		for i, origin := range origins {
+			origins[i] = strings.TrimSpace(origin)
+		}
+		config.CORSOrigins = origins
+		logger.Info("CORS origins set from environment variable", "variable", paramCORSOrigins, "origins", origins)
 	}
 	return config
 }

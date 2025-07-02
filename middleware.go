@@ -359,8 +359,15 @@ func HeadersMiddleware(options *ServerOptions) MiddlewareFunc {
 				w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
 			}
 
-			// ToDo add allowed site origin(s) to the header
-			// w.Header().Set("Access-Control-Allow-Origin", "https://client-site.com")
+			// Set CORS origins based on configuration
+			if len(options.CORSOrigins) > 0 {
+				// Join multiple origins with comma for Access-Control-Allow-Origin
+				corsOrigins := strings.Join(options.CORSOrigins, ", ")
+				w.Header().Set("Access-Control-Allow-Origin", corsOrigins)
+			} else {
+				// Default to wildcard if no specific origins configured
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+			}
 
 			// Handle preflight request
 			if r.Method == http.MethodOptions {

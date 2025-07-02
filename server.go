@@ -39,6 +39,7 @@ const (
 	paramServerAddr   = "SERVER_ADDR"
 	paramHealthAddr   = "HEALTH_ADDR"
 	paramHardenedMode = "HS_HARDENED_MODE"
+	paramCORSOrigins  = "HS_CORS_ORIGINS"
 	paramFileName     = "options.json"
 )
 
@@ -784,6 +785,17 @@ func WithTemplateDir(dir string) ServerOptionFunc {
 func WithAuthTokenValidator(validator func(token string) (bool, error)) ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.AuthTokenValidatorFunc = validator
+		return nil
+	}
+}
+
+// WithCORSOrigins configures allowed CORS origins for the server.
+// If no origins are provided, the server will use a wildcard (*) allowing all origins.
+// For better security, specify explicit origins like: WithCORSOrigins("https://example.com", "https://app.example.com")
+func WithCORSOrigins(origins ...string) ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.CORSOrigins = origins
+		logger.Info("CORS origins configured", "origins", origins)
 		return nil
 	}
 }
