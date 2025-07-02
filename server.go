@@ -36,10 +36,15 @@ func init() {
 
 // Environment management variable names
 const (
-	paramServerAddr   = "SERVER_ADDR"
-	paramHealthAddr   = "HEALTH_ADDR"
-	paramHardenedMode = "HS_HARDENED_MODE"
-	paramFileName     = "options.json"
+	paramServerAddr         = "SERVER_ADDR"
+	paramHealthAddr         = "HEALTH_ADDR"
+	paramHardenedMode       = "HS_HARDENED_MODE"
+	paramFileName           = "options.json"
+	paramMCPEnabled         = "HS_MCP_ENABLED"
+	paramMCPEndpoint        = "HS_MCP_ENDPOINT"
+	paramMCPServerName      = "HS_MCP_SERVER_NAME"
+	paramMCPServerVersion   = "HS_MCP_SERVER_VERSION"
+	paramMCPFileToolRoot    = "HS_MCP_FILE_TOOL_ROOT"
 )
 
 // rateLimit limits requests per second that can be requested from the httpServer. Requires to add [RateLimitMiddleware]
