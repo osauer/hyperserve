@@ -726,9 +726,9 @@ func WithTemplateDir(dir string) ServerOptionFunc {
 		// Check if the directory exists and is accessible
 		if _, err := os.Stat(dir); err != nil {
 			if os.IsNotExist(err) {
-				return fmt.Errorf("template directory does not exist: %s", dir)
+				return fmt.Errorf("template directory not found: %s", dir)
 			}
-			return fmt.Errorf("template directory is not accessible: %s: %w", dir, err)
+			return fmt.Errorf("template directory access error: %s: %w", dir, err)
 		}
 		
 		srv.Options.TemplateDir = dir

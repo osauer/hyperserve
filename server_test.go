@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -208,5 +209,168 @@ func TestEncryptedClientHello(t *testing.T) {
 
 	if len(srv.Options.ECHKeys) != 1 {
 		t.Errorf("expected 1 ECH key, got %d", len(srv.Options.ECHKeys))
+	}
+}
+
+// Template Directory Validation Tests
+func TestWithTemplateDirInvalidDirectory(t *testing.T) {
+	t.Parallel()
+	
+	// Test with non-existent directory
+	_, err := NewServer(WithTemplateDir("/non/existent/directory"))
+	if err == nil {
+		t.Error("expected error for non-existent template directory")
+	}
+	
+	expectedError := "template directory not found"
+	if !strings.Contains(err.Error(), expectedError) {
+		t.Errorf("expected error to contain '%s', got: %s", expectedError, err.Error())
+	}
+}
+
+func TestWithTemplateDirValidDirectory(t *testing.T) {
+	t.Parallel()
+	
+	// Create a temporary directory
+	templateDir := fmt.Sprintf("./test_templates_%d_%d", time.Now().UnixNano(), os.Getpid())
+	defer os.RemoveAll(templateDir)
+	
+	err := os.MkdirAll(templateDir, 0755)
+	if err != nil {
+		t.Fatalf("failed to create test directory: %v", err)
+	}
+	
+	// Test with valid directory
+	srv, err := NewServer(WithTemplateDir(templateDir))
+	if err != nil {
+		t.Errorf("unexpected error for valid template directory: %v", err)
+	}
+	
+	if srv.Options.TemplateDir != templateDir {
+		t.Errorf("expected template directory to be %s, got %s", templateDir, srv.Options.TemplateDir)
+	}
+}
+
+// Hardened Mode Tests
+func TestWithHardenedMode(t *testing.T) {
+	t.Parallel()
+	
+	srv, err := NewServer(WithHardenedMode())
+	if err != nil {
+		t.Fatalf("failed to create server with hardened mode: %v", err)
+	}
+	
+	if !srv.Options.HardenedMode {
+		t.Error("expected hardened mode to be enabled")
+	}
+}
+
+// Environment Variable Parsing Tests  
+func TestHardenedModeEnvironmentVariable(t *testing.T) {
+	t.Parallel()
+	
+	// Save original environment
+	originalEnv := os.Getenv("HS_HARDENED_MODE")
+	defer func() {
+		if originalEnv == "" {
+			os.Unsetenv("HS_HARDENED_MODE")
+		} else {
+			os.Setenv("HS_HARDENED_MODE", originalEnv)
+		}
+	}()
+	
+	// Test with "true"
+	os.Setenv("HS_HARDENED_MODE", "true")
+	options := NewServerOptions()
+	if !options.HardenedMode {
+		t.Error("expected hardened mode to be enabled with HS_HARDENED_MODE=true")
+	}
+	
+	// Test with "1"
+	os.Setenv("HS_HARDENED_MODE", "1")
+	options = NewServerOptions()
+	if !options.HardenedMode {
+		t.Error("expected hardened mode to be enabled with HS_HARDENED_MODE=1")
+	}
+	
+	// Test with "false"
+	os.Setenv("HS_HARDENED_MODE", "false")
+	options = NewServerOptions()
+	if options.HardenedMode {
+		t.Error("expected hardened mode to be disabled with HS_HARDENED_MODE=false")
+	}
+	
+	// Test with empty value
+	os.Setenv("HS_HARDENED_MODE", "")
+	options = NewServerOptions()
+	if options.HardenedMode {
+		t.Error("expected hardened mode to be disabled with empty HS_HARDENED_MODE")
+	}
+}
+
+// Enhanced Template Error Handling Tests
+func TestHandleFuncDynamicTemplateErrors(t *testing.T) {
+	t.Parallel()
+	
+	// Use unique directory name to avoid conflicts in parallel tests
+	templateDir := fmt.Sprintf("./test_templates_%d_%d", time.Now().UnixNano(), os.Getpid())
+	defer os.RemoveAll(templateDir)
+
+	// Create a temporary template file with invalid syntax
+	templateContent := "<html><body>{{.invalid syntax}}</body></html>"
+	err := os.MkdirAll(templateDir, 0755)
+	if err != nil {
+		t.Fatalf("error creating template directory: %v", err)
+	}
+	err = os.WriteFile(templateDir+"/invalid.html", []byte(templateContent), 0644)
+	if err != nil {
+		t.Fatalf("error writing template file: %v", err)
+	}
+	
+	// Create server with template directory
+	srv, err := NewServer(WithTemplateDir(templateDir))
+	if err != nil {
+		t.Fatalf("error creating server: %v", err)
+	}
+
+	// Test that invalid template syntax is caught during HandleFuncDynamic
+	err = srv.HandleFuncDynamic("/invalid", "invalid.html", func(r *http.Request) interface{} {
+		return map[string]interface{}{"test": "data"}
+	})
+	if err == nil {
+		t.Error("expected error for invalid template syntax")
+	}
+}
+
+func TestHandleFuncDynamicNonExistentTemplate(t *testing.T) {
+	t.Parallel()
+	
+	// Use unique directory name to avoid conflicts in parallel tests
+	templateDir := fmt.Sprintf("./test_templates_%d_%d", time.Now().UnixNano(), os.Getpid())
+	defer os.RemoveAll(templateDir)
+
+	// Create empty template directory
+	err := os.MkdirAll(templateDir, 0755)
+	if err != nil {
+		t.Fatalf("error creating template directory: %v", err)
+	}
+	
+	// Create server with template directory
+	srv, err := NewServer(WithTemplateDir(templateDir))
+	if err != nil {
+		t.Fatalf("error creating server: %v", err)
+	}
+
+	// Test that non-existent template is caught during HandleFuncDynamic
+	err = srv.HandleFuncDynamic("/missing", "missing.html", func(r *http.Request) interface{} {
+		return map[string]interface{}{"test": "data"}
+	})
+	if err == nil {
+		t.Error("expected error for non-existent template")
+	}
+	
+	expectedError := "template missing.html not found"
+	if !strings.Contains(err.Error(), expectedError) {
+		t.Errorf("expected error to contain '%s', got: %s", expectedError, err.Error())
 	}
 }
