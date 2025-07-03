@@ -103,16 +103,7 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 		}
 	}
 
-	// Initialize secure file roots if directories are configured
-	if srv.Options.StaticDir != "" {
-		staticRoot, err := os.OpenRoot(srv.Options.StaticDir)
-		if err != nil {
-			logger.Warn("Failed to open static root directory", "error", err, "dir", srv.Options.StaticDir)
-		} else {
-			srv.staticRoot = staticRoot
-			logger.Info("Static root initialized", "dir", srv.Options.StaticDir)
-		}
-	}
+	// Static root will be initialized lazily when HandleStatic is called
 
 	if srv.Options.TemplateDir != "" {
 		templateRoot, err := os.OpenRoot(srv.Options.TemplateDir)
@@ -504,6 +495,17 @@ func EnsureTrailingSlash(dir string) string {
 // The pattern should typically end with a wildcard (e.g., "/static/").
 // Uses os.Root for secure file access when available (Go 1.24+).
 func (srv *Server) HandleStatic(pattern string) {
+	// Lazy initialization of static root on first use
+	if srv.staticRoot == nil && srv.Options.StaticDir != "" {
+		staticRoot, err := os.OpenRoot(srv.Options.StaticDir)
+		if err != nil {
+			logger.Warn("Failed to open static root directory, falling back to http.Dir", "error", err, "dir", srv.Options.StaticDir)
+		} else {
+			srv.staticRoot = staticRoot
+			logger.Info("Static root initialized", "dir", srv.Options.StaticDir)
+		}
+	}
+
 	if srv.staticRoot != nil {
 		// Use secure os.Root with custom handler
 		srv.mux.Handle(pattern, http.StripPrefix(pattern, srv.rootFileServer()))

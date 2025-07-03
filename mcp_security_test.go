@@ -8,9 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -341,7 +339,7 @@ func TestMCPSecurity_AuthenticationIntegration(t *testing.T) {
 			w := httptest.NewRecorder()
 			
 			// Create a test handler chain with auth middleware
-			handler := srv.middleware.WrapHandler(srv.mux)
+			handler := srv.middleware.applyToMux(srv.mux)
 			handler.ServeHTTP(w, req)
 
 			if w.Code != tc.expectStatus {

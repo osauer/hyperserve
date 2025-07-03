@@ -4,7 +4,6 @@ package main
 
 import (
 	"log"
-	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -44,11 +43,7 @@ func main() {
 	// Add rate limiting to MCP endpoint for production use
 	srv.AddMiddleware("/mcp", hyperserve.RateLimitMiddleware(srv))
 
-	slog.Info("MCP server starting",
-		"address", ":8080",
-		"mcp_endpoint", "/mcp",
-		"sandbox", sandboxDir,
-		"dashboard", "http://localhost:8080")
+	log.Printf("MCP server starting on http://localhost:8080 (sandbox: %s)", sandboxDir)
 
 	// Run handles graceful shutdown automatically
 	if err := srv.Run(); err != nil {
