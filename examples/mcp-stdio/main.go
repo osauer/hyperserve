@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // JSON-RPC 2.0 message types
@@ -285,7 +286,8 @@ func handleReadFile(args map[string]interface{}) *jsonrpcMessage {
 	
 	// Ensure path is within sandbox
 	fullPath := filepath.Join(sandboxDir, filepath.Clean(path))
-	if !filepath.HasPrefix(fullPath, sandboxDir) {
+	// Use strings.HasPrefix after cleaning both paths
+	if !strings.HasPrefix(filepath.Clean(fullPath), filepath.Clean(sandboxDir)) {
 		return errorResponse(-32603, "Access denied: path outside sandbox")
 	}
 
@@ -314,7 +316,8 @@ func handleListDirectory(args map[string]interface{}) *jsonrpcMessage {
 
 	// Ensure path is within sandbox
 	fullPath := filepath.Join(sandboxDir, filepath.Clean(path))
-	if !filepath.HasPrefix(fullPath, sandboxDir) {
+	// Use strings.HasPrefix after cleaning both paths
+	if !strings.HasPrefix(filepath.Clean(fullPath), filepath.Clean(sandboxDir)) {
 		return errorResponse(-32603, "Access denied: path outside sandbox")
 	}
 
