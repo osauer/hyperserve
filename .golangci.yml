@@ -1,5 +1,6 @@
 # golangci-lint configuration for hyperserve
-# Compatible with golangci-lint v1.55.0+
+# Compatible with golangci-lint v2.0+
+version: 2
 
 run:
   # Go version to target
@@ -26,8 +27,7 @@ run:
 
 output:
   # Format of output
-  formats:
-    - format: colored-line-number
+  format: colored-line-number
   
   # Print lines of code with issue
   print-issued-lines: true
@@ -37,9 +37,8 @@ output:
 
 linters:
   enable:
-    # Default linters
+    # Default linters (already enabled)
     - errcheck      # Check for unchecked errors
-    - gosimple      # Simplify code
     - govet         # Vet examines Go source code
     - ineffassign   # Detect ineffectual assignments
     - staticcheck   # Static analysis
@@ -48,7 +47,7 @@ linters:
     # Additional linters for code quality
     - bodyclose     # Checks HTTP response body is closed
     - dupl          # Detect duplicated code
-    - exportloopref # Checks for pointers to enclosing loop variables
+    - copyloopvar   # Checks for pointers to enclosing loop variables
     - gocyclo       # Cyclomatic complexity
     - gosec         # Security problems
     - lll           # Long lines
@@ -59,8 +58,6 @@ linters:
     - unparam       # Unused function parameters
     
     # Style and formatting
-    - gofmt         # Check formatting
-    - goimports     # Check imports
     - revive        # Fast, configurable linter
     - godot         # Check comments end with period
     
@@ -79,14 +76,7 @@ linters:
     - nestif        # Deeply nested if statements
     - wsl           # Whitespace linter (too opinionated)
     - nlreturn      # New line before return (too strict)
-    - gomnd         # Magic numbers (too many false positives in HTTP codes)
-    
-    # Deprecated or replaced
-    - deadcode      # Replaced by unused
-    - structcheck   # Replaced by unused
-    - varcheck      # Replaced by unused
-    - golint        # Deprecated, using revive
-    - scopelint     # Deprecated, using exportloopref
+    - mnd           # Magic numbers (too many false positives in HTTP codes)
 
 linters-settings:
   errcheck:
@@ -242,11 +232,11 @@ issues:
     # Allow certain patterns
     - text: "Magic number: (80|443|8080|8443|9080|9443)" # Common ports
       linters:
-        - gomnd
+        - mnd
     
     - text: "Magic number: (200|201|204|400|401|403|404|500|502|503)" # HTTP status codes
       linters:
-        - gomnd
+        - mnd
     
     # Allow TODO/FIXME comments
     - text: "TODO|FIXME"
