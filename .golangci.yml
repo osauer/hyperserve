@@ -1,0 +1,273 @@
+# golangci-lint configuration for hyperserve
+# Compatible with golangci-lint v1.55.0+
+
+run:
+  # Go version to target
+  go: "1.24"
+  
+  # Timeout for analysis
+  timeout: 5m
+  
+  # Include test files
+  tests: true
+  
+  # Modules download mode
+  modules-download-mode: readonly
+  
+  # Skip directories
+  skip-dirs:
+    - benchmarks
+    - docs
+    - configs
+  
+  # Skip files
+  skip-files:
+    - ".*_generated.go$"
+
+output:
+  # Format of output
+  formats:
+    - format: colored-line-number
+  
+  # Print lines of code with issue
+  print-issued-lines: true
+  
+  # Print linter name in the end of issue text
+  print-linter-name: true
+
+linters:
+  enable:
+    # Default linters
+    - errcheck      # Check for unchecked errors
+    - gosimple      # Simplify code
+    - govet         # Vet examines Go source code
+    - ineffassign   # Detect ineffectual assignments
+    - staticcheck   # Static analysis
+    - unused        # Find unused code
+    
+    # Additional linters for code quality
+    - bodyclose     # Checks HTTP response body is closed
+    - dupl          # Detect duplicated code
+    - exportloopref # Checks for pointers to enclosing loop variables
+    - gocyclo       # Cyclomatic complexity
+    - gosec         # Security problems
+    - lll           # Long lines
+    - misspell      # Find misspelled words
+    - nakedret      # Find naked returns
+    - prealloc      # Find slice declarations that could be preallocated
+    - unconvert     # Unnecessary type conversions
+    - unparam       # Unused function parameters
+    
+    # Style and formatting
+    - gofmt         # Check formatting
+    - goimports     # Check imports
+    - revive        # Fast, configurable linter
+    - godot         # Check comments end with period
+    
+    # Best practices
+    - errorlint     # Error wrapping
+    - exhaustive    # Check exhaustiveness of enum switches
+    - godox         # Find FIXME, TODO comments
+    - gocritic      # Opinionated linter
+    - wrapcheck     # Check error wrapping
+    
+  disable:
+    # Too strict or not applicable
+    - cyclop        # Cyclomatic complexity (using gocyclo instead)
+    - funlen        # Function length
+    - gocognit      # Cognitive complexity
+    - nestif        # Deeply nested if statements
+    - wsl           # Whitespace linter (too opinionated)
+    - nlreturn      # New line before return (too strict)
+    - gomnd         # Magic numbers (too many false positives in HTTP codes)
+    
+    # Deprecated or replaced
+    - deadcode      # Replaced by unused
+    - structcheck   # Replaced by unused
+    - varcheck      # Replaced by unused
+    - golint        # Deprecated, using revive
+    - scopelint     # Deprecated, using exportloopref
+
+linters-settings:
+  errcheck:
+    # Check type assertions
+    check-type-assertions: true
+    # Check for ignored errors in deferred calls
+    check-blank: true
+    
+  govet:
+    # Enable all checks
+    enable-all: true
+    
+  gocyclo:
+    # Minimal cyclomatic complexity
+    min-complexity: 15
+    
+  dupl:
+    # Minimal threshold for duplication
+    threshold: 150
+    
+  lll:
+    # Max line length (relaxed for HTTP examples)
+    line-length: 140
+    
+  misspell:
+    # Locale for spell checking
+    locale: US
+    
+  godot:
+    # Check all comments
+    scope: all
+    # Exclude certain patterns
+    exclude:
+      - "^TODO:"
+      - "^FIXME:"
+      - "^NOTE:"
+    
+  gosec:
+    # Which checks to perform
+    includes:
+      - G101 # Look for hardcoded credentials
+      - G102 # Bind to all interfaces
+      - G103 # Audit the use of unsafe block
+      - G104 # Audit errors not checked
+      - G106 # Audit the use of ssh.InsecureIgnoreHostKey
+      - G107 # Url provided to HTTP request as taint input
+      - G108 # Profiling endpoint automatically exposed
+      - G201 # SQL query construction using format string
+      - G202 # SQL query construction using string concatenation
+      - G203 # Use of unescaped data in HTML templates
+      - G204 # Audit use of command execution
+      - G301 # Poor file permissions used when creating a directory
+      - G302 # Poor file permissions used when creation file
+      - G303 # Creating tempfile using a predictable path
+      - G304 # File path provided as taint input
+      - G305 # File traversal when extracting zip archive
+      - G306 # Poor file permissions used when writing
+      - G307 # Deferring a method which returns an error
+      - G401 # Detect the usage of DES, RC4, MD5 or SHA1
+      - G402 # Look for bad TLS connection settings
+      - G403 # Ensure minimum RSA key length of 2048 bits
+      - G404 # Insecure random number source (rand)
+      - G501 # Import blocklist: crypto/md5
+      - G502 # Import blocklist: crypto/des
+      - G503 # Import blocklist: crypto/rc4
+      - G504 # Import blocklist: net/http/cgi
+      - G505 # Import blocklist: crypto/sha1
+      - G601 # Implicit memory aliasing in for loop
+    
+  revive:
+    # Minimal confidence level
+    confidence: 0.8
+    rules:
+      - name: blank-imports
+      - name: context-as-argument
+      - name: context-keys-type
+      - name: dot-imports
+      - name: error-return
+      - name: error-strings
+      - name: error-naming
+      - name: exported
+      - name: if-return
+      - name: increment-decrement
+      - name: var-naming
+      - name: var-declaration
+      - name: package-comments
+      - name: range
+      - name: receiver-naming
+      - name: time-naming
+      - name: unexported-return
+      - name: indent-error-flow
+      - name: errorf
+      - name: empty-block
+      - name: superfluous-else
+      - name: unused-parameter
+      - name: unreachable-code
+      - name: redefines-builtin-id
+    
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - experimental
+      - opinionated
+      - performance
+      - style
+    disabled-checks:
+      - dupImport # Already covered by other linters
+      - ifElseChain # Too opinionated
+      - octalLiteral # Not relevant
+      - whyNoLint # We allow nolint without explanation
+      - hugeParam # Not relevant for server options
+    
+  errorlint:
+    # Check error wrapping
+    errorf: true
+    # Check type assertions on errors
+    asserts: true
+    # Check for plain errors.New comparisons
+    comparison: true
+
+issues:
+  # Maximum issues count per one linter
+  max-issues-per-linter: 50
+  
+  # Maximum count of issues with the same text
+  max-same-issues: 3
+  
+  # Exclude some linters from running on tests files
+  exclude-rules:
+    # Test files can be more relaxed
+    - path: _test\.go
+      linters:
+        - dupl
+        - gosec
+        - lll
+        - errcheck
+        - wrapcheck
+    
+    # Examples can have simpler error handling
+    - path: examples/
+      linters:
+        - errcheck
+        - wrapcheck
+        - exhaustive
+        - godot
+    
+    # Benchmarks can skip some checks
+    - path: benchmark_test\.go
+      linters:
+        - gosec
+        - errcheck
+    
+    # Allow certain patterns
+    - text: "Magic number: (80|443|8080|8443|9080|9443)" # Common ports
+      linters:
+        - gomnd
+    
+    - text: "Magic number: (200|201|204|400|401|403|404|500|502|503)" # HTTP status codes
+      linters:
+        - gomnd
+    
+    # Allow TODO/FIXME comments
+    - text: "TODO|FIXME"
+      linters:
+        - godox
+    
+    # Ignore certain error checks in deferred calls
+    - source: "defer .*\\.Close"
+      linters:
+        - errcheck
+    
+    # Allow unused parameters in interfaces
+    - source: "^func.*\\(.*\\s+\\w+\\s+.*\\).*{}$"
+      linters:
+        - unparam
+
+  # Independently from option `exclude` we use default exclude patterns
+  exclude-use-default: true
+  
+  # Show only new issues created after git revision
+  new: false
+  
+  # Fix found issues (if it's supported by the linter)
+  fix: false
