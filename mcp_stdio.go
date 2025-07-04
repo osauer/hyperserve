@@ -19,7 +19,7 @@ type stdioTransport struct {
 }
 
 // NewStdioTransport creates a new stdio transport
-func NewStdioTransport() *stdioTransport {
+func NewStdioTransport(logger *slog.Logger) *stdioTransport {
 	return &stdioTransport{
 		scanner: bufio.NewScanner(os.Stdin),
 		encoder: json.NewEncoder(os.Stdout),
@@ -28,7 +28,7 @@ func NewStdioTransport() *stdioTransport {
 }
 
 // NewStdioTransportWithIO creates a new stdio transport with custom IO
-func NewStdioTransportWithIO(r io.Reader, w io.Writer) *stdioTransport {
+func NewStdioTransportWithIO(r io.Reader, w io.Writer, logger *slog.Logger) *stdioTransport {
 	return &stdioTransport{
 		scanner: bufio.NewScanner(r),
 		encoder: json.NewEncoder(w),
@@ -70,9 +70,21 @@ func (t *stdioTransport) Close() error {
 	return nil
 }
 
+// createErrorResponse creates a standard JSON-RPC error response
+func createErrorResponse(code int, message string, data interface{}) *JSONRPCResponse {
+	return &JSONRPCResponse{
+		JSONRPC: JSONRPCVersion,
+		Error: &JSONRPCError{
+			Code:    code,
+			Message: message,
+			Data:    data,
+		},
+	}
+}
+
 // RunStdioLoop runs the MCP handler in stdio mode
 func (h *MCPHandler) RunStdioLoop() error {
-	transport := NewStdioTransport()
+	transport := NewStdioTransport(h.logger)
 	defer transport.Close()
 	
 	h.logger.Info("MCP stdio server started")
@@ -81,20 +93,13 @@ func (h *MCPHandler) RunStdioLoop() error {
 	for {
 		err := h.ProcessRequestWithTransport(transport)
 		if err == io.EOF {
-			h.logger.Info("MCP stdio server shutting down (EOF)")
+			h.logger.Info("MCP stdio server shutting down", "reason", "EOF received")
 			break
 		}
 		if err != nil {
 			h.logger.Error("Error processing request", "error", err)
 			// Send error response
-			errorResponse := &JSONRPCResponse{
-				JSONRPC: JSONRPCVersion,
-				Error: &JSONRPCError{
-					Code:    ErrorCodeInternalError,
-					Message: "Internal error",
-					Data:    err.Error(),
-				},
-			}
+			errorResponse := createErrorResponse(ErrorCodeInternalError, "Internal error", err.Error())
 			if sendErr := transport.Send(errorResponse); sendErr != nil {
 				h.logger.Error("Failed to send error response", "error", sendErr)
 			}

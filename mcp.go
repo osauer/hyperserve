@@ -224,22 +224,11 @@ func (h *MCPHandler) ProcessRequestWithTransport(transport MCPTransport) error {
 		return fmt.Errorf("failed to receive request: %w", err)
 	}
 	
-	// Process with JSON-RPC engine
-	requestData, err := json.Marshal(request)
-	if err != nil {
-		return fmt.Errorf("failed to marshal request: %w", err)
-	}
-	
-	responseData := h.rpcEngine.ProcessRequest(requestData)
-	
-	// Parse response
-	var response JSONRPCResponse
-	if err := json.Unmarshal(responseData, &response); err != nil {
-		return fmt.Errorf("failed to unmarshal response: %w", err)
-	}
+	// Process with JSON-RPC engine directly (avoiding double marshaling)
+	response := h.rpcEngine.ProcessRequestDirect(request)
 	
 	// Send response
-	if err := transport.Send(&response); err != nil {
+	if err := transport.Send(response); err != nil {
 		return fmt.Errorf("failed to send response: %w", err)
 	}
 	

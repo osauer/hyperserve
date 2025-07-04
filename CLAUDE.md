@@ -483,3 +483,48 @@ srv, _ := hyperserve.NewServer(
     hyperserve.WithMCPEndpoint("/ai"),
 )
 ```
+
+### MCP STDIO Transport Security
+
+The STDIO transport provides an alternative to HTTP for MCP communication, using standard input/output streams. This is particularly useful for:
+- Local AI assistant integrations
+- Command-line tools
+- Embedded scenarios
+
+#### Security Considerations
+
+1. **Process Isolation**: STDIO transport inherits the security context of the parent process
+   - Ensure the parent process runs with appropriate permissions
+   - Consider using OS-level sandboxing (e.g., containers, VMs)
+
+2. **File System Access**: When using file tools with STDIO transport
+   - Always configure `WithMCPFileToolRoot()` to limit file access
+   - The sandbox applies regardless of transport type
+   - Never run with elevated privileges unless absolutely necessary
+
+3. **Input Validation**: STDIO transport processes all input from stdin
+   - Malformed JSON will be rejected with appropriate errors
+   - Large payloads are limited by available memory
+   - Consider implementing request size limits in production
+
+4. **Deployment Recommendations**:
+   ```go
+   // Secure STDIO server with sandboxed file access
+   srv, _ := hyperserve.NewServer(
+       hyperserve.WithMCPSupport(hyperserve.MCPOverStdio()),
+       hyperserve.WithMCPFileToolRoot("/restricted/path"),
+       hyperserve.WithMCPToolsEnabled(true),
+       hyperserve.WithMCPResourcesEnabled(false), // Limit exposure
+   )
+   ```
+
+5. **Logging and Monitoring**: STDIO transport logs all operations
+   - Errors are logged but not exposed to the client
+   - Monitor logs for suspicious activity
+   - Consider implementing rate limiting at the OS level
+
+6. **Best Practices**:
+   - Run STDIO servers as non-privileged users
+   - Use process managers that can enforce resource limits
+   - Implement timeouts for long-running operations
+   - Regularly update to latest security patches
