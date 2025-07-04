@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -185,9 +186,9 @@ func TestMCPHandler_StdioLoopConcurrency(t *testing.T) {
 			Method:  "tools/call",
 			Params: json.RawMessage(`{
 				"name": "calculator",
-				"arguments": {"operation": "multiply", "a": ` + string(rune('0'+i)) + `, "b": 2}
+				"arguments": {"operation": "multiply", "a": ` + strconv.Itoa(i) + `, "b": 2}
 			}`),
-			ID: json.RawMessage(string(rune('0' + i))),
+			ID: float64(i),
 		}
 		
 		data, _ := json.Marshal(req)

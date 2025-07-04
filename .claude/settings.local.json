@@ -26,7 +26,11 @@
       "Bash(git checkout:*)",
       "Bash(git commit:*)",
       "Bash(gh pr create:*)",
-      "Bash(golangci-lint:*)"
+      "Bash(golangci-lint:*)",
+      "Bash(go test:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
     ],
     "deny": []
   }

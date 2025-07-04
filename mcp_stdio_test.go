@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -120,9 +121,11 @@ func TestStdioTransport_ConcurrentSend(t *testing.T) {
 	done := make(chan bool, 3)
 	for i := 0; i < 3; i++ {
 		go func(id int) {
+			result := map[string]int{"id": id}
+			resultJSON, _ := json.Marshal(result)
 			response := &JSONRPCResponse{
 				JSONRPC: JSONRPCVersion,
-				Result:  json.RawMessage(`{"id":` + string(rune('0'+id)) + `}`),
+				Result:  json.RawMessage(resultJSON),
 				ID:      float64(id),
 			}
 			if err := transport.Send(response); err != nil {
@@ -223,6 +226,103 @@ func TestCreateErrorResponse(t *testing.T) {
 				if response.Error.Data != tt.data {
 					t.Errorf("Expected error data %v, got %v", tt.data, response.Error.Data)
 				}
+			}
+		})
+	}
+}
+
+// TestStdioTransport_LargeInput tests handling of large JSON inputs
+func TestStdioTransport_LargeInput(t *testing.T) {
+	// Create a large JSON payload (900KB, under the 1MB limit)
+	largeData := make(map[string]string)
+	for i := 0; i < 9000; i++ {
+		key := "field_" + strconv.Itoa(i)
+		largeData[key] = strings.Repeat("x", 100) // 100 chars per value
+	}
+	
+	request := JSONRPCRequest{
+		JSONRPC: JSONRPCVersion,
+		Method:  "test_large",
+		Params:  largeData,
+		ID:      float64(1),
+	}
+	
+	requestJSON, err := json.Marshal(request)
+	if err != nil {
+		t.Fatalf("Failed to marshal large request: %v", err)
+	}
+	
+	inputBuf := bytes.NewReader(append(requestJSON, '\n'))
+	var outputBuf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	transport := NewStdioTransportWithIO(inputBuf, &outputBuf, logger)
+	
+	// Should successfully receive large input
+	receivedRequest, err := transport.Receive()
+	if err != nil {
+		t.Fatalf("Failed to receive large request: %v", err)
+	}
+	
+	if receivedRequest.Method != "test_large" {
+		t.Errorf("Expected method 'test_large', got %s", receivedRequest.Method)
+	}
+}
+
+// TestStdioTransport_ExceedsBufferLimit tests handling of inputs that exceed buffer limit
+func TestStdioTransport_ExceedsBufferLimit(t *testing.T) {
+	// Create a payload that exceeds 1MB limit
+	veryLargeData := strings.Repeat("x", 1024*1024+1) // 1MB + 1 byte
+	inputData := `{"jsonrpc":"2.0","method":"test","params":"` + veryLargeData + `","id":1}` + "\n"
+	
+	inputBuf := strings.NewReader(inputData)
+	var outputBuf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	transport := NewStdioTransportWithIO(inputBuf, &outputBuf, logger)
+	
+	// Should fail with scanner error
+	_, err := transport.Receive()
+	if err == nil {
+		t.Error("Expected error for oversized input, got nil")
+	}
+	
+	if !strings.Contains(err.Error(), "scanner error") {
+		t.Errorf("Expected scanner error for oversized input, got: %v", err)
+	}
+}
+
+// TestStdioTransport_MalformedJSON tests various malformed JSON inputs
+func TestStdioTransport_MalformedJSON(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{"Truncated JSON", `{"jsonrpc":"2.0","method":"test"`},
+		{"Invalid escape", `{"jsonrpc":"2.0","method":"test\u","id":1}`},
+		{"Trailing comma", `{"jsonrpc":"2.0","method":"test","id":1,}`},
+		{"Missing quotes", `{jsonrpc:"2.0","method":"test","id":1}`},
+		{"Empty line", ""},
+		{"Whitespace only", "   "},
+	}
+	
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			inputBuf := strings.NewReader(tt.input + "\n")
+			var outputBuf bytes.Buffer
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			transport := NewStdioTransportWithIO(inputBuf, &outputBuf, logger)
+			
+			_, err := transport.Receive()
+			if err == nil {
+				t.Error("Expected error for malformed JSON")
+			}
+			
+			// Empty input results in EOF, others in unmarshal errors
+			if tt.name == "Empty line" || tt.name == "Whitespace only" {
+				if err != io.EOF && !strings.Contains(err.Error(), "unmarshal") {
+					t.Errorf("Expected EOF or unmarshal error, got: %v", err)
+				}
+			} else if !strings.Contains(err.Error(), "unmarshal") {
+				t.Errorf("Expected unmarshal error, got: %v", err)
 			}
 		})
 	}
