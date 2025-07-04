@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go test:*)",
+      "Bash(go build:*)",
+      "Bash(grep:*)",
+      "Bash(true)",
+      "Bash(git pull:*)",
+      "Bash(ls:*)",
+      "Bash(git add:*)",
+      "Bash(go clean:*)",
+      "Bash(mkdir:*)",
+      "Bash(mv:*)",
+      "Bash(git reset:*)",
+      "Bash(rm:*)",
+      "Bash(curl:*)",
+      "Bash(touch:*)",
+      "Bash(go run:*)",
+      "Bash(git restore:*)",
+      "Bash(git push:*)",
+      "Bash(HS_RUN_HEALTH_SERVER=false go run main.go)",
+      "Bash(pkill:*)",
+      "Bash(find:*)",
+      "Bash(chmod:*)",
+      "Bash(./test.sh)",
+      "Bash(git checkout:*)",
+      "Bash(git commit:*)",
+      "Bash(gh pr create:*)",
+      "Bash(golangci-lint:*)"
+    ],
+    "deny": []
+  }
+}

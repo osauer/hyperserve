@@ -107,6 +107,42 @@ This structure reduces root directory clutter and follows standard Go project or
     - Metadata files
   * Ensure comprehensive test coverage for new functionality
 
+## API Design Principles
+
+When designing new APIs or features for hyperserve, follow these principles:
+
+### 1. **Sensible Defaults with Zero Configuration**
+- APIs should work with minimal configuration
+- Common use cases should require little to no boilerplate
+- Example: `WithMCPSupport()` defaults to HTTP transport on `/mcp`
+
+### 2. **Progressive Disclosure**
+- Simple things should be simple
+- Complex things should be possible
+- Start with the simplest API that could work
+- Add complexity only when needed
+- Example: MCP transport can be as simple as `WithMCPSupport()` or configured with `WithMCPSupport(MCPOverStdio())`
+
+### 3. **Consistency Across Features**
+- Similar features should have similar APIs
+- Transport mechanisms should feel idiomatic regardless of type
+- Example: Both HTTP and stdio MCP servers use the same `NewServer()` and configuration pattern
+
+### 4. **Parameters Over Separate Types**
+- Prefer configuration through parameters rather than separate types
+- Use functional options to customize behavior
+- Example: Transport configuration via `WithMCPSupport(MCPOverHTTP("/api"))` rather than separate server types
+
+### 5. **Export What Users Need**
+- Export types that users might need to reference or create
+- Protocol types (JSON-RPC, MCP) should be public for client code
+- Internal implementation details remain unexported
+
+### 6. **Maintain Low Barrier to Entry**
+- Examples should be minimal and focused
+- Avoid unnecessary abstractions
+- Documentation should show the simplest path first
+
 ## Architecture
 
 ### Architecture Decision Records (ADRs)
