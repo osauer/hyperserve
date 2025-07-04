@@ -20,19 +20,29 @@ type stdioTransport struct {
 
 // NewStdioTransport creates a new stdio transport
 func NewStdioTransport() *stdioTransport {
+	return NewStdioTransportWithLogger(logger)
+}
+
+// NewStdioTransportWithLogger creates a new stdio transport with custom logger
+func NewStdioTransportWithLogger(customLogger *slog.Logger) *stdioTransport {
 	return &stdioTransport{
 		scanner: bufio.NewScanner(os.Stdin),
 		encoder: json.NewEncoder(os.Stdout),
-		logger:  logger,
+		logger:  customLogger,
 	}
 }
 
 // NewStdioTransportWithIO creates a new stdio transport with custom IO
 func NewStdioTransportWithIO(r io.Reader, w io.Writer) *stdioTransport {
+	return NewStdioTransportWithIOAndLogger(r, w, logger)
+}
+
+// NewStdioTransportWithIOAndLogger creates a new stdio transport with custom IO and logger
+func NewStdioTransportWithIOAndLogger(r io.Reader, w io.Writer, customLogger *slog.Logger) *stdioTransport {
 	return &stdioTransport{
 		scanner: bufio.NewScanner(r),
 		encoder: json.NewEncoder(w),
-		logger:  logger,
+		logger:  customLogger,
 	}
 }
 

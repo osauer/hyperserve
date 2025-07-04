@@ -360,6 +360,36 @@ Configure MCP via environment variables:
 4. **Optional Authentication**: Integrates with existing auth middleware
 5. **Rate Limiting**: Standard rate limiting applies to MCP endpoints
 
+### STDIO Transport Security Considerations
+
+When using the STDIO transport (`MCPOverStdio()`), be aware of these security implications:
+
+**Advantages:**
+- Direct process communication - no network exposure
+- Inherits parent process security context
+- No HTTP-based attack vectors
+
+**Considerations:**
+- **Process Isolation**: STDIO transport exposes file system access through stdin/stdout
+- **Parent Process Trust**: The calling process has full access to MCP capabilities
+- **Error Information**: Error messages may contain sensitive file paths or system information
+- **Resource Consumption**: No built-in rate limiting for STDIO transport
+
+**Best Practices:**
+- Use `WithMCPFileToolRoot()` to restrict file access to safe directories
+- Run STDIO servers with minimal required permissions
+- Monitor resource usage when exposing to untrusted processes
+- Consider logging all MCP operations for audit trails
+
+**Example Secure Configuration:**
+```go
+srv, err := hyperserve.NewServer(
+    hyperserve.WithMCPSupport(hyperserve.MCPOverStdio()),
+    hyperserve.WithMCPFileToolRoot("/safe/sandbox/directory"),
+    hyperserve.WithMCPServerInfo("secure-mcp", "1.0.0"),
+)
+```
+
 ### Example Usage
 
 #### Initialize MCP Connection
@@ -481,5 +511,12 @@ srv, _ := hyperserve.NewServer(
 srv, _ := hyperserve.NewServer(
     hyperserve.WithMCPSupport(),
     hyperserve.WithMCPEndpoint("/ai"),
+)
+
+// STDIO transport for desktop applications
+srv, _ := hyperserve.NewServer(
+    hyperserve.WithMCPSupport(hyperserve.MCPOverStdio()),
+    hyperserve.WithMCPFileToolRoot("./workspace"),
+    hyperserve.WithMCPServerInfo("my-assistant", "1.0.0"),
 )
 ```
