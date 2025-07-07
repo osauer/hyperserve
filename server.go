@@ -174,6 +174,15 @@ func (srv *Server) Run() error {
 	srv.serverStart = time.Now()
 	srv.isRunning.Store(true)
 
+	// Check if we're running in stdio mode for MCP
+	if srv.Options.MCPEnabled && srv.Options.MCPTransport == StdioTransport {
+		// Run MCP in stdio mode
+		if srv.mcpHandler == nil {
+			return fmt.Errorf("MCP handler not initialized for stdio transport")
+		}
+		return srv.mcpHandler.RunStdioLoop()
+	}
+
 	// initialize the underlying http httpServer for serving requests
 	srv.httpServer = &http.Server{
 		Handler:      srv.mux,
@@ -831,10 +840,34 @@ func WithEncryptedClientHello(echKeys ...[]byte) ServerOptionFunc {
 
 // WithMCPSupport enables MCP (Model Context Protocol) support on the server.
 // This allows AI assistants to connect and use tools/resources provided by the server.
-func WithMCPSupport() ServerOptionFunc {
+// By default, MCP uses HTTP transport on the "/mcp" endpoint.
+// Pass MCPOverHTTP() or MCPOverStdio() to configure the transport.
+func WithMCPSupport(configs ...MCPTransportConfig) ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.MCPEnabled = true
-		logger.Info("MCP (Model Context Protocol) support enabled")
+		
+		// Apply transport configurations
+		if len(configs) == 0 {
+			// Default to HTTP transport on /mcp
+			srv.Options.MCPTransport = HTTPTransport
+			srv.Options.mcpTransportOpts.transport = HTTPTransport
+			srv.Options.mcpTransportOpts.endpoint = srv.Options.MCPEndpoint
+		} else {
+			// Apply all transport configurations
+			for _, cfg := range configs {
+				cfg(&srv.Options.mcpTransportOpts)
+			}
+			srv.Options.MCPTransport = srv.Options.mcpTransportOpts.transport
+			if srv.Options.mcpTransportOpts.endpoint != "" {
+				srv.Options.MCPEndpoint = srv.Options.mcpTransportOpts.endpoint
+			}
+		}
+		
+		transportName := "HTTP"
+		if srv.Options.MCPTransport == StdioTransport {
+			transportName = "stdio"
+		}
+		logger.Info("MCP (Model Context Protocol) support enabled", "transport", transportName, "endpoint", srv.Options.MCPEndpoint)
 		return nil
 	}
 }

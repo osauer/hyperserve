@@ -107,6 +107,42 @@ This structure reduces root directory clutter and follows standard Go project or
     - Metadata files
   * Ensure comprehensive test coverage for new functionality
 
+## API Design Principles
+
+When designing new APIs or features for hyperserve, follow these principles:
+
+### 1. **Sensible Defaults with Zero Configuration**
+- APIs should work with minimal configuration
+- Common use cases should require little to no boilerplate
+- Example: `WithMCPSupport()` defaults to HTTP transport on `/mcp`
+
+### 2. **Progressive Disclosure**
+- Simple things should be simple
+- Complex things should be possible
+- Start with the simplest API that could work
+- Add complexity only when needed
+- Example: MCP transport can be as simple as `WithMCPSupport()` or configured with `WithMCPSupport(MCPOverStdio())`
+
+### 3. **Consistency Across Features**
+- Similar features should have similar APIs
+- Transport mechanisms should feel idiomatic regardless of type
+- Example: Both HTTP and stdio MCP servers use the same `NewServer()` and configuration pattern
+
+### 4. **Parameters Over Separate Types**
+- Prefer configuration through parameters rather than separate types
+- Use functional options to customize behavior
+- Example: Transport configuration via `WithMCPSupport(MCPOverHTTP("/api"))` rather than separate server types
+
+### 5. **Export What Users Need**
+- Export types that users might need to reference or create
+- Protocol types (JSON-RPC, MCP) should be public for client code
+- Internal implementation details remain unexported
+
+### 6. **Maintain Low Barrier to Entry**
+- Examples should be minimal and focused
+- Avoid unnecessary abstractions
+- Documentation should show the simplest path first
+
 ## Architecture
 
 ### Architecture Decision Records (ADRs)
@@ -447,3 +483,48 @@ srv, _ := hyperserve.NewServer(
     hyperserve.WithMCPEndpoint("/ai"),
 )
 ```
+
+### MCP STDIO Transport Security
+
+The STDIO transport provides an alternative to HTTP for MCP communication, using standard input/output streams. This is particularly useful for:
+- Local AI assistant integrations
+- Command-line tools
+- Embedded scenarios
+
+#### Security Considerations
+
+1. **Process Isolation**: STDIO transport inherits the security context of the parent process
+   - Ensure the parent process runs with appropriate permissions
+   - Consider using OS-level sandboxing (e.g., containers, VMs)
+
+2. **File System Access**: When using file tools with STDIO transport
+   - Always configure `WithMCPFileToolRoot()` to limit file access
+   - The sandbox applies regardless of transport type
+   - Never run with elevated privileges unless absolutely necessary
+
+3. **Input Validation**: STDIO transport processes all input from stdin
+   - Malformed JSON will be rejected with appropriate errors
+   - Large payloads are limited by available memory
+   - Consider implementing request size limits in production
+
+4. **Deployment Recommendations**:
+   ```go
+   // Secure STDIO server with sandboxed file access
+   srv, _ := hyperserve.NewServer(
+       hyperserve.WithMCPSupport(hyperserve.MCPOverStdio()),
+       hyperserve.WithMCPFileToolRoot("/restricted/path"),
+       hyperserve.WithMCPToolsEnabled(true),
+       hyperserve.WithMCPResourcesEnabled(false), // Limit exposure
+   )
+   ```
+
+5. **Logging and Monitoring**: STDIO transport logs all operations
+   - Errors are logged but not exposed to the client
+   - Monitor logs for suspicious activity
+   - Consider implementing rate limiting at the OS level
+
+6. **Best Practices**:
+   - Run STDIO servers as non-privileged users
+   - Use process managers that can enforce resource limits
+   - Implement timeouts for long-running operations
+   - Regularly update to latest security patches

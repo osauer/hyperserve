@@ -161,6 +161,63 @@ func (engine *JSONRPCEngine) ProcessRequest(requestData []byte) []byte {
 	return responseData
 }
 
+// ProcessRequestDirect processes a JSON-RPC request object directly and returns a response object
+func (engine *JSONRPCEngine) ProcessRequestDirect(request *JSONRPCRequest) *JSONRPCResponse {
+	// Validate request
+	if request.JSONRPC != JSONRPCVersion {
+		engine.logger.Error("Invalid JSON-RPC version", "version", request.JSONRPC)
+		return &JSONRPCResponse{
+			JSONRPC: JSONRPCVersion,
+			Error: &JSONRPCError{
+				Code:    ErrorCodeInvalidRequest,
+				Message: "Invalid Request",
+				Data:    fmt.Sprintf("expected jsonrpc version %s", JSONRPCVersion),
+			},
+			ID: request.ID,
+		}
+	}
+	
+	// Find method handler
+	handler, exists := engine.methods[request.Method]
+	if !exists {
+		engine.logger.Error("JSON-RPC method not found", "method", request.Method)
+		return &JSONRPCResponse{
+			JSONRPC: JSONRPCVersion,
+			Error: &JSONRPCError{
+				Code:    ErrorCodeMethodNotFound,
+				Message: "Method not found",
+				Data:    fmt.Sprintf("method '%s' not found", request.Method),
+			},
+			ID: request.ID,
+		}
+	}
+	
+	// Call method handler
+	result, err := handler(request.Params)
+	if err != nil {
+		engine.logger.Error("JSON-RPC method execution error", "method", request.Method, "error", err)
+		return &JSONRPCResponse{
+			JSONRPC: JSONRPCVersion,
+			Error: &JSONRPCError{
+				Code:    ErrorCodeInternalError,
+				Message: "Internal error",
+				Data:    err.Error(),
+			},
+			ID: request.ID,
+		}
+	}
+	
+	// Build response
+	response := &JSONRPCResponse{
+		JSONRPC: JSONRPCVersion,
+		Result:  result,
+		ID:      request.ID,
+	}
+	
+	engine.logger.Debug("JSON-RPC request processed successfully", "method", request.Method)
+	return response
+}
+
 // GetRegisteredMethods returns a list of all registered method names
 func (engine *JSONRPCEngine) GetRegisteredMethods() []string {
 	methods := make([]string, 0, len(engine.methods))

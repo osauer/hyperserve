@@ -3,7 +3,6 @@ package hyperserve
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -13,6 +12,35 @@ import (
 const (
 	MCPVersion = "2024-11-05"
 )
+
+// MCPTransportType represents the type of transport for MCP communication
+type MCPTransportType int
+
+const (
+	// HTTPTransport represents HTTP-based MCP communication
+	HTTPTransport MCPTransportType = iota
+	// StdioTransport represents stdio-based MCP communication
+	StdioTransport
+)
+
+// MCPTransport defines the interface for MCP communication transports
+type MCPTransport interface {
+	// Send sends a JSON-RPC response message
+	Send(response *JSONRPCResponse) error
+	// Receive receives a JSON-RPC request message
+	Receive() (*JSONRPCRequest, error)
+	// Close closes the transport
+	Close() error
+}
+
+// MCPTransportConfig is a function that configures MCP transport options
+type MCPTransportConfig func(*mcpTransportOptions)
+
+// mcpTransportOptions holds internal transport configuration
+type mcpTransportOptions struct {
+	transport MCPTransportType
+	endpoint  string
+}
 
 // MCP Tool interface defines the contract for MCP tools
 type MCPTool interface {
@@ -66,6 +94,21 @@ type MCPClientInfo struct {
 	Version string `json:"version"`
 }
 
+// MCPOverHTTP configures MCP to use HTTP transport with the specified endpoint
+func MCPOverHTTP(endpoint string) MCPTransportConfig {
+	return func(o *mcpTransportOptions) {
+		o.transport = HTTPTransport
+		o.endpoint = endpoint
+	}
+}
+
+// MCPOverStdio configures MCP to use stdio transport
+func MCPOverStdio() MCPTransportConfig {
+	return func(o *mcpTransportOptions) {
+		o.transport = StdioTransport
+	}
+}
+
 // MCPHandler manages MCP protocol communication
 type MCPHandler struct {
 	tools      map[string]MCPTool
@@ -73,6 +116,52 @@ type MCPHandler struct {
 	rpcEngine  *JSONRPCEngine
 	serverInfo MCPServerInfo
 	logger     *slog.Logger
+	transport  MCPTransport
+}
+
+// httpTransport implements MCPTransport for HTTP-based communication
+type httpTransport struct {
+	w      http.ResponseWriter
+	r      *http.Request
+	logger *slog.Logger
+}
+
+// newHTTPTransport creates a new HTTP transport
+func newHTTPTransport(w http.ResponseWriter, r *http.Request) *httpTransport {
+	return &httpTransport{
+		w:      w,
+		r:      r,
+		logger: logger,
+	}
+}
+
+// Send sends a JSON-RPC response over HTTP
+func (t *httpTransport) Send(response *JSONRPCResponse) error {
+	t.w.Header().Set("Content-Type", "application/json")
+	return json.NewEncoder(t.w).Encode(response)
+}
+
+// Receive receives a JSON-RPC request from HTTP
+func (t *httpTransport) Receive() (*JSONRPCRequest, error) {
+	if t.r.Method != http.MethodPost {
+		return nil, fmt.Errorf("method not allowed: %s", t.r.Method)
+	}
+	
+	if !strings.Contains(t.r.Header.Get("Content-Type"), "application/json") {
+		return nil, fmt.Errorf("Content-Type must be application/json")
+	}
+	
+	var request JSONRPCRequest
+	if err := json.NewDecoder(t.r.Body).Decode(&request); err != nil {
+		return nil, fmt.Errorf("failed to decode request: %w", err)
+	}
+	
+	return &request, nil
+}
+
+// Close closes the HTTP transport (no-op for HTTP)
+func (t *httpTransport) Close() error {
+	return nil
 }
 
 // NewMCPHandler creates a new MCP handler instance
@@ -110,39 +199,47 @@ func (h *MCPHandler) ProcessRequest(requestData []byte) []byte {
 
 // ServeHTTP implements the http.Handler interface for MCP
 func (h *MCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
+	// Create HTTP transport for this request
+	transport := newHTTPTransport(w, r)
+	defer transport.Close()
 	
-	if !strings.Contains(r.Header.Get("Content-Type"), "application/json") {
-		http.Error(w, "Content-Type must be application/json", http.StatusBadRequest)
-		return
+	// Process the request using the transport
+	if err := h.ProcessRequestWithTransport(transport); err != nil {
+		h.logger.Error("Failed to process MCP request", "error", err)
+		if err.Error() == "method not allowed: "+r.Method {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		} else if strings.Contains(err.Error(), "Content-Type") {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		} else {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+		}
 	}
-	
-	// Read request body
-	body, err := io.ReadAll(r.Body)
+}
+
+// ProcessRequestWithTransport processes an MCP request using the provided transport
+func (h *MCPHandler) ProcessRequestWithTransport(transport MCPTransport) error {
+	// Receive request
+	request, err := transport.Receive()
 	if err != nil {
-		h.logger.Error("Failed to read request body", "error", err)
-		http.Error(w, "Failed to read request body", http.StatusBadRequest)
-		return
+		return fmt.Errorf("failed to receive request: %w", err)
 	}
 	
-	// Process MCP request
-	response := h.ProcessRequest(body)
+	// Process with JSON-RPC engine directly (avoiding double marshaling)
+	response := h.rpcEngine.ProcessRequestDirect(request)
 	
 	// Send response
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write(response); err != nil {
-		h.logger.Error("Failed to write response", "error", err)
+	if err := transport.Send(response); err != nil {
+		return fmt.Errorf("failed to send response: %w", err)
 	}
+	
+	return nil
 }
 
 // registerMCPMethods registers all MCP protocol methods with the JSON-RPC engine
 func (h *MCPHandler) registerMCPMethods() {
-	// Initialize method
+	// Initialize methods
 	h.rpcEngine.RegisterMethod("initialize", h.handleInitialize)
+	h.rpcEngine.RegisterMethod("initialized", h.handleInitialized)
 	
 	// Resource methods
 	h.rpcEngine.RegisterMethod("resources/list", h.handleResourcesList)
@@ -156,14 +253,62 @@ func (h *MCPHandler) registerMCPMethods() {
 	h.rpcEngine.RegisterMethod("ping", h.handlePing)
 }
 
+// MCPInitializeParams represents the parameters for the initialize method
+type MCPInitializeParams struct {
+	ProtocolVersion string        `json:"protocolVersion"`
+	Capabilities    interface{}   `json:"capabilities"`
+	ClientInfo      MCPClientInfo `json:"clientInfo"`
+}
+
+// MCPInitializeResult represents the result of the initialize method
+type MCPInitializeResult struct {
+	ProtocolVersion string          `json:"protocolVersion"`
+	Capabilities    MCPCapabilities `json:"capabilities"`
+	ServerInfo      MCPServerInfo   `json:"serverInfo"`
+}
+
+// MCPResourceReadParams represents the parameters for reading a resource
+type MCPResourceReadParams struct {
+	URI string `json:"uri"`
+}
+
+// MCPToolCallParams represents the parameters for calling a tool
+type MCPToolCallParams struct {
+	Name      string                 `json:"name"`
+	Arguments map[string]interface{} `json:"arguments"`
+}
+
+// MCPToolInfo represents information about a tool
+type MCPToolInfo struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	InputSchema map[string]interface{} `json:"inputSchema"`
+}
+
+// MCPResourceInfo represents information about a resource
+type MCPResourceInfo struct {
+	URI         string `json:"uri"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	MimeType    string `json:"mimeType"`
+}
+
+// MCPResourceContent represents the content of a resource
+type MCPResourceContent struct {
+	URI      string      `json:"uri"`
+	MimeType string      `json:"mimeType"`
+	Text     interface{} `json:"text"`
+}
+
+// MCPToolResult represents the result of a tool execution
+type MCPToolResult struct {
+	Content []map[string]interface{} `json:"content"`
+}
+
 // MCP method handlers
 
 func (h *MCPHandler) handleInitialize(params interface{}) (interface{}, error) {
-	var initParams struct {
-		ProtocolVersion string        `json:"protocolVersion"`
-		Capabilities    interface{}   `json:"capabilities"`
-		ClientInfo      MCPClientInfo `json:"clientInfo"`
-	}
+	var initParams MCPInitializeParams
 	
 	// Parse parameters
 	if params != nil {
@@ -195,6 +340,12 @@ func (h *MCPHandler) handleInitialize(params interface{}) (interface{}, error) {
 	}, nil
 }
 
+func (h *MCPHandler) handleInitialized(params interface{}) (interface{}, error) {
+	// The initialized notification doesn't require a response
+	h.logger.Info("MCP client confirmed initialization")
+	return nil, nil
+}
+
 func (h *MCPHandler) handleResourcesList(params interface{}) (interface{}, error) {
 	resources := make([]map[string]interface{}, 0, len(h.resources))
 	
@@ -213,9 +364,7 @@ func (h *MCPHandler) handleResourcesList(params interface{}) (interface{}, error
 }
 
 func (h *MCPHandler) handleResourcesRead(params interface{}) (interface{}, error) {
-	var readParams struct {
-		URI string `json:"uri"`
-	}
+	var readParams MCPResourceReadParams
 	
 	// Parse parameters
 	if params != nil {
@@ -267,10 +416,7 @@ func (h *MCPHandler) handleToolsList(params interface{}) (interface{}, error) {
 }
 
 func (h *MCPHandler) handleToolsCall(params interface{}) (interface{}, error) {
-	var callParams struct {
-		Name      string                 `json:"name"`
-		Arguments map[string]interface{} `json:"arguments"`
-	}
+	var callParams MCPToolCallParams
 	
 	// Parse parameters
 	if params != nil {
