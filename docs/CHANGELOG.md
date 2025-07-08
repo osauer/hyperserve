@@ -8,13 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Custom MCP Tools and Resources**: Added support for registering custom Model Context Protocol extensions
+  - `RegisterMCPTool()` - Register custom tools after server creation
+  - `RegisterMCPResource()` - Register custom resources after server creation
+  - `MCPEnabled()` - Check if MCP support is enabled
+  - Updated documentation and examples showing custom tool implementation
 - **Benchmarking Suite**: Comprehensive performance testing framework
   - Memory efficiency: ~1KB per request with 10 allocations
   - Middleware overhead: 10-30% for full security stack
   - Individual middleware measurements show relative costs
   - Hardware-independent metrics focus on efficiency
 - **Performance Documentation**: Added detailed analysis with focus on relative performance
-- **Architecture Decision Records (ADRs)**: Documented 10 key architecture decisions
+- **Architecture Decision Records (ADRs)**: Documented 11 key architecture decisions
   - Minimal external dependencies strategy
   - Functional options configuration pattern
   - Layered middleware architecture
@@ -25,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Context-based graceful shutdown
   - Single package architecture choice
   - Server-Sent Events as first-class feature
+  - Model Context Protocol (MCP) support
 
 ### Fixed
 - **Test failures**: Fixed all test issues including:
@@ -34,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Health endpoint testing on correct server
   - Parallel test execution conflicts
 - **Template directory modification**: Removed side effect in HandleTemplate that modified Options.TemplateDir
+- **Options mutation bug**: Fixed issue where defaultServerOptions was being modified across tests
 
 ## [0.9.0] - 2025-06-27
 

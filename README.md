@@ -347,6 +347,35 @@ Built-in resources:
 - `system://runtime/info` - System information
 - `logs://server/recent` - Recent log entries
 
+### Custom MCP Tools and Resources
+
+Register your own tools and resources:
+
+```go
+// Define a custom tool
+type MyTool struct{}
+
+func (t *MyTool) Name() string { return "my_tool" }
+func (t *MyTool) Description() string { return "Custom tool" }
+func (t *MyTool) Schema() map[string]interface{} {
+    return map[string]interface{}{
+        "type": "object",
+        "properties": map[string]interface{}{
+            "input": map[string]interface{}{"type": "string"},
+        },
+    }
+}
+func (t *MyTool) Execute(params map[string]interface{}) (interface{}, error) {
+    // Implementation
+    return map[string]interface{}{"result": "success"}, nil
+}
+
+// Register after server creation
+srv, _ := hyperserve.NewServer(hyperserve.WithMCPSupport())
+srv.RegisterMCPTool(&MyTool{})
+srv.Run()
+```
+
 ## Performance
 
 Baseline performance characteristics:

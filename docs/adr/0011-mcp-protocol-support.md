@@ -109,9 +109,15 @@ type ServerOptions struct {
 - `system://runtime/info`: System and runtime information
 - `logs://server/recent`: Recent log entries
 
+**Custom Extensions:**
+- Register custom tools via `srv.RegisterMCPTool()`
+- Register custom resources via `srv.RegisterMCPResource()`
+- Check MCP status with `srv.MCPEnabled()`
+
 ### Usage Pattern
 
 ```go
+// Basic usage
 srv, err := hyperserve.NewServer(
     hyperserve.WithAddr(":8080"),
     hyperserve.WithMCPSupport(),
@@ -119,6 +125,16 @@ srv, err := hyperserve.NewServer(
     hyperserve.WithMCPServerInfo("my-server", "1.0.0"),
     hyperserve.WithMCPFileToolRoot("/safe/directory"),
 )
+
+// With custom tools
+type MyTool struct{}
+func (t *MyTool) Name() string { return "my_tool" }
+func (t *MyTool) Description() string { return "Custom tool" }
+func (t *MyTool) Schema() map[string]interface{} { /* ... */ }
+func (t *MyTool) Execute(params map[string]interface{}) (interface{}, error) { /* ... */ }
+
+srv.RegisterMCPTool(&MyTool{})
+srv.Run()
 ```
 
 ## Rationale
