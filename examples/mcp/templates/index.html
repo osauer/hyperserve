@@ -110,6 +110,14 @@
                 <p>Make HTTP requests to external services</p>
             </div>
         </div>
+        
+        <h3 style="margin-top: 1.5rem;">🔧 Custom Tools</h3>
+        <div class="tool-list">
+            <div class="item">
+                <h4>timestamp</h4>
+                <p>Generate timestamps in unix, iso8601, or rfc3339 format</p>
+            </div>
+        </div>
     </div>
 
     <div class="card">
@@ -130,6 +138,14 @@
             <div class="item">
                 <h4>logs://server/recent</h4>
                 <p>Recent log entries</p>
+            </div>
+        </div>
+        
+        <h3 style="margin-top: 1.5rem;">🔧 Custom Resources</h3>
+        <div class="resource-list">
+            <div class="item">
+                <h4>custom://server/status</h4>
+                <p>Current server status and uptime</p>
             </div>
         </div>
     </div>
@@ -172,6 +188,19 @@
     "method": "resources/read",
     "params": {"uri": "system://runtime/info"},
     "id": 3
+}'</pre>
+
+        <h3>Use Custom Timestamp Tool</h3>
+        <pre>curl -X POST http://localhost:8080{{.MCPEndpoint}} \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "params": {
+        "name": "timestamp",
+        "arguments": {"format": "unix"}
+    },
+    "id": 4
 }'</pre>
     </div>
 

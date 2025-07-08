@@ -43,7 +43,16 @@ This checklist was completed on 2025-06-27 before making the repository public.
 - [x] htmx-dynamic - Dynamic content
 - [x] htmx-stream - Server-sent events
 - [x] enterprise - FIPS and security features
+- [x] mcp - Model Context Protocol with custom tools/resources
 - [x] All examples have README files
+
+## ✅ MCP (Model Context Protocol) Support
+- [x] Built-in tools (calculator, file operations, http)
+- [x] Built-in resources (config, metrics, system info)
+- [x] Custom tool/resource registration API
+- [x] Sandboxed file access with os.Root
+- [x] MCP example with custom extensions
+- [x] Documentation in README and CLAUDE.md
 
 ## ✅ Go Module
 - [x] go.mod specifies Go 1.24

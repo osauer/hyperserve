@@ -1,5 +1,45 @@
 # Release Notes
 
+## Unreleased
+
+### 🚀 New Features
+
+#### Custom MCP Tools and Resources
+- Added `RegisterMCPTool()` method to dynamically register custom MCP tools after server creation
+- Added `RegisterMCPResource()` method to dynamically register custom MCP resources after server creation  
+- Added `MCPEnabled()` method to check if MCP support is enabled on the server
+- Updated MCP handler to support custom tool and resource registration
+- Enhanced examples to demonstrate custom MCP extension implementation
+
+### 📝 API Additions
+```go
+// MCP extension methods
+func (s *Server) RegisterMCPTool(tool MCPTool) error
+func (s *Server) RegisterMCPResource(resource MCPResource) error
+func (s *Server) MCPEnabled() bool
+
+// MCP interfaces
+type MCPTool interface {
+    Name() string
+    Description() string
+    Schema() map[string]interface{}
+    Execute(params map[string]interface{}) (interface{}, error)
+}
+
+type MCPResource interface {
+    URI() string
+    Name() string
+    Description() string
+    MimeType() string
+    Read(ctx context.Context) ([]byte, error)
+}
+```
+
+### 📚 Documentation Updates
+- Updated README.md with custom MCP tool and resource examples
+- Added MCP interfaces to API stability guarantees
+- Enhanced CLAUDE.md with custom MCP patterns
+
 ## v0.9.0 - Go 1.24 Update (2025-06-27)
 
 ### 🎯 Performance Characteristics

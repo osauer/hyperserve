@@ -25,6 +25,11 @@ Starting with **v1.0.0**, HyperServe follows strict [Semantic Versioning](https:
    func (s *Server) Run() error
    func (s *Server) HandleFunc(pattern string, handler http.HandlerFunc)
    func (s *Server) AddMiddleware(pattern string, middleware ...MiddlewareFunc)
+   
+   // MCP integration methods (when MCP is enabled)
+   func (s *Server) RegisterMCPTool(tool MCPTool) error
+   func (s *Server) RegisterMCPResource(resource MCPResource) error
+   func (s *Server) MCPEnabled() bool
    ```
 
 2. **Configuration Options**
@@ -43,7 +48,26 @@ Starting with **v1.0.0**, HyperServe follows strict [Semantic Versioning](https:
    type MiddlewareStack []MiddlewareFunc
    ```
 
-4. **Public Struct Fields**
+4. **MCP Interfaces**
+   ```go
+   // MCP extension interfaces are stable
+   type MCPTool interface {
+       Name() string
+       Description() string
+       Schema() map[string]interface{}
+       Execute(params map[string]interface{}) (interface{}, error)
+   }
+   
+   type MCPResource interface {
+       URI() string
+       Name() string
+       Description() string
+       MimeType() string
+       Read(ctx context.Context) ([]byte, error)
+   }
+   ```
+
+5. **Public Struct Fields**
    ```go
    type ServerOptions struct {
        Addr     string  // Will not be removed or change meaning

@@ -701,6 +701,28 @@ curl -X POST http://localhost:8080/mcp \
 Extend MCP with custom capabilities:
 
 ```go
+import (
+    "context"
+    "encoding/json"
+)
+
+// MCP Tool interface
+type MCPTool interface {
+    Name() string
+    Description() string
+    Schema() map[string]interface{}
+    Execute(params map[string]interface{}) (interface{}, error)
+}
+
+// MCP Resource interface
+type MCPResource interface {
+    URI() string
+    Name() string
+    Description() string
+    MimeType() string
+    Read(ctx context.Context) ([]byte, error)
+}
+
 // Custom tool implementation
 type MyTool struct{}
 
@@ -731,11 +753,9 @@ func (r *MyResource) URI() string { return "myapp://custom/data" }
 func (r *MyResource) Name() string { return "Custom Data" }
 func (r *MyResource) Description() string { return "Application-specific data" }
 func (r *MyResource) MimeType() string { return "application/json" }
-func (r *MyResource) Read() (interface{}, error) {
-    return map[string]interface{}{"data": "value"}, nil
-}
-func (r *MyResource) List() ([]string, error) {
-    return []string{"myapp://custom/data"}, nil
+func (r *MyResource) Read(ctx context.Context) ([]byte, error) {
+    data := map[string]interface{}{"data": "value"}
+    return json.Marshal(data)
 }
 
 // Register custom tool and resource

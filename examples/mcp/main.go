@@ -3,9 +3,12 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/osauer/hyperserve"
 )
@@ -39,6 +42,18 @@ func main() {
 		"MCPEndpoint": "/mcp",
 		"SandboxDir":  sandboxDir,
 	})
+
+	// Register custom MCP tool
+	if srv.MCPEnabled() {
+		if err := srv.RegisterMCPTool(&TimestampTool{}); err != nil {
+			log.Printf("Failed to register timestamp tool: %v", err)
+		}
+		
+		// Register custom MCP resource
+		if err := srv.RegisterMCPResource(&ServerStatusResource{}); err != nil {
+			log.Printf("Failed to register status resource: %v", err)
+		}
+	}
 
 	// Add rate limiting to MCP endpoint for production use
 	srv.AddMiddleware("/mcp", hyperserve.RateLimitMiddleware(srv))
@@ -92,4 +107,90 @@ Try using the 'read_file' tool to read this content.`,
 		[]byte("This file is in a subdirectory."),
 		0644,
 	)
+}
+
+// TimestampTool is a custom MCP tool that generates timestamps
+type TimestampTool struct{}
+
+func (t *TimestampTool) Name() string {
+	return "timestamp"
+}
+
+func (t *TimestampTool) Description() string {
+	return "Generate timestamps in various formats"
+}
+
+func (t *TimestampTool) Schema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"format": map[string]interface{}{
+				"type":        "string",
+				"description": "Timestamp format: unix, iso8601, or rfc3339",
+				"enum":        []string{"unix", "iso8601", "rfc3339"},
+				"default":     "iso8601",
+			},
+		},
+	}
+}
+
+func (t *TimestampTool) Execute(params map[string]interface{}) (interface{}, error) {
+	format, _ := params["format"].(string)
+	if format == "" {
+		format = "iso8601"
+	}
+
+	now := time.Now()
+	var result string
+
+	switch format {
+	case "unix":
+		result = fmt.Sprintf("%d", now.Unix())
+	case "rfc3339":
+		result = now.Format(time.RFC3339)
+	case "iso8601":
+		fallthrough
+	default:
+		result = now.Format("2006-01-02T15:04:05Z07:00")
+	}
+
+	return map[string]interface{}{
+		"timestamp": result,
+		"format":    format,
+	}, nil
+}
+
+// ServerStatusResource is a custom MCP resource that provides server status
+type ServerStatusResource struct{}
+
+func (s *ServerStatusResource) URI() string {
+	return "custom://server/status"
+}
+
+func (s *ServerStatusResource) Name() string {
+	return "Server Status"
+}
+
+func (s *ServerStatusResource) Description() string {
+	return "Current server status and uptime information"
+}
+
+func (s *ServerStatusResource) MimeType() string {
+	return "application/json"
+}
+
+func (s *ServerStatusResource) Read(ctx context.Context) ([]byte, error) {
+	status := map[string]interface{}{
+		"status":    "running",
+		"timestamp": time.Now().Format(time.RFC3339),
+		"uptime":    "N/A", // In a real implementation, track server start time
+		"version":   "1.0.0",
+	}
+
+	return []byte(fmt.Sprintf(`{
+  "status": "%s",
+  "timestamp": "%s",
+  "uptime": "%s",
+  "version": "%s"
+}`, status["status"], status["timestamp"], status["uptime"], status["version"])), nil
 }
