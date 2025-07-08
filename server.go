@@ -954,3 +954,28 @@ func (srv *Server) stopCleanup() {
 		close(srv.cleanupDone)
 	}
 }
+
+// MCPEnabled returns true if MCP support is enabled
+func (srv *Server) MCPEnabled() bool {
+	return srv.Options.MCPEnabled && srv.mcpHandler != nil
+}
+
+// RegisterMCPTool registers a custom MCP tool
+// This must be called after server creation but before Run()
+func (srv *Server) RegisterMCPTool(tool MCPTool) error {
+	if !srv.MCPEnabled() {
+		return fmt.Errorf("MCP is not enabled on this server")
+	}
+	srv.mcpHandler.RegisterTool(tool)
+	return nil
+}
+
+// RegisterMCPResource registers a custom MCP resource
+// This must be called after server creation but before Run()
+func (srv *Server) RegisterMCPResource(resource MCPResource) error {
+	if !srv.MCPEnabled() {
+		return fmt.Errorf("MCP is not enabled on this server")
+	}
+	srv.mcpHandler.RegisterResource(resource)
+	return nil
+}

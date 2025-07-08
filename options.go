@@ -107,8 +107,10 @@ const (
 // 3. Default values (lowest priority)
 // Returns a fully initialized ServerOptions struct ready for use.
 func NewServerOptions() *ServerOptions {
-	config := applyEnvVars(applyConfigFile(defaultServerOptions))
-	return config
+	// Create a copy of defaultServerOptions to avoid modifying the shared instance
+	config := *defaultServerOptions
+	configPtr := applyEnvVars(applyConfigFile(&config))
+	return configPtr
 }
 
 // ServerOptionFunc is a function type used to configure Server instances.

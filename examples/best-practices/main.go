@@ -83,7 +83,9 @@ func main() {
 
 	// BEST PRACTICE: Register custom MCP tools properly
 	if srv.MCPEnabled() {
-		srv.RegisterMCPTool(&CustomTool{})
+		if err := srv.RegisterMCPTool(&CustomTool{}); err != nil {
+			log.Printf("Warning: Failed to register custom MCP tool: %v", err)
+		}
 	}
 
 	// Web routes

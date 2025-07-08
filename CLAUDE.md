@@ -706,13 +706,52 @@ type MyTool struct{}
 
 func (t *MyTool) Name() string { return "my_tool" }
 func (t *MyTool) Description() string { return "Custom tool description" }
-func (t *MyTool) Schema() map[string]interface{} { /* JSON schema */ }
+func (t *MyTool) Schema() map[string]interface{} {
+    return map[string]interface{}{
+        "type": "object",
+        "properties": map[string]interface{}{
+            "param1": map[string]interface{}{
+                "type": "string",
+                "description": "First parameter",
+            },
+        },
+        "required": []string{"param1"},
+    }
+}
 func (t *MyTool) Execute(params map[string]interface{}) (interface{}, error) {
+    param1, _ := params["param1"].(string)
     // Tool implementation
+    return map[string]interface{}{"result": param1}, nil
 }
 
-// Register custom tool
-srv.mcpHandler.RegisterTool(&MyTool{})
+// Custom resource implementation
+type MyResource struct{}
+
+func (r *MyResource) URI() string { return "myapp://custom/data" }
+func (r *MyResource) Name() string { return "Custom Data" }
+func (r *MyResource) Description() string { return "Application-specific data" }
+func (r *MyResource) MimeType() string { return "application/json" }
+func (r *MyResource) Read() (interface{}, error) {
+    return map[string]interface{}{"data": "value"}, nil
+}
+func (r *MyResource) List() ([]string, error) {
+    return []string{"myapp://custom/data"}, nil
+}
+
+// Register custom tool and resource
+srv, _ := hyperserve.NewServer(
+    hyperserve.WithMCPSupport(),
+)
+
+// Must register after server creation, before Run()
+if err := srv.RegisterMCPTool(&MyTool{}); err != nil {
+    log.Fatal(err)
+}
+if err := srv.RegisterMCPResource(&MyResource{}); err != nil {
+    log.Fatal(err)
+}
+
+srv.Run()
 ```
 
 ### Testing MCP Implementation
@@ -759,11 +798,16 @@ srv, _ := hyperserve.NewServer(
     hyperserve.WithRateLimit(50, 100), // Protect against abuse
 )
 
-// MCP with custom tools only
+// MCP with custom tools
 srv, _ := hyperserve.NewServer(
     hyperserve.WithMCPSupport(),
     hyperserve.WithMCPResourcesDisabled(), // Only tools, no resources
 )
+
+// Register custom tools after server creation
+if err := srv.RegisterMCPTool(&MyCustomTool{}); err != nil {
+    log.Fatal(err)
+}
 
 // Minimal MCP server
 srv, _ := hyperserve.NewServer(
