@@ -107,6 +107,124 @@ This structure reduces root directory clutter and follows standard Go project or
     - Metadata files
   * Ensure comprehensive test coverage for new functionality
 
+## Common Anti-Patterns and How to Avoid Them
+
+When using hyperserve in your projects, avoid these common mistakes:
+
+### 1. **DON'T Reimplement Built-in Features**
+
+❌ **Bad: Custom graceful shutdown**
+```go
+// DON'T DO THIS - hyperserve already handles signals
+sigChan := make(chan os.Signal, 1)
+signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+go func() {
+    <-sigChan
+    fmt.Println("\nShutting down...")
+    os.Exit(0)
+}()
+```
+
+✅ **Good: Use built-in graceful shutdown**
+```go
+srv, _ := hyperserve.NewServer()
+srv.Run() // Handles SIGINT/SIGTERM automatically
+// Or use Stop() for programmatic shutdown:
+// go srv.Run()
+// srv.Stop()
+```
+
+### 2. **DON'T Create Custom Logging Middleware**
+
+❌ **Bad: Custom request logger**
+```go
+// DON'T create your own logging middleware
+type responseWriter struct {
+    http.ResponseWriter
+    statusCode int
+}
+func StructuredLogger(next http.HandlerFunc) http.HandlerFunc { ... }
+```
+
+✅ **Good: Use built-in structured logging**
+```go
+// RequestLoggerMiddleware is automatically applied by default
+// Configure log level via environment variable:
+// HS_LOG_LEVEL=debug ./myapp
+```
+
+### 3. **DON'T Reimplement MCP Support**
+
+❌ **Bad: Custom MCP handler**
+```go
+// DON'T create your own MCP implementation
+type MCPHandler struct { ... }
+func (h *MCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) { ... }
+```
+
+✅ **Good: Use built-in MCP support**
+```go
+srv, _ := hyperserve.NewServer(
+    hyperserve.WithMCPSupport(),
+    hyperserve.WithMCPFileToolRoot("/safe/path"),
+)
+// Register custom tools if needed:
+// srv.mcpHandler.RegisterTool(&MyCustomTool{})
+```
+
+### 4. **DON'T Manually Implement SSE**
+
+❌ **Bad: Manual SSE formatting**
+```go
+// DON'T manually format SSE messages
+fmt.Fprintf(w, "event: %s\n", event)
+fmt.Fprintf(w, "data: %s\n\n", jsonData)
+flusher.Flush()
+```
+
+✅ **Good: Use SSE helpers**
+```go
+msg := hyperserve.NewSSEMessage("event-name", data)
+fmt.Fprint(w, msg)
+flusher.Flush()
+```
+
+### 5. **DON'T Skip Middleware Stacks**
+
+❌ **Bad: Manual middleware application**
+```go
+// DON'T apply middleware one by one
+srv.AddMiddleware("/api", RateLimitMiddleware)
+srv.AddMiddleware("/api", AuthMiddleware)
+srv.AddMiddleware("/api", HeadersMiddleware)
+```
+
+✅ **Good: Use pre-configured stacks**
+```go
+// Use built-in stacks for common patterns
+srv.AddMiddlewareStack("/api", hyperserve.SecureAPI(srv))
+srv.AddMiddlewareStack("/", hyperserve.SecureWeb(srv.Options))
+```
+
+### 6. **DON'T Ignore Configuration System**
+
+❌ **Bad: Hardcoded configuration**
+```go
+srv, _ := hyperserve.NewServer(
+    hyperserve.WithAddr(":8080"),
+    hyperserve.WithRateLimit(100, 200),
+)
+```
+
+✅ **Good: Use configuration hierarchy**
+```go
+// Set via environment variables:
+// HS_PORT=8080 HS_RATE_LIMIT=100 ./myapp
+// Or use JSON config file:
+// HS_CONFIG_PATH=config.json ./myapp
+srv, _ := hyperserve.NewServer() // Uses env vars/config automatically
+```
+
 ## API Design Principles
 
 When designing new APIs or features for hyperserve, follow these principles:
@@ -214,6 +332,146 @@ middleware.
 4. **Testability**: Designed with testing in mind (though tests need fixes)
 5. **Production Ready**: Health checks, metrics, rate limiting built-in
 
+## Graceful Shutdown
+
+Hyperserve provides automatic graceful shutdown handling:
+
+### Signal Handling
+- **Signals**: Automatically handles `SIGINT` (Ctrl+C) and `SIGTERM`
+- **Timeout**: Default 30-second shutdown timeout (configurable via `WithShutdownTimeout()`)
+- **Process**: 
+  1. Stops accepting new connections
+  2. Waits for active requests to complete
+  3. Closes all resources cleanly
+
+### Usage Examples
+
+```go
+// Basic usage - Run() blocks and handles shutdown
+srv, _ := hyperserve.NewServer()
+srv.Run() // Blocks until shutdown signal received
+
+// Advanced usage - Non-blocking with manual control
+srv, _ := hyperserve.NewServer(
+    hyperserve.WithShutdownTimeout(10 * time.Second),
+)
+
+// Start server in goroutine
+go func() {
+    if err := srv.Run(); err != nil {
+        log.Fatal(err)
+    }
+}()
+
+// Later, trigger graceful shutdown programmatically
+srv.Stop() // Initiates graceful shutdown
+```
+
+### What Happens During Shutdown
+
+1. **Health endpoints** return unhealthy status
+2. **New connections** are rejected
+3. **Active requests** continue processing until completion or timeout
+4. **Middleware cleanup** functions are called
+5. **Server resources** are released
+
+### Best Practices
+
+- Don't implement your own signal handling - hyperserve handles it
+- Use `WithShutdownTimeout()` to adjust timeout for your needs
+- Long-running handlers should respect context cancellation
+- Health check server also shuts down gracefully
+
+## Debug Logging
+
+Hyperserve uses Go's structured logging (`slog`) for all logging:
+
+### Enabling Debug Logs
+
+```bash
+# Set log level via environment variable
+HS_LOG_LEVEL=debug ./myapp
+
+# Available levels: debug, info, warn, error
+HS_LOG_LEVEL=warn ./myapp
+```
+
+### What Gets Logged
+
+**Debug level** includes:
+- Middleware execution order
+- Configuration loading details
+- Request routing decisions
+- Rate limit decisions
+- MCP protocol messages
+
+**Info level** (default) includes:
+- Server startup/shutdown
+- Request logs with duration
+- Configuration summary
+- Health check status changes
+
+**Warn level** includes:
+- Rate limit violations
+- Authentication failures
+- Resource constraints
+
+**Error level** includes:
+- Handler panics (recovered)
+- TLS errors
+- Fatal configuration issues
+
+### Structured Log Format
+
+```json
+{
+  "time": "2024-03-14T10:30:45.123Z",
+  "level": "INFO",
+  "msg": "request completed",
+  "method": "GET",
+  "path": "/api/users",
+  "status": 200,
+  "duration": "125.3ms",
+  "ip": "192.168.1.100"
+}
+```
+
+### Custom Logger Configuration
+
+```go
+// Use custom slog handler
+logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+    Level: slog.LevelDebug,
+}))
+
+srv, _ := hyperserve.NewServer(
+    hyperserve.WithLogger(logger),
+)
+```
+
+### Debugging Tips
+
+1. **Enable debug logs** when troubleshooting:
+   ```bash
+   HS_LOG_LEVEL=debug ./myapp 2>&1 | jq .
+   ```
+
+2. **Filter logs** by component:
+   ```bash
+   HS_LOG_LEVEL=debug ./myapp 2>&1 | grep '"component":"middleware"'
+   ```
+
+3. **Performance debugging**:
+   - Request logger shows duration for every request
+   - Metrics middleware tracks request counts and latencies
+   - Use `/metrics` endpoint for Prometheus-compatible metrics
+
+4. **MCP debugging**:
+   ```bash
+   # See all MCP protocol messages
+   HS_LOG_LEVEL=debug ./myapp 2>&1 | grep '"component":"mcp"'
+   ```
+
 ### Configuration
 
 The server reads configuration in this order:
@@ -263,6 +521,36 @@ The project leverages several Go 1.24 features:
 2. **Middleware Overhead**: Aim for <30% total overhead
 3. **Logging**: Most expensive middleware due to I/O
 4. **Static Files**: Currently 31 allocations - optimization opportunity
+
+## Quick Decision Guide for LLMs
+
+When implementing a feature, ask yourself:
+
+1. **Does hyperserve already have this?**
+   - Logging? ✅ Use `RequestLoggerMiddleware` (applied by default)
+   - Rate limiting? ✅ Use `WithRateLimit()` or `RateLimitMiddleware`
+   - Auth? ✅ Use `WithAuthTokenValidator()` or `AuthMiddleware`
+   - CORS? ✅ Use `HeadersMiddleware` with CORS headers
+   - Health checks? ✅ Use `WithHealthServer()` (runs on :8081)
+   - Graceful shutdown? ✅ Built into `Run()`
+   - MCP support? ✅ Use `WithMCPSupport()`
+   - SSE support? ✅ Use `NewSSEMessage()`
+   - Static files? ✅ Use `HandleStatic()`
+   - Templates? ✅ Use `HandleTemplate()` or `HandleTemplateFunc()`
+
+2. **Am I following the pattern?**
+   - Server creation uses `NewServer()` with functional options
+   - Middleware uses the layered architecture (global → route-specific)
+   - Configuration uses env vars (`HS_*`) → JSON → defaults
+   - All handlers are `http.HandlerFunc` compatible
+
+3. **Common mistakes to avoid:**
+   - ❌ Don't create custom logging middleware
+   - ❌ Don't implement your own graceful shutdown
+   - ❌ Don't create custom MCP handlers
+   - ❌ Don't manually format SSE messages
+   - ❌ Don't hardcode configuration values
+   - ❌ Don't create separate health check endpoints
 
 ### Common Patterns
 

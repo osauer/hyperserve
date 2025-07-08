@@ -365,6 +365,7 @@ See [PERFORMANCE.md](PERFORMANCE.md) for detailed benchmarks.
 Complete example applications:
 
 - [basic](examples/basic) - Minimal server
+- [best-practices](examples/best-practices) - Demonstrates proper usage patterns and anti-patterns to avoid
 - [middleware-basics](examples/middleware-basics) - Middleware patterns
 - [static-files](examples/static-files) - Static file serving
 - [json-api](examples/json-api) - REST API example
