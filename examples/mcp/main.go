@@ -3,7 +3,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"os"
@@ -179,7 +178,7 @@ func (s *ServerStatusResource) MimeType() string {
 	return "application/json"
 }
 
-func (s *ServerStatusResource) Read(ctx context.Context) ([]byte, error) {
+func (s *ServerStatusResource) Read() (interface{}, error) {
 	status := map[string]interface{}{
 		"status":    "running",
 		"timestamp": time.Now().Format(time.RFC3339),
@@ -187,10 +186,10 @@ func (s *ServerStatusResource) Read(ctx context.Context) ([]byte, error) {
 		"version":   "1.0.0",
 	}
 
-	return []byte(fmt.Sprintf(`{
-  "status": "%s",
-  "timestamp": "%s",
-  "uptime": "%s",
-  "version": "%s"
-}`, status["status"], status["timestamp"], status["uptime"], status["version"])), nil
+	return status, nil
+}
+
+func (s *ServerStatusResource) List() ([]string, error) {
+	// Single resource, return self URI
+	return []string{s.URI()}, nil
 }
