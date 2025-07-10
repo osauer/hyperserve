@@ -187,20 +187,25 @@ Pre-configured middleware combinations:
 
 Usage:
 ```go
-// Apply middleware stack to routes
-srv.AddMiddlewareStack("/api", hyperserve.SecureAPI(srv))
-srv.AddMiddlewareStack("/", hyperserve.SecureWeb(srv.Options))
+// Apply middleware stack to specific routes
+srv.AddMiddlewareStack("/api", hyperserve.SecureAPI(srv))       // Auth + rate limiting for /api/*
+srv.AddMiddlewareStack("*", hyperserve.SecureWeb(srv.Options))  // Security headers for all routes
 ```
 
 ### Individual Middleware
 
 ```go
 // Add specific middleware to routes
-srv.AddMiddleware("/api", hyperserve.AuthMiddleware(srv.Options))
-srv.AddMiddleware("*", hyperserve.HeadersMiddleware(srv.Options))
-srv.AddMiddleware("/api", hyperserve.RateLimitMiddleware(srv))
-srv.AddMiddleware("*", hyperserve.TraceMiddleware)
+srv.AddMiddleware("*", hyperserve.HeadersMiddleware(srv.Options))      // Global - all routes
+srv.AddMiddleware("/api", hyperserve.AuthMiddleware(srv.Options))      // Only /api/* routes
+srv.AddMiddleware("/api", hyperserve.RateLimitMiddleware(srv))         // Only /api/* routes
+srv.AddMiddleware("/static", hyperserve.HeadersMiddleware(srv.Options)) // Only /static/* routes
 ```
+
+**Route-specific middleware**:
+- Uses prefix matching: `"/api"` matches `/api`, `/api/users`, `/api/v1/orders`, etc.
+- Global middleware uses `"*"` and runs before route-specific middleware
+- Multiple middleware for the same route are executed in registration order
 
 ### Custom Middleware
 

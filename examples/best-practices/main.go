@@ -25,7 +25,7 @@ type CustomTool struct{}
 
 func (t *CustomTool) Name() string        { return "app_status" }
 func (t *CustomTool) Description() string { return "Get application status" }
-func (t *CustomTool) InputSchema() map[string]interface{} {
+func (t *CustomTool) Schema() map[string]interface{} {
 	return map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -66,7 +66,7 @@ func main() {
 		// Security configuration
 		hyperserve.WithRateLimit(100, 200),                            // 100 req/s, burst 200
 		hyperserve.WithAuthTokenValidator(validateToken),              // Custom auth
-		hyperserve.WithShutdownTimeout(30*time.Second),                // Graceful shutdown
+		// Graceful shutdown timeout is configurable via timeouts
 
 		// Feature configuration
 		hyperserve.WithMCPSupport(),                                   // Enable MCP
@@ -90,7 +90,7 @@ func main() {
 
 	// Web routes
 	srv.HandleFunc("/", handleHome)
-	srv.HandleTemplateFunc("/about", "about.html", func(r *http.Request) interface{} {
+	srv.HandleFuncDynamic("/about", "about.html", func(r *http.Request) interface{} {
 		return AppData{
 			Title:     "About",
 			Message:   "Best practices example",
@@ -103,7 +103,7 @@ func main() {
 	srv.HandleFunc("/api/stream", handleSSEStream)
 
 	// Static files with proper caching headers
-	srv.AddMiddleware("/static/", hyperserve.FileServer())
+	srv.AddMiddleware("/static/", hyperserve.HeadersMiddleware(srv.Options))
 	srv.HandleStatic("/static/")
 
 	// BEST PRACTICE: Let hyperserve handle graceful shutdown
@@ -120,9 +120,9 @@ func main() {
 }
 
 // validateToken demonstrates custom auth validation
-func validateToken(token string) bool {
+func validateToken(token string) (bool, error) {
 	// In production, validate against your auth system
-	return token == "secret-token-123"
+	return token == "secret-token-123", nil
 }
 
 // handleHome demonstrates a simple handler
@@ -196,10 +196,12 @@ func handleSSEStream(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-ticker.C:
 			// BEST PRACTICE: Use NewSSEMessage helper
-			msg := hyperserve.NewSSEMessage("time-update", map[string]interface{}{
+			data := map[string]interface{}{
 				"time":     time.Now().Format(time.RFC3339),
 				"requests": requestCount,
-			})
+			}
+			msg := hyperserve.NewSSEMessage(data)
+			msg.Event = "time-update"
 			fmt.Fprint(w, msg)
 			flusher.Flush()
 

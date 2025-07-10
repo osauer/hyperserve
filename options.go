@@ -168,7 +168,7 @@ func applyEnvVars(config *ServerOptions) *ServerOptions {
 func applyConfigFile(config *ServerOptions) *ServerOptions {
 	file, err := os.Open(paramFileName)
 	if err != nil {
-		logger.Warn("Failed to open options file.", "error", err)
+		logger.Info("Failed to open options file.", "error", err)
 		return config
 	}
 

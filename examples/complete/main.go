@@ -6,13 +6,11 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
 	"net/http"
-	"os"
 	"time"
 
 	hs "github.com/osauer/hyperserve"

@@ -66,24 +66,50 @@ func (mwr *MiddlewareRegistry) filterMiddleware() {
 	}
 }
 
-// applyToMux helper to  apply multiple middleware to a handler
+// applyToMux creates a handler that applies route-specific middleware
 func (mwr *MiddlewareRegistry) applyToMux(mux *http.ServeMux) http.Handler {
-	finalHandler := http.Handler(mux)
 	mwr.filterMiddleware()
-	for route, stack := range mwr.middleware {
-		logger.Info("Applying middleware.", "route", route)
-		// reverse order to run first MiddlewareFunc passed first
-		for i := len(stack) - 1; i >= 0; i-- {
-			finalHandler = stack[i](finalHandler)
+	
+	// Return a handler that checks routes and applies appropriate middleware
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Start with the original mux as the final handler
+		finalHandler := http.Handler(mux)
+		
+		// Collect all applicable middleware for this request path
+		var applicableMiddleware []MiddlewareFunc
+		
+		// First, add global middleware (if any)
+		if globalStack, exists := mwr.middleware[GlobalMiddlewareRoute]; exists {
+			applicableMiddleware = append(applicableMiddleware, globalStack...)
 		}
-	}
-	return finalHandler
+		
+		// Then, add route-specific middleware
+		for route, stack := range mwr.middleware {
+			if route != GlobalMiddlewareRoute && strings.HasPrefix(r.URL.Path, route) {
+				applicableMiddleware = append(applicableMiddleware, stack...)
+			}
+		}
+		
+		// Apply middleware in reverse order (so first registered runs first)
+		for i := len(applicableMiddleware) - 1; i >= 0; i-- {
+			finalHandler = applicableMiddleware[i](finalHandler)
+		}
+		
+		// Serve the request with the wrapped handler
+		finalHandler.ServeHTTP(w, r)
+	})
 }
 
 // Add registers a MiddlewareStack for a specific route in the registry.
 // Use GlobalMiddlewareRoute ("*") to apply middleware to all routes.
 func (mwr *MiddlewareRegistry) Add(route string, middleware MiddlewareStack) {
-	mwr.middleware[route] = middleware
+	if existing, exists := mwr.middleware[route]; exists {
+		// Append to existing middleware for this route
+		mwr.middleware[route] = append(existing, middleware...)
+	} else {
+		// Create new entry
+		mwr.middleware[route] = middleware
+	}
 }
 
 // Get retrieves the MiddlewareStack for a specific route.

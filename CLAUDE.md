@@ -202,8 +202,9 @@ srv.AddMiddleware("/api", HeadersMiddleware)
 ✅ **Good: Use pre-configured stacks**
 ```go
 // Use built-in stacks for common patterns
-srv.AddMiddlewareStack("/api", hyperserve.SecureAPI(srv))
-srv.AddMiddlewareStack("/", hyperserve.SecureWeb(srv.Options))
+srv.AddMiddlewareStack("/api", hyperserve.SecureAPI(srv))     // Auth + rate limiting for API routes
+srv.AddMiddlewareStack("/", hyperserve.SecureWeb(srv.Options)) // Security headers for web routes
+// Note: Route-specific middleware only applies to paths starting with the specified prefix
 ```
 
 ### 6. **DON'T Ignore Configuration System**
@@ -317,12 +318,15 @@ Key architecture decisions are documented in [`docs/adr/`](docs/adr/):
 
 The server uses a layered middleware approach where middleware can be:
 
-1. Applied globally to all routes
-2. Applied to specific route patterns
-3. Excluded from specific routes
+1. Applied globally to all routes using `"*"` as the route pattern
+2. Applied to specific route patterns (e.g., `"/api"`, `"/static"`)
+3. Excluded from specific routes using `WithOutStack()`
 
-Middleware execution order follows the registration sequence, with route-specific middleware executing after global
-middleware.
+Middleware execution order:
+- Global middleware (`"*"`) runs first
+- Route-specific middleware runs after global middleware
+- Multiple middleware for the same route are executed in registration order
+- Middleware is applied based on URL path prefix matching
 
 ### Key Design Principles
 
@@ -562,9 +566,10 @@ srv, _ := hyperserve.NewServer(
     hyperserve.WithAuthTokenValidator(validateFunc),
 )
 
-// Adding middleware selectively
-srv.AddMiddleware("/api", hyperserve.RateLimitMiddleware(srv))
-srv.AddMiddleware("/api", hyperserve.AuthMiddleware(srv.Options))
+// Adding middleware selectively (route-specific)
+srv.AddMiddleware("/api", hyperserve.RateLimitMiddleware(srv))    // Only applies to /api/*
+srv.AddMiddleware("/api", hyperserve.AuthMiddleware(srv.Options)) // Only applies to /api/*
+srv.AddMiddleware("*", hyperserve.HeadersMiddleware(srv.Options)) // Applies to all routes
 
 // Graceful shutdown
 go srv.Run()

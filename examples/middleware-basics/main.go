@@ -21,7 +21,7 @@ type Step struct {
 func main() {
 	fmt.Println("=== HyperServe Middleware Basics ===")
 	fmt.Println("This example demonstrates middleware layer by layer.")
-	fmt.Println("We'll start with no middleware and add one at a time.\n")
+	fmt.Println("We'll start with no middleware and add one at a time.")
 
 	// Define our demonstration steps
 	steps := []Step{

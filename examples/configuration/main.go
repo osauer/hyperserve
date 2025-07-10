@@ -77,7 +77,7 @@ func runProgrammaticConfig() {
 
 	fmt.Println("Configuration:")
 	fmt.Printf("  Port: %s\n", server.Options.Addr)
-	fmt.Printf("  Rate Limit: %d req/s\n", server.Options.RateLimit)
+	fmt.Printf("  Rate Limit: %.0f req/s\n", float64(server.Options.RateLimit))
 	fmt.Printf("  Burst Limit: %d\n", server.Options.Burst)
 
 	fmt.Println("\nPress Enter to continue to next method...")
@@ -119,7 +119,7 @@ func runJSONConfig() {
 
 	fmt.Println("Configuration loaded from JSON:")
 	fmt.Printf("  Port: %s\n", server.Options.Addr)
-	fmt.Printf("  Rate Limit: %d req/s\n", server.Options.RateLimit)
+	fmt.Printf("  Rate Limit: %.0f req/s\n", float64(server.Options.RateLimit))
 	fmt.Printf("  Burst Limit: %d\n", server.Options.Burst)
 
 	// Cleanup
@@ -151,7 +151,7 @@ func runEnvConfig() {
 
 	fmt.Println("Configuration loaded from environment:")
 	fmt.Printf("  Port: %s\n", server.Options.Addr)
-	fmt.Printf("  Rate Limit: %d req/s\n", server.Options.RateLimit)
+	fmt.Printf("  Rate Limit: %.0f req/s\n", float64(server.Options.RateLimit))
 	fmt.Printf("  Burst Limit: %d\n", server.Options.Burst)
 
 	// Cleanup

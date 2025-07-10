@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.1] - 2025-07-10
 
 ### Added
 - **Custom MCP Tools and Resources**: Added support for registering custom Model Context Protocol extensions
@@ -33,6 +33,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Model Context Protocol (MCP) support
 
 ### Fixed
+- **Route-specific middleware**: Fixed critical bug where all middleware was applied globally
+  - Middleware registered for specific routes (e.g., `/api`) now only applies to matching paths
+  - Global middleware (registered with `"*"`) correctly applies to all routes
+  - Proper execution order: global middleware runs first, then route-specific
+  - Multiple middleware for the same route are now appended instead of replaced
+- **Logging level**: Changed options.json file not found message from WARN to INFO level
+- **Examples**: Fixed all example compilation errors
+  - Updated auth validator signatures to return (bool, error)
+  - Fixed MCP tool interface implementation
+  - Corrected SSE message helper usage
+  - Fixed rate limit formatting in configuration example
 - **Test failures**: Fixed all test issues including:
   - Unused imports in enterprise example
   - Template parsing with os.Root security
