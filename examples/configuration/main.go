@@ -206,7 +206,7 @@ func runCombinedConfig() {
 	fmt.Println()
 	fmt.Println("Final configuration (after precedence):")
 	fmt.Printf("  Port: %s (from environment)\n", server.Options.Addr)
-	fmt.Printf("  Rate Limit: %d req/s (from JSON)\n", server.Options.RateLimit)
+	fmt.Printf("  Rate Limit: %.0f req/s (from JSON)\n", float64(server.Options.RateLimit))
 	fmt.Printf("  Burst Limit: %d (from JSON)\n", server.Options.Burst)
 
 	// Cleanup

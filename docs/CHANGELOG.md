@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2025-07-11
+
+### Added
+- **MCP Performance Optimizations**: Enhanced Model Context Protocol with significant performance improvements
+  - Context support for tools enabling cancellation and timeouts (30s default)
+  - Resource caching with configurable TTL (5 minutes default) 
+  - Comprehensive metrics collection for requests, tools, and resources
+  - Thread-safe concurrent tool execution
+  - Cache hit/miss tracking and performance metrics
+- **MCP Metrics API**: New `GetMetrics()` method provides detailed performance insights
+  - Request counts and latencies by method
+  - Tool execution statistics with error rates
+  - Resource read performance and cache effectiveness
+  - Overall error rates and throughput metrics
+
+### Changed
+- MCP tools now support context for better resource management
+- MCP resources are automatically cached to reduce redundant reads
+- All MCP operations now collect performance metrics
+
+### Fixed
+- Middleware registration logs now only appear during setup, not on every request
+- Fixed middleware log spam that was impacting performance
+
 ## [0.9.1] - 2025-07-10
 
 ### Added

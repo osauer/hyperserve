@@ -126,20 +126,27 @@ func TestHandleFuncDynamicMissingTemplate(t *testing.T) {
 	// Use unique directory name to avoid conflicts in parallel tests  
 	templateDir := fmt.Sprintf("./test_templates_%d_%d", time.Now().UnixNano(), os.Getpid())
 	
-	// Create server with non-existent template directory
+	// Create the template directory first
+	err := os.MkdirAll(templateDir, 0755)
+	if err != nil {
+		t.Fatalf("failed to create template directory: %v", err)
+	}
+	defer os.RemoveAll(templateDir)
+	
+	// Create server with existing template directory
 	srv, err := NewServer(WithTemplateDir(templateDir))
 	if err != nil {
 		t.Fatalf("error creating server: %v", err)
 	}
 
-	// Test missing directory - HandleFuncDynamic should fail
+	// Test missing template file - HandleFuncDynamic should fail
 	err = srv.HandleFuncDynamic("/missing", "missing.html", func(r *http.Request) interface{} {
 		return map[string]interface{}{
 			"timestamp": "2024-01-01 00:00:00",
 		}
 	})
 	if err == nil {
-		t.Errorf("expected error when template directory is missing, got nil")
+		t.Errorf("expected error when template file is missing, got nil")
 	}
 }
 

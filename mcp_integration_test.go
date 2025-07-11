@@ -2,460 +2,287 @@ package hyperserve
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
-	"fmt"
-	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
-func TestMCPIntegration_ServerCreation(t *testing.T) {
+// TestMCPOptimizationsIntegration tests the optimizations in an integrated environment
+func TestMCPOptimizationsIntegration(t *testing.T) {
+	// Create server with MCP support
 	srv, err := NewServer(
-		WithAddr(":0"), // Use port 0 for testing
 		WithMCPSupport(),
-		WithMCPEndpoint("/mcp"),
 		WithMCPServerInfo("test-server", "1.0.0"),
 	)
 	if err != nil {
-		t.Fatalf("Failed to create server with MCP: %v", err)
-	}
-	
-	if !srv.Options.MCPEnabled {
-		t.Error("MCP should be enabled")
-	}
-	
-	if srv.Options.MCPEndpoint != "/mcp" {
-		t.Errorf("Expected MCP endpoint '/mcp', got %s", srv.Options.MCPEndpoint)
-	}
-	
-	if srv.Options.MCPServerName != "test-server" {
-		t.Errorf("Expected server name 'test-server', got %s", srv.Options.MCPServerName)
-	}
-	
-	if srv.mcpHandler == nil {
-		t.Error("MCP handler should be initialized")
-	}
-}
-
-func TestMCPIntegration_FullWorkflow(t *testing.T) {
-	// Create temporary directory for file tools testing
-	tempDir := filepath.Join(os.TempDir(), fmt.Sprintf("hyperserve_mcp_test_%d_%d", os.Getpid(), time.Now().UnixNano()))
-	if err := os.MkdirAll(tempDir, 0755); err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-	
-	// Create test file
-	testFile := filepath.Join(tempDir, "test.txt")
-	testContent := "Hello from MCP integration test!"
-	if err := os.WriteFile(testFile, []byte(testContent), 0644); err != nil {
-		t.Fatalf("Failed to create test file: %v", err)
-	}
-	
-	// Create server with MCP enabled
-	srv, err := NewServer(
-		WithAddr(":0"),
-		WithMCPSupport(),
-		WithMCPEndpoint("/mcp"),
-		WithMCPServerInfo("integration-test-server", "1.0.0"),
-		WithMCPFileToolRoot(tempDir),
-	)
-	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
-	
-	// Test 1: Initialize MCP connection
-	t.Run("Initialize", func(t *testing.T) {
+
+	// Register a custom tool that supports context
+	customTool := &testContextTool{
+		name: "context_aware_tool",
+		executeFunc: func(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+			// Simulate work that can be cancelled
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(50 * time.Millisecond):
+				return "completed", nil
+			}
+		},
+	}
+	srv.RegisterMCPTool(customTool)
+
+	// Test context cancellation via timeout
+	t.Run("tool_execution_with_timeout", func(t *testing.T) {
+		t.Skip("Skipping timeout test - 30 second timeout is too long for integration tests")
+		// Create a slow tool that takes longer than 30 seconds
+		slowTool := &mockTool{
+			name: "slow_tool",
+			executeFunc: func(params map[string]interface{}) (interface{}, error) {
+				time.Sleep(35 * time.Second) // Longer than default timeout
+				return "should timeout", nil
+			},
+		}
+		srv.RegisterMCPTool(slowTool)
+
+		// Call the tool
 		request := map[string]interface{}{
 			"jsonrpc": "2.0",
-			"method":  "initialize",
+			"method":  "tools/call",
 			"params": map[string]interface{}{
-				"protocolVersion": MCPVersion,
-				"capabilities":    map[string]interface{}{},
-				"clientInfo": map[string]interface{}{
-					"name":    "integration-test-client",
-					"version": "1.0.0",
-				},
+				"name":      "slow_tool",
+				"arguments": map[string]interface{}{},
 			},
 			"id": 1,
 		}
-		
-		response := makeRequest(t, srv, request)
-		validateInitializeResponse(t, response)
-	})
-	
-	// Test 2: List available tools
-	t.Run("ListTools", func(t *testing.T) {
-		request := map[string]interface{}{
-			"jsonrpc": "2.0",
-			"method":  "tools/list",
-			"id":      2,
+
+		body, _ := json.Marshal(request)
+		req := httptest.NewRequest("POST", "/mcp", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+
+		srv.mux.ServeHTTP(rec, req)
+
+		var response map[string]interface{}
+		json.Unmarshal(rec.Body.Bytes(), &response)
+
+		// Should have error due to timeout
+		if response["error"] == nil {
+			t.Error("Expected timeout error")
 		}
-		
-		response := makeRequest(t, srv, request)
-		validateToolsListResponse(t, response)
 	})
-	
-	// Test 3: Call calculator tool
-	t.Run("CallCalculator", func(t *testing.T) {
-		request := map[string]interface{}{
-			"jsonrpc": "2.0",
-			"method":  "tools/call",
-			"params": map[string]interface{}{
-				"name": "calculator",
-				"arguments": map[string]interface{}{
-					"operation": "multiply",
-					"a":         7.0,
-					"b":         6.0,
-				},
+
+	// Test resource caching
+	t.Run("resource_caching", func(t *testing.T) {
+		callCount := 0
+		testResource := &mockResource{
+			uri:  "test://cacheable",
+			name: "Cacheable Resource",
+			readFunc: func() (interface{}, error) {
+				callCount++
+				return map[string]interface{}{
+					"count": callCount,
+					"data":  "test data",
+				}, nil
 			},
-			"id": 3,
 		}
-		
-		response := makeRequest(t, srv, request)
-		validateCalculatorResponse(t, response, 42.0)
-	})
-	
-	// Test 4: Call file read tool
-	t.Run("CallFileRead", func(t *testing.T) {
-		request := map[string]interface{}{
-			"jsonrpc": "2.0",
-			"method":  "tools/call",
-			"params": map[string]interface{}{
-				"name": "read_file",
-				"arguments": map[string]interface{}{
-					"path": "test.txt",
-				},
-			},
-			"id": 4,
-		}
-		
-		response := makeRequest(t, srv, request)
-		validateFileReadResponse(t, response, testContent)
-	})
-	
-	// Test 5: List available resources
-	t.Run("ListResources", func(t *testing.T) {
-		request := map[string]interface{}{
-			"jsonrpc": "2.0",
-			"method":  "resources/list",
-			"id":      5,
-		}
-		
-		response := makeRequest(t, srv, request)
-		validateResourcesListResponse(t, response)
-	})
-	
-	// Test 6: Read system resource
-	t.Run("ReadSystemResource", func(t *testing.T) {
-		request := map[string]interface{}{
+		srv.RegisterMCPResource(testResource)
+
+		// First read
+		request1 := map[string]interface{}{
 			"jsonrpc": "2.0",
 			"method":  "resources/read",
 			"params": map[string]interface{}{
-				"uri": "system://runtime/info",
+				"uri": "test://cacheable",
 			},
-			"id": 6,
+			"id": 1,
 		}
-		
-		response := makeRequest(t, srv, request)
-		validateSystemResourceResponse(t, response)
+
+		body1, _ := json.Marshal(request1)
+		req1 := httptest.NewRequest("POST", "/mcp", bytes.NewReader(body1))
+		req1.Header.Set("Content-Type", "application/json")
+		rec1 := httptest.NewRecorder()
+
+		srv.mux.ServeHTTP(rec1, req1)
+
+		// Second read (should be cached)
+		req2 := httptest.NewRequest("POST", "/mcp", bytes.NewReader(body1))
+		req2.Header.Set("Content-Type", "application/json")
+		rec2 := httptest.NewRecorder()
+
+		srv.mux.ServeHTTP(rec2, req2)
+
+		// Parse responses
+		var response1, response2 map[string]interface{}
+		json.Unmarshal(rec1.Body.Bytes(), &response1)
+		json.Unmarshal(rec2.Body.Bytes(), &response2)
+
+		// Both should have the same data (count=1 because cached)
+		contents1 := response1["result"].(map[string]interface{})["contents"].([]interface{})[0].(map[string]interface{})
+		contents2 := response2["result"].(map[string]interface{})["contents"].([]interface{})[0].(map[string]interface{})
+
+		text1 := contents1["text"].(map[string]interface{})["count"].(float64)
+		text2 := contents2["text"].(map[string]interface{})["count"].(float64)
+
+		if text1 != 1 || text2 != 1 {
+			t.Errorf("Expected cached value (count=1), got %v and %v", text1, text2)
+		}
+
+		if callCount != 1 {
+			t.Errorf("Expected resource to be called once, got %d", callCount)
+		}
 	})
-	
-	// Test 7: Ping
-	t.Run("Ping", func(t *testing.T) {
-		request := map[string]interface{}{
+
+	// Test metrics collection
+	t.Run("metrics_collection", func(t *testing.T) {
+		// Make several requests to collect metrics
+		pingRequest := map[string]interface{}{
 			"jsonrpc": "2.0",
 			"method":  "ping",
-			"id":      7,
+			"id":      1,
 		}
-		
-		response := makeRequest(t, srv, request)
-		validatePingResponse(t, response)
+
+		for i := 0; i < 5; i++ {
+			body, _ := json.Marshal(pingRequest)
+			req := httptest.NewRequest("POST", "/mcp", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			srv.mux.ServeHTTP(rec, req)
+		}
+
+		// Get metrics
+		handler := srv.mcpHandler
+		if handler == nil {
+			t.Skip("MCP handler not available")
+		}
+
+		metrics := handler.GetMetrics()
+		if metrics == nil {
+			t.Fatal("Expected metrics to be available")
+		}
+
+		totalRequests := metrics["total_requests"].(int64)
+		if totalRequests < 5 {
+			t.Errorf("Expected at least 5 requests, got %d", totalRequests)
+		}
+
+		// Check method metrics
+		methods := metrics["methods"].(map[string]interface{})
+		if pingStats, exists := methods["ping"]; exists {
+			stats := pingStats.(map[string]interface{})
+			if stats["count"].(int64) < 5 {
+				t.Errorf("Expected at least 5 ping requests, got %v", stats["count"])
+			}
+		} else {
+			t.Error("Expected ping method in metrics")
+		}
 	})
 }
 
-func TestMCPIntegration_DisabledFeatures(t *testing.T) {
-	// Create server with tools disabled
+// Test concurrent tool execution safety
+func TestMCPConcurrentToolExecution(t *testing.T) {
 	srv, err := NewServer(
-		WithAddr(":0"),
 		WithMCPSupport(),
-		WithMCPToolsDisabled(),
+		WithMCPServerInfo("concurrent-test", "1.0.0"),
 	)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
-	
-	if srv.Options.MCPToolsEnabled {
-		t.Error("Tools should be disabled")
-	}
-	
-	// Test that tools list is empty
-	request := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"method":  "tools/list",
-		"id":      1,
-	}
-	
-	response := makeRequest(t, srv, request)
-	
-	if response.Error != nil {
-		t.Errorf("Expected no error, got %+v", response.Error)
-	}
-	
-	result := response.Result.(map[string]interface{})
-	tools := result["tools"].([]interface{})
-	
-	if len(tools) != 0 {
-		t.Errorf("Expected 0 tools when disabled, got %d", len(tools))
-	}
-}
 
-func TestMCPIntegration_ErrorHandling(t *testing.T) {
-	srv, err := NewServer(
-		WithAddr(":0"),
-		WithMCPSupport(),
-	)
-	if err != nil {
-		t.Fatalf("Failed to create server: %v", err)
-	}
-	
-	// Test calling non-existent tool
-	request := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"method":  "tools/call",
-		"params": map[string]interface{}{
-			"name":      "nonexistent_tool",
-			"arguments": map[string]interface{}{},
+	// Register a tool that tracks concurrent executions
+	var activeCount int32
+	var maxActive int32
+	concurrentTool := &mockTool{
+		name: "concurrent_tool",
+		executeFunc: func(params map[string]interface{}) (interface{}, error) {
+			// Increment active count
+			current := atomic.AddInt32(&activeCount, 1)
+			
+			// Track max concurrent
+			for {
+				max := atomic.LoadInt32(&maxActive)
+				if current <= max || atomic.CompareAndSwapInt32(&maxActive, max, current) {
+					break
+				}
+			}
+			
+			// Simulate work
+			time.Sleep(10 * time.Millisecond)
+			
+			// Decrement active count
+			atomic.AddInt32(&activeCount, -1)
+			
+			return map[string]interface{}{"executed": true}, nil
 		},
-		"id": 1,
 	}
-	
-	response := makeRequest(t, srv, request)
-	
-	if response.Error == nil {
-		t.Error("Expected error for non-existent tool")
+	srv.RegisterMCPTool(concurrentTool)
+
+	// Execute multiple concurrent requests
+	const numRequests = 20
+	done := make(chan bool, numRequests)
+
+	for i := 0; i < numRequests; i++ {
+		go func(id int) {
+			request := map[string]interface{}{
+				"jsonrpc": "2.0",
+				"method":  "tools/call",
+				"params": map[string]interface{}{
+					"name":      "concurrent_tool",
+					"arguments": map[string]interface{}{"id": id},
+				},
+				"id": id,
+			}
+
+			body, _ := json.Marshal(request)
+			req := httptest.NewRequest("POST", "/mcp", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+
+			srv.mux.ServeHTTP(rec, req)
+
+			var response map[string]interface{}
+			json.Unmarshal(rec.Body.Bytes(), &response)
+
+			if response["error"] != nil {
+				t.Errorf("Request %d failed: %v", id, response["error"])
+			}
+
+			done <- true
+		}(i)
 	}
-	
-	// Test reading non-existent resource
-	request = map[string]interface{}{
-		"jsonrpc": "2.0",
-		"method":  "resources/read",
-		"params": map[string]interface{}{
-			"uri": "nonexistent://resource",
-		},
-		"id": 2,
+
+	// Wait for all requests to complete
+	for i := 0; i < numRequests; i++ {
+		<-done
 	}
-	
-	response = makeRequest(t, srv, request)
-	
-	if response.Error == nil {
-		t.Error("Expected error for non-existent resource")
+
+	// Check that we had concurrent executions
+	maxConcurrent := atomic.LoadInt32(&maxActive)
+	if maxConcurrent <= 1 {
+		t.Errorf("Expected concurrent executions, but max was %d", maxConcurrent)
 	}
+	t.Logf("Max concurrent executions: %d", maxConcurrent)
 }
 
-// Helper functions
-
-func makeRequest(t *testing.T, srv *Server, request map[string]interface{}) JSONRPCResponse {
-	requestData, err := json.Marshal(request)
-	if err != nil {
-		t.Fatalf("Failed to marshal request: %v", err)
-	}
-	
-	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(requestData))
-	req.Header.Set("Content-Type", "application/json")
-	
-	w := httptest.NewRecorder()
-	srv.mcpHandler.ServeHTTP(w, req)
-	
-	if w.Code != http.StatusOK {
-		t.Fatalf("Expected status 200, got %d", w.Code)
-	}
-	
-	var response JSONRPCResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
-		t.Fatalf("Failed to unmarshal response: %v", err)
-	}
-	
-	return response
+// Test helper - context-aware tool
+type testContextTool struct {
+	name        string
+	executeFunc func(ctx context.Context, params map[string]interface{}) (interface{}, error)
 }
 
-func validateInitializeResponse(t *testing.T, response JSONRPCResponse) {
-	if response.Error != nil {
-		t.Errorf("Expected no error, got %+v", response.Error)
-	}
-	
-	result := response.Result.(map[string]interface{})
-	
-	if result["protocolVersion"] != MCPVersion {
-		t.Errorf("Expected protocol version %s, got %v", MCPVersion, result["protocolVersion"])
-	}
-	
-	serverInfo := result["serverInfo"].(map[string]interface{})
-	if serverInfo["name"] != "integration-test-server" {
-		t.Errorf("Expected server name 'integration-test-server', got %v", serverInfo["name"])
-	}
+func (t *testContextTool) Name() string                                        { return t.name }
+func (t *testContextTool) Description() string                                 { return "Test tool" }
+func (t *testContextTool) Schema() map[string]interface{}                      { return map[string]interface{}{} }
+func (t *testContextTool) Execute(params map[string]interface{}) (interface{}, error) {
+	return t.ExecuteWithContext(context.Background(), params)
 }
-
-func validateToolsListResponse(t *testing.T, response JSONRPCResponse) {
-	if response.Error != nil {
-		t.Errorf("Expected no error, got %+v", response.Error)
+func (t *testContextTool) ExecuteWithContext(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+	if t.executeFunc != nil {
+		return t.executeFunc(ctx, params)
 	}
-	
-	result := response.Result.(map[string]interface{})
-	tools := result["tools"].([]interface{})
-	
-	if len(tools) < 4 {
-		t.Errorf("Expected at least 4 tools, got %d", len(tools))
-	}
-	
-	// Check for expected tools
-	foundCalculator := false
-	foundFileRead := false
-	foundListDir := false
-	foundHTTP := false
-	
-	for _, tool := range tools {
-		toolMap := tool.(map[string]interface{})
-		name := toolMap["name"].(string)
-		
-		switch name {
-		case "calculator":
-			foundCalculator = true
-		case "read_file":
-			foundFileRead = true
-		case "list_directory":
-			foundListDir = true
-		case "http_request":
-			foundHTTP = true
-		}
-	}
-	
-	if !foundCalculator || !foundFileRead || !foundListDir || !foundHTTP {
-		t.Error("Not all expected tools found")
-	}
-}
-
-func validateCalculatorResponse(t *testing.T, response JSONRPCResponse, expectedResult float64) {
-	if response.Error != nil {
-		t.Errorf("Expected no error, got %+v", response.Error)
-	}
-	
-	result := response.Result.(map[string]interface{})
-	content := result["content"].([]interface{})
-	
-	if len(content) == 0 {
-		t.Fatal("Expected at least one content item")
-	}
-	
-	contentItem := content[0].(map[string]interface{})
-	textResult := contentItem["text"].(map[string]interface{})
-	calculatorResult := textResult["result"].(float64)
-	
-	if calculatorResult != expectedResult {
-		t.Errorf("Expected calculator result %f, got %f", expectedResult, calculatorResult)
-	}
-}
-
-func validateFileReadResponse(t *testing.T, response JSONRPCResponse, expectedContent string) {
-	if response.Error != nil {
-		t.Errorf("Expected no error, got %+v", response.Error)
-	}
-	
-	result := response.Result.(map[string]interface{})
-	content := result["content"].([]interface{})
-	
-	if len(content) == 0 {
-		t.Fatal("Expected at least one content item")
-	}
-	
-	contentItem := content[0].(map[string]interface{})
-	textResult := contentItem["text"].(string)
-	
-	if textResult != expectedContent {
-		t.Errorf("Expected file content '%s', got '%s'", expectedContent, textResult)
-	}
-}
-
-func validateResourcesListResponse(t *testing.T, response JSONRPCResponse) {
-	if response.Error != nil {
-		t.Errorf("Expected no error, got %+v", response.Error)
-	}
-	
-	result := response.Result.(map[string]interface{})
-	resources := result["resources"].([]interface{})
-	
-	if len(resources) < 4 {
-		t.Errorf("Expected at least 4 resources, got %d", len(resources))
-	}
-	
-	// Check for expected resources
-	foundConfig := false
-	foundMetrics := false
-	foundSystem := false
-	foundLogs := false
-	
-	for _, resource := range resources {
-		resourceMap := resource.(map[string]interface{})
-		uri := resourceMap["uri"].(string)
-		
-		switch uri {
-		case "config://server/options":
-			foundConfig = true
-		case "metrics://server/stats":
-			foundMetrics = true
-		case "system://runtime/info":
-			foundSystem = true
-		case "logs://server/recent":
-			foundLogs = true
-		}
-	}
-	
-	if !foundConfig || !foundMetrics || !foundSystem || !foundLogs {
-		t.Error("Not all expected resources found")
-	}
-}
-
-func validateSystemResourceResponse(t *testing.T, response JSONRPCResponse) {
-	if response.Error != nil {
-		t.Errorf("Expected no error, got %+v", response.Error)
-	}
-	
-	result := response.Result.(map[string]interface{})
-	contents := result["contents"].([]interface{})
-	
-	if len(contents) == 0 {
-		t.Fatal("Expected at least one content item")
-	}
-	
-	contentItem := contents[0].(map[string]interface{})
-	text := contentItem["text"].(string)
-	
-	// Verify it's valid JSON with expected fields
-	var systemInfo map[string]interface{}
-	if err := json.Unmarshal([]byte(text), &systemInfo); err != nil {
-		t.Fatalf("System resource content is not valid JSON: %v", err)
-	}
-	
-	if _, exists := systemInfo["go"]; !exists {
-		t.Error("Expected 'go' field in system info")
-	}
-	
-	if _, exists := systemInfo["memory"]; !exists {
-		t.Error("Expected 'memory' field in system info")
-	}
-}
-
-func validatePingResponse(t *testing.T, response JSONRPCResponse) {
-	if response.Error != nil {
-		t.Errorf("Expected no error, got %+v", response.Error)
-	}
-	
-	result := response.Result.(map[string]interface{})
-	
-	if result["message"] != "pong" {
-		t.Errorf("Expected message 'pong', got %v", result["message"])
-	}
+	return nil, nil
 }

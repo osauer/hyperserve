@@ -252,7 +252,7 @@ func TestMCPSecurity_InputValidation(t *testing.T) {
 				},
 				"id": 7,
 			},
-			expectError: false, // Should handle gracefully but may overflow
+			expectError: true, // Now returns error for infinity/NaN results
 		},
 	}
 
@@ -556,7 +556,7 @@ func makeMCPRequest(t *testing.T, srv *Server, request map[string]interface{}) J
 	srv.mcpHandler.ServeHTTP(w, req)
 
 	// Allow both 200 and error status codes as both can contain valid JSON-RPC responses
-	if w.Code != http.StatusOK && w.Code != http.StatusBadRequest && w.Code != http.StatusUnauthorized {
+	if w.Code != http.StatusOK && w.Code != http.StatusBadRequest && w.Code != http.StatusUnauthorized && w.Code != http.StatusInternalServerError {
 		t.Fatalf("Unexpected status code: %d", w.Code)
 	}
 

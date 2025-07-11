@@ -331,26 +331,47 @@ srv, _ := hyperserve.NewServer(
 
 ## Model Context Protocol (MCP)
 
-Enable AI assistant integration:
+Enable AI assistant integration with multiple transport options:
+
+### HTTP Transport (Default)
 
 ```go
 srv, _ := hyperserve.NewServer(
-    hyperserve.WithMCPSupport(),
+    hyperserve.WithMCPSupport(),  // Defaults to HTTP on /mcp
     hyperserve.WithMCPFileToolRoot("/safe/path"),
 )
 ```
 
-Built-in tools:
+### STDIO Transport
+
+For CLI tools and Claude Desktop integration:
+
+```go
+srv, _ := hyperserve.NewServer(
+    hyperserve.WithMCPSupport(hyperserve.MCPOverStdio()),
+    hyperserve.WithMCPFileToolRoot("/safe/path"),
+)
+```
+
+See [mcp-stdio example](examples/mcp-stdio) for Claude Desktop integration.
+
+### Built-in Tools
+
 - `read_file` - Read files (sandboxed)
 - `list_directory` - List directories (sandboxed)
 - `http_request` - Make HTTP requests
 - `calculator` - Basic math operations
 
-Built-in resources:
+All tools support context-based cancellation and have a 30-second timeout by default.
+
+### Built-in Resources
+
 - `config://server/options` - Server configuration
 - `metrics://server/stats` - Performance metrics
 - `system://runtime/info` - System information
 - `logs://server/recent` - Recent log entries
+
+Resources are automatically cached with a 5-minute TTL to improve performance.
 
 ### Custom MCP Tools and Resources
 
@@ -381,6 +402,23 @@ srv.RegisterMCPTool(&MyTool{})
 srv.Run()
 ```
 
+### MCP Performance Features
+
+HyperServe's MCP implementation includes several performance optimizations:
+
+- **Context Support**: All tools support cancellation with 30-second timeout
+- **Resource Caching**: Automatic 5-minute cache for resource reads
+- **Metrics Collection**: Detailed performance metrics for monitoring
+- **Concurrent Execution**: Tools can execute concurrently for better throughput
+
+Access metrics programmatically:
+```go
+if srv.MCPEnabled() {
+    metrics := srv.mcpHandler.GetMetrics()
+    // Returns request counts, latencies, error rates, cache stats
+}
+```
+
 ## Performance
 
 Baseline performance characteristics:
@@ -405,7 +443,8 @@ Complete example applications:
 - [json-api](examples/json-api) - REST API example
 - [htmx-stream](examples/htmx-stream) - SSE with HTMX
 - [enterprise](examples/enterprise) - FIPS and security features
-- [mcp](examples/mcp) - AI assistant integration
+- [mcp](examples/mcp) - AI assistant integration (HTTP transport)
+- [mcp-stdio](examples/mcp-stdio) - MCP with STDIO transport for Claude Desktop
 - [chaos](examples/chaos) - Chaos engineering
 
 ## Testing

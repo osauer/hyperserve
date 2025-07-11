@@ -268,5 +268,5 @@ func printStartupBanner() {
 	fmt.Println("  curl http://localhost:8080/api/status")
 	fmt.Println("  curl -H 'Authorization: Bearer demo-token-123' http://localhost:8080/api/user")
 	fmt.Println("  curl -N http://localhost:8080/api/stream  # SSE stream")
-	fmt.Println("\nPress Ctrl+C for graceful shutdown\n")
+	fmt.Println("\nPress Ctrl+C for graceful shutdown")
 }

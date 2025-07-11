@@ -1,11 +1,13 @@
 package hyperserve
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // MCP Protocol constants
@@ -117,6 +119,8 @@ type MCPHandler struct {
 	serverInfo MCPServerInfo
 	logger     *slog.Logger
 	transport  MCPTransport
+	metrics    *MCPMetrics
+	cache      *resourceCache
 }
 
 // httpTransport implements MCPTransport for HTTP-based communication
@@ -172,6 +176,8 @@ func NewMCPHandler(serverInfo MCPServerInfo) *MCPHandler {
 		rpcEngine:  NewJSONRPCEngine(),
 		serverInfo: serverInfo,
 		logger:     logger,
+		metrics:    newMCPMetrics(),
+		cache:      newResourceCache(100), // Default cache size of 100 items
 	}
 	
 	// Register MCP protocol methods
@@ -190,6 +196,14 @@ func (h *MCPHandler) RegisterTool(tool MCPTool) {
 func (h *MCPHandler) RegisterResource(resource MCPResource) {
 	h.resources[resource.URI()] = resource
 	h.logger.Info("MCP resource registered", "resource", resource.Name(), "uri", resource.URI())
+}
+
+// GetMetrics returns the current MCP metrics summary
+func (h *MCPHandler) GetMetrics() map[string]interface{} {
+	if h.metrics == nil {
+		return nil
+	}
+	return h.metrics.GetMetricsSummary()
 }
 
 // ProcessRequest processes an MCP request
@@ -218,6 +232,8 @@ func (h *MCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // ProcessRequestWithTransport processes an MCP request using the provided transport
 func (h *MCPHandler) ProcessRequestWithTransport(transport MCPTransport) error {
+	start := time.Now()
+	
 	// Receive request
 	request, err := transport.Receive()
 	if err != nil {
@@ -226,6 +242,13 @@ func (h *MCPHandler) ProcessRequestWithTransport(transport MCPTransport) error {
 	
 	// Process with JSON-RPC engine directly (avoiding double marshaling)
 	response := h.rpcEngine.ProcessRequestDirect(request)
+	
+	// Record metrics
+	var responseErr error
+	if response.Error != nil {
+		responseErr = fmt.Errorf("error: %s", response.Error.Message)
+	}
+	h.metrics.recordRequest(request.Method, time.Since(start), responseErr)
 	
 	// Send response
 	if err := transport.Send(response); err != nil {
@@ -364,6 +387,7 @@ func (h *MCPHandler) handleResourcesList(params interface{}) (interface{}, error
 }
 
 func (h *MCPHandler) handleResourcesRead(params interface{}) (interface{}, error) {
+	start := time.Now()
 	var readParams MCPResourceReadParams
 	
 	// Parse parameters
@@ -383,10 +407,37 @@ func (h *MCPHandler) handleResourcesRead(params interface{}) (interface{}, error
 		return nil, fmt.Errorf("resource not found: %s", readParams.URI)
 	}
 	
+	// Check cache first
+	cacheKey := readParams.URI
+	cacheHit := false
+	if cachedContent, hit := h.cache.get(cacheKey); hit {
+		cacheHit = true
+		h.metrics.recordResourceRead(readParams.URI, time.Since(start), nil, true)
+		
+		// Return cached content
+		return map[string]interface{}{
+			"contents": []map[string]interface{}{
+				{
+					"uri":      resource.URI(),
+					"mimeType": resource.MimeType(),
+					"text":     cachedContent,
+				},
+			},
+		}, nil
+	}
+	
+	// Read from resource
 	content, err := resource.Read()
+	
+	// Record metrics
+	h.metrics.recordResourceRead(readParams.URI, time.Since(start), err, cacheHit)
+	
 	if err != nil {
 		return nil, fmt.Errorf("failed to read resource: %w", err)
 	}
+	
+	// Cache the result (with 5 minute TTL for now)
+	h.cache.set(cacheKey, content, 5*time.Minute)
 	
 	return map[string]interface{}{
 		"contents": []map[string]interface{}{
@@ -416,6 +467,7 @@ func (h *MCPHandler) handleToolsList(params interface{}) (interface{}, error) {
 }
 
 func (h *MCPHandler) handleToolsCall(params interface{}) (interface{}, error) {
+	start := time.Now()
 	var callParams MCPToolCallParams
 	
 	// Parse parameters
@@ -435,7 +487,19 @@ func (h *MCPHandler) handleToolsCall(params interface{}) (interface{}, error) {
 		return nil, fmt.Errorf("tool not found: %s", callParams.Name)
 	}
 	
-	result, err := tool.Execute(callParams.Arguments)
+	// Wrap tool to support context if needed
+	ctxTool := wrapToolWithContext(tool)
+	
+	// Create context with timeout (default 30 seconds)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	
+	// Execute tool with context
+	result, err := ctxTool.ExecuteWithContext(ctx, callParams.Arguments)
+	
+	// Record metrics
+	h.metrics.recordToolExecution(callParams.Name, time.Since(start), err)
+	
 	if err != nil {
 		return nil, fmt.Errorf("tool execution failed: %w", err)
 	}

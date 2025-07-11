@@ -3,6 +3,7 @@ package hyperserve
 import (
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -354,6 +355,11 @@ func (t *CalculatorTool) Execute(params map[string]interface{}) (interface{}, er
 		result = a / b
 	default:
 		return nil, fmt.Errorf("unsupported operation: %s", operation)
+	}
+	
+	// Check for infinity or NaN which can't be marshaled to JSON
+	if math.IsInf(result, 0) || math.IsNaN(result) {
+		return nil, fmt.Errorf("result is out of range: %v", result)
 	}
 	
 	return map[string]interface{}{

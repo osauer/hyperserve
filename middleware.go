@@ -181,7 +181,6 @@ type Header struct {
 // It tracks total request count and response times for performance monitoring.
 func MetricsMiddleware(srv *Server) MiddlewareFunc {
 	return func(next http.Handler) http.HandlerFunc {
-		logger.Info("MetricsMiddleware enabled")
 		return func(w http.ResponseWriter, r *http.Request) {
 			srv.totalRequests.Add(1)
 			start := time.Now()
@@ -194,7 +193,6 @@ func MetricsMiddleware(srv *Server) MiddlewareFunc {
 // AuthMiddleware returns a middleware function that validates bearer tokens in the Authorization header.
 // Requires requests to include a valid Bearer token, otherwise returns 401 Unauthorized.
 func AuthMiddleware(options *ServerOptions) MiddlewareFunc {
-	logger.Info("AuthMiddleware enabled")
 	return func(next http.Handler) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			// Check for auth token
@@ -245,7 +243,6 @@ func AuthMiddleware(options *ServerOptions) MiddlewareFunc {
 // Logs IP address, method, URL, trace ID, status code, and request duration.
 // Use with caution as it may impact server performance.
 func RequestLoggerMiddleware(next http.Handler) http.HandlerFunc {
-	logger.Info("RequestLoggerMiddleware enabled")
 	return func(w http.ResponseWriter, r *http.Request) {
 		// create a new logging response writer to capture status code and bytes written
 		lrw := &loggingResponseWriter{w, http.StatusOK, 0}
@@ -272,7 +269,6 @@ func RequestLoggerMiddleware(next http.Handler) http.HandlerFunc {
 // ResponseTimeMiddleware returns a middleware function that logs only the request duration.
 // This is a lighter alternative to RequestLoggerMiddleware when only timing information is needed.
 func ResponseTimeMiddleware(next http.Handler) http.HandlerFunc {
-	logger.Info("ResponseTimeMiddleware enabled")
 	return func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		next.ServeHTTP(w, r)
@@ -284,7 +280,6 @@ func ResponseTimeMiddleware(next http.Handler) http.HandlerFunc {
 // RecoveryMiddleware returns a middleware function that recovers from panics in request handlers.
 // Catches panics, logs the error, and returns a 500 Internal Server Error response.
 func RecoveryMiddleware(next http.Handler) http.HandlerFunc {
-	logger.Info("RecoveryMiddleware enabled")
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if err := recover(); err != nil {
@@ -301,7 +296,6 @@ func RecoveryMiddleware(next http.Handler) http.HandlerFunc {
 // Returns 429 Too Many Requests when rate limit is exceeded.
 // Optimized for Go 1.24's Swiss Tables map implementation.
 func RateLimitMiddleware(srv *Server) MiddlewareFunc {
-	logger.Info("RateLimitMiddleware enabled")
 	return func(next http.Handler) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			ip, _, _ := net.SplitHostPort(r.RemoteAddr)
@@ -369,7 +363,6 @@ var securityHeaders = []Header{
 // Includes headers for XSS protection, content type sniffing prevention, HSTS, CSP, and CORS.
 // Automatically handles CORS preflight requests.
 func HeadersMiddleware(options *ServerOptions) MiddlewareFunc {
-	logger.Info("HeadersMiddleware enabled")
 	return func(next http.Handler) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			// In hardened mode, suppress server header and apply stricter security policies
@@ -404,7 +397,6 @@ func HeadersMiddleware(options *ServerOptions) MiddlewareFunc {
 // When chaos mode is enabled, can inject random latency, errors, throttling, and panics.
 // Useful for testing application resilience and error handling.
 func ChaosMiddleware(options *ServerOptions) MiddlewareFunc {
-	logger.Info("ChaosMiddleware enabled")
 	return func(next http.Handler) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if !options.ChaosMode {
@@ -458,7 +450,6 @@ func ChaosMiddleware(options *ServerOptions) MiddlewareFunc {
 // TraceMiddleware returns a middleware function that adds trace IDs to requests.
 // Generates unique trace IDs for request tracking and distributed tracing.
 func TraceMiddleware(next http.Handler) http.HandlerFunc {
-	logger.Info("TraceMiddleware enabled")
 	return func(w http.ResponseWriter, r *http.Request) {
 		traceID := generateTraceID()
 		ctx := context.WithValue(r.Context(), traceIDKey, traceID)
@@ -469,7 +460,6 @@ func TraceMiddleware(next http.Handler) http.HandlerFunc {
 // trailingSlashMiddleware MiddlewareFunc redirects requests without a trailing slash to the same URL with a trailing slash.
 // TODO: check if this  has become obsolete as the http handler is taking care.
 func trailingSlashMiddleware(next http.Handler) http.HandlerFunc {
-	logger.Info("trailingSlashMiddleware enabled")
 	return func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if path != "/" && !strings.HasSuffix(path, "/") {

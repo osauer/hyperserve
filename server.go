@@ -95,6 +95,7 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 		cleanupDone:    make(chan bool),
 	}
 	srv.middleware = NewMiddlewareRegistry(DefaultMiddleware(srv))
+	logger.Info("Default middleware registered", "middlewares", []string{"MetricsMiddleware", "RequestLoggerMiddleware", "RecoveryMiddleware"})
 
 	// apply httpServer options
 	for _, opt := range opts {
@@ -291,12 +292,14 @@ func (srv *Server) tlsConfig() *tls.Config {
 // Use "*" as the route to apply middleware globally to all routes.
 func (srv *Server) AddMiddleware(route string, mw MiddlewareFunc) {
 	srv.middleware.Add(route, MiddlewareStack{mw})
+	logger.Debug("Middleware registered", "route", route, "count", 1)
 }
 
 // AddMiddlewareStack adds a collection of middleware functions to the specified route.
 // The middleware stack is applied in the order provided.
 func (srv *Server) AddMiddlewareStack(route string, mw MiddlewareStack) {
 	srv.middleware.Add(route, mw)
+	logger.Debug("Middleware stack registered", "route", route, "count", len(mw))
 }
 
 func (srv *Server) initHealthServer() error {

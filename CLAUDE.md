@@ -169,7 +169,7 @@ srv, _ := hyperserve.NewServer(
     hyperserve.WithMCPFileToolRoot("/safe/path"),
 )
 // Register custom tools if needed:
-// srv.mcpHandler.RegisterTool(&MyCustomTool{})
+// srv.RegisterMCPTool(&MyCustomTool{})
 ```
 
 ### 4. **DON'T Manually Implement SSE**
@@ -240,7 +240,7 @@ When designing new APIs or features for hyperserve, follow these principles:
 - Complex things should be possible
 - Start with the simplest API that could work
 - Add complexity only when needed
-- Example: MCP transport can be as simple as `WithMCPSupport()` or configured with `WithMCPSupport(MCPOverStdio())`
+- Example: MCP transport can be as simple as `WithMCPSupport()` for HTTP or configured with `WithMCPSupport(MCPOverStdio())` for STDIO
 
 ### 3. **Consistency Across Features**
 - Similar features should have similar APIs
@@ -250,7 +250,7 @@ When designing new APIs or features for hyperserve, follow these principles:
 ### 4. **Parameters Over Separate Types**
 - Prefer configuration through parameters rather than separate types
 - Use functional options to customize behavior
-- Example: Transport configuration via `WithMCPSupport(MCPOverHTTP("/api"))` rather than separate server types
+- Example: Transport configuration via `WithMCPSupport(MCPOverStdio())` or `WithMCPSupport()` (defaults to HTTP) rather than separate server types
 
 ### 5. **Export What Users Need**
 - Export types that users might need to reference or create
@@ -591,17 +591,33 @@ The Model Context Protocol is an open standard that allows AI assistants to:
 
 ### Quick Start
 
-Enable MCP support in your server:
+Enable MCP support in your server with different transport options:
+
+#### HTTP Transport (Default)
 
 ```go
 srv, err := hyperserve.NewServer(
     hyperserve.WithAddr(":8080"),
-    hyperserve.WithMCPSupport(),                    // Enable MCP
+    hyperserve.WithMCPSupport(),                    // Enable MCP (defaults to HTTP)
     hyperserve.WithMCPEndpoint("/mcp"),             // Custom endpoint (default: /mcp)
     hyperserve.WithMCPServerInfo("my-app", "1.0"),  // Server identification
     hyperserve.WithMCPFileToolRoot("./sandbox"),    // Secure file access root
 )
 ```
+
+#### STDIO Transport
+
+For Claude Desktop and CLI integrations:
+
+```go
+srv, err := hyperserve.NewServer(
+    hyperserve.WithMCPSupport(hyperserve.MCPOverStdio()),  // Enable MCP over STDIO
+    hyperserve.WithMCPServerInfo("my-cli", "1.0"),         // Server identification
+    hyperserve.WithMCPFileToolRoot("./sandbox"),           // Secure file access root
+)
+```
+
+See the [mcp-stdio example](../examples/mcp-stdio) for a complete Claude Desktop integration.
 
 ### Built-in Tools
 
