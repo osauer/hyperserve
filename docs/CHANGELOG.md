@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Health Server**: Now disabled by default to avoid port conflicts
+  - Previously defaulted to port 9080 which could cause conflicts
+  - Enable explicitly with `WithHealthServer()` option
+- **Logging Improvements**: Reduced startup verbosity
+  - JSON-RPC method registration now logs at DEBUG level instead of INFO
+  - Various initialization messages moved to DEBUG level
+  - Consolidated server startup message shows key configuration
+
+### Fixed
+- Health server port conflicts when running multiple instances
+- Excessive logging during MCP initialization
+
 ## [0.9.3] - 2025-07-11
 
 ### Added

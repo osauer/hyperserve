@@ -61,7 +61,7 @@ func NewJSONRPCEngine() *JSONRPCEngine {
 // RegisterMethod registers a method handler with the JSON-RPC engine
 func (engine *JSONRPCEngine) RegisterMethod(name string, handler JSONRPCMethodHandler) {
 	engine.methods[name] = handler
-	engine.logger.Info("JSON-RPC method registered", "method", name)
+	engine.logger.Debug("JSON-RPC method registered", "method", name)
 }
 
 // ProcessRequest processes a JSON-RPC request and returns a response

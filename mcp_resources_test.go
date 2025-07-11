@@ -86,7 +86,7 @@ func TestConfigResource(t *testing.T) {
 		IdleTimeout:     120 * time.Second,
 		StaticDir:       "static/",
 		TemplateDir:     "templates/",
-		RunHealthServer: true,
+		RunHealthServer: false,
 		ChaosMode:       false,
 		FIPSMode:        false,
 		HardenedMode:    false,

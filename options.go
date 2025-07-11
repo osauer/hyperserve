@@ -65,7 +65,7 @@ var defaultServerOptions = &ServerOptions{
 	IdleTimeout:            120 * time.Second,
 	StaticDir:              "static/",
 	TemplateDir:            "template/",
-	RunHealthServer:        true,
+	RunHealthServer:        false,
 	ChaosMode:              false,
 	ChaosMaxLatency:        2 * time.Second,
 	ChaosMinLatency:        500 * time.Millisecond,

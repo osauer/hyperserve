@@ -31,11 +31,14 @@ var logger = slog.Default()
 
 func init() {
 	slog.SetLogLoggerLevel(slog.LevelInfo)
-	logger.Info("Server initializing...")
+	logger.Debug("Server initializing...")
 }
 
 // Environment management variable names
 const (
+	// Version is the current version of hyperserve
+	Version = "v0.9.4"
+	
 	paramServerAddr         = "SERVER_ADDR"
 	paramHealthAddr         = "HEALTH_ADDR"
 	paramHardenedMode       = "HS_HARDENED_MODE"
@@ -97,7 +100,7 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 		cleanupDone:    make(chan bool),
 	}
 	srv.middleware = NewMiddlewareRegistry(DefaultMiddleware(srv))
-	logger.Info("Default middleware registered", "middlewares", []string{"MetricsMiddleware", "RequestLoggerMiddleware", "RecoveryMiddleware"})
+	logger.Debug("Default middleware registered", "middlewares", []string{"MetricsMiddleware", "RequestLoggerMiddleware", "RecoveryMiddleware"})
 
 	// apply httpServer options
 	for _, opt := range opts {
@@ -114,7 +117,7 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 			logger.Warn("Failed to open template root directory", "error", err, "dir", srv.Options.TemplateDir)
 		} else {
 			srv.templateRoot = templateRoot
-			logger.Info("Template root initialized", "dir", srv.Options.TemplateDir)
+			logger.Debug("Template root initialized", "dir", srv.Options.TemplateDir)
 		}
 	}
 
@@ -158,7 +161,7 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 		
 		// Register MCP endpoint
 		srv.mux.Handle(srv.Options.MCPEndpoint, srv.mcpHandler)
-		logger.Info("MCP handler initialized", "endpoint", srv.Options.MCPEndpoint)
+		logger.Debug("MCP handler initialized", "endpoint", srv.Options.MCPEndpoint)
 	}
 
 	// Start cleanup ticker for rate limiters (run every 5 minutes)
@@ -173,6 +176,11 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 // It sets up TLS if enabled, starts the health server if configured, and handles graceful shutdown.
 // Returns an error if the server fails to start or encounters an error during operation.
 func (srv *Server) Run() error {
+	// Print ASCII art on startup (skip in stdio mode)
+	if srv.Options.MCPTransport != StdioTransport {
+		srv.printStartupBanner()
+	}
+	
 	// log httpServer start time for collection up-time metric
 	srv.serverStart = time.Now()
 	srv.isRunning.Store(true)
@@ -219,11 +227,42 @@ func (srv *Server) Run() error {
 			// Configure TLS settings
 			srv.httpServer.TLSConfig = srv.tlsConfig()
 			srv.httpServer.Addr = srv.Options.TLSAddr
-			logger.Info("Starting TLS server on", "addr", srv.Options.TLSAddr)
+			// Log consolidated startup info
+			logger.Info("Starting HyperServe with TLS", 
+				"addr", srv.Options.TLSAddr,
+				"health", srv.Options.RunHealthServer,
+				"mcp", srv.Options.MCPEnabled,
+				"fips", srv.Options.FIPSMode,
+			)
+			if srv.Options.RunHealthServer {
+				logger.Info("Health endpoints available", "addr", srv.Options.HealthAddr)
+			}
+			if srv.Options.MCPEnabled {
+				transportType := "HTTP"
+				if srv.Options.MCPTransport == StdioTransport {
+					transportType = "stdio"
+				}
+				logger.Info("MCP endpoint available", "transport", transportType, "endpoint", srv.Options.MCPEndpoint)
+			}
 			serverErr <- srv.httpServer.ListenAndServeTLS(srv.Options.CertFile, srv.Options.KeyFile)
 		} else {
 			srv.httpServer.Addr = srv.Options.Addr
-			logger.Info("Starting server on", "addr", srv.Options.Addr)
+			// Log consolidated startup info
+			logger.Info("Starting HyperServe", 
+				"addr", srv.Options.Addr,
+				"health", srv.Options.RunHealthServer,
+				"mcp", srv.Options.MCPEnabled,
+			)
+			if srv.Options.RunHealthServer {
+				logger.Info("Health endpoints available", "addr", srv.Options.HealthAddr)
+			}
+			if srv.Options.MCPEnabled {
+				transportType := "HTTP"
+				if srv.Options.MCPTransport == StdioTransport {
+					transportType = "stdio"
+				}
+				logger.Info("MCP endpoint available", "transport", transportType, "endpoint", srv.Options.MCPEndpoint)
+			}
 			serverErr <- srv.httpServer.ListenAndServe()
 		}
 	}()
@@ -323,9 +362,9 @@ func (srv *Server) initHealthServer() error {
 	healthErrChan := make(chan error, 1)
 
 	go func() {
-		logger.Info("Starting health server.", "addr", srv.Options.HealthAddr)
+		logger.Debug("Starting health server", "addr", srv.Options.HealthAddr)
 		if err := srv.healthServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error("Health server encountered an error.", "error", err)
+			logger.Error("Health server encountered an error", "error", err)
 			healthErrChan <- err
 		}
 	}()
@@ -1013,4 +1052,47 @@ func (srv *Server) RegisterMCPResource(resource MCPResource) error {
 	}
 	srv.mcpHandler.RegisterResource(resource)
 	return nil
+}
+
+// printStartupBanner prints the ASCII art and startup information
+func (srv *Server) printStartupBanner() {
+	// ASCII art for hyperserve (without color for terminal compatibility)
+	fmt.Print(`
+ _                                              
+| |__  _   _ _ __   ___ _ __ ___  ___ _ ____   _____
+| '_ \| | | | '_ \ / _ \ '__/ __|/ _ \ '__\ \ / / _ \
+| | | | |_| | |_) |  __/ |  \__ \  __/ |   \ V /  __/
+|_| |_|\__, | .__/ \___|_|  |___/\___|_|    \_/ \___|
+       |___/|_|                                      
+`)
+	
+	// Version information
+	fmt.Printf("\nhyperserve %s\n\n", Version)
+	
+	// Consolidated startup information
+	addr := srv.Options.Addr
+	if srv.Options.EnableTLS {
+		addr = srv.Options.TLSAddr
+	}
+	
+	// Main server info
+	protocol := "http"
+	if srv.Options.EnableTLS {
+		protocol = "https"
+	}
+	logger.Info("Starting HyperServe", 
+		"addr", addr,
+		"protocol", protocol,
+		"health", srv.Options.RunHealthServer,
+		"mcp", srv.Options.MCPEnabled,
+	)
+	
+	// Feature-specific messages
+	if srv.Options.RunHealthServer {
+		logger.Info("Health endpoints enabled", "addr", srv.Options.HealthAddr)
+	}
+	
+	if srv.Options.MCPEnabled {
+		logger.Info("MCP endpoint enabled", "path", srv.Options.MCPEndpoint)
+	}
 }

@@ -196,13 +196,13 @@ func NewMCPHandler(serverInfo MCPServerInfo) *MCPHandler {
 // RegisterTool registers an MCP tool
 func (h *MCPHandler) RegisterTool(tool MCPTool) {
 	h.tools[tool.Name()] = tool
-	h.logger.Info("MCP tool registered", "tool", tool.Name())
+	h.logger.Debug("MCP tool registered", "tool", tool.Name())
 }
 
 // RegisterResource registers an MCP resource
 func (h *MCPHandler) RegisterResource(resource MCPResource) {
 	h.resources[resource.URI()] = resource
-	h.logger.Info("MCP resource registered", "resource", resource.Name(), "uri", resource.URI())
+	h.logger.Debug("MCP resource registered", "resource", resource.Name(), "uri", resource.URI())
 }
 
 // GetMetrics returns the current MCP metrics summary
@@ -429,7 +429,7 @@ func (h *MCPHandler) handleInitialize(params interface{}) (interface{}, error) {
 		}
 	}
 	
-	h.logger.Info("MCP client initialized", "client", initParams.ClientInfo.Name, "version", initParams.ClientInfo.Version)
+	h.logger.Debug("MCP client initialized", "client", initParams.ClientInfo.Name, "version", initParams.ClientInfo.Version)
 	
 	// Return server capabilities
 	return map[string]interface{}{
