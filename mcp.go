@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -60,6 +61,12 @@ type MCPResource interface {
 	MimeType() string
 	Read() (interface{}, error)
 	List() ([]string, error)
+}
+
+// MCPToolWithContext is an enhanced interface that supports context for cancellation and timeouts
+type MCPToolWithContext interface {
+	MCPTool
+	ExecuteWithContext(ctx context.Context, params map[string]interface{}) (interface{}, error)
 }
 
 // MCPCapabilities represents the server's MCP capabilities
@@ -213,6 +220,83 @@ func (h *MCPHandler) ProcessRequest(requestData []byte) []byte {
 
 // ServeHTTP implements the http.Handler interface for MCP
 func (h *MCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Handle GET requests with helpful information
+	if r.Method == http.MethodGet {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, `<!DOCTYPE html>
+<html>
+<head>
+    <title>MCP Endpoint - HyperServe</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+               max-width: 800px; margin: 50px auto; padding: 20px; line-height: 1.6; }
+        h1 { color: #333; }
+        code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; }
+        pre { background: #f4f4f4; padding: 15px; border-radius: 5px; overflow-x: auto; }
+        .example { margin: 20px 0; }
+        .note { background: #e8f4f8; padding: 15px; border-left: 4px solid #0084c7; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <h1>Model Context Protocol (MCP) Endpoint</h1>
+    
+    <p>This endpoint implements the <a href="https://modelcontextprotocol.io">Model Context Protocol</a> 
+    for AI assistant integration.</p>
+    
+    <div class="note">
+        <strong>Note:</strong> MCP uses JSON-RPC 2.0 over HTTP POST. GET requests are not supported.
+    </div>
+    
+    <h2>How to Use</h2>
+    
+    <div class="example">
+        <h3>Initialize Connection</h3>
+        <pre>curl -X POST %s \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "initialize",
+    "params": {
+      "protocolVersion": "2024-11-05",
+      "capabilities": {},
+      "clientInfo": {"name": "test-client", "version": "1.0.0"}
+    },
+    "id": 1
+  }'</pre>
+    </div>
+    
+    <div class="example">
+        <h3>List Available Tools</h3>
+        <pre>curl -X POST %s \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "method": "tools/list", "id": 2}'</pre>
+    </div>
+    
+    <div class="example">
+        <h3>List Available Resources</h3>
+        <pre>curl -X POST %s \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "method": "resources/list", "id": 3}'</pre>
+    </div>
+    
+    <h2>Available Methods</h2>
+    <ul>
+        <li><code>initialize</code> - Initialize MCP session</li>
+        <li><code>ping</code> - Test connectivity</li>
+        <li><code>tools/list</code> - List available tools</li>
+        <li><code>tools/call</code> - Execute a tool</li>
+        <li><code>resources/list</code> - List available resources</li>
+        <li><code>resources/read</code> - Read a resource</li>
+    </ul>
+    
+    <h2>More Information</h2>
+    <p>For detailed documentation, see the <a href="https://github.com/osauer/hyperserve">HyperServe GitHub repository</a>.</p>
+</body>
+</html>`, r.URL.Path, r.URL.Path, r.URL.Path)
+		return
+	}
+	
 	// Create HTTP transport for this request
 	transport := newHTTPTransport(w, r)
 	defer transport.Close()
@@ -220,8 +304,8 @@ func (h *MCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Process the request using the transport
 	if err := h.ProcessRequestWithTransport(transport); err != nil {
 		h.logger.Error("Failed to process MCP request", "error", err)
-		if err.Error() == "method not allowed: "+r.Method {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		if strings.Contains(err.Error(), "method not allowed") {
+			http.Error(w, "Method not allowed. MCP requires POST requests.", http.StatusMethodNotAllowed)
 		} else if strings.Contains(err.Error(), "Content-Type") {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		} else {
@@ -518,4 +602,304 @@ func (h *MCPHandler) handlePing(params interface{}) (interface{}, error) {
 	return map[string]interface{}{
 		"message": "pong",
 	}, nil
+}
+
+// resourceCache provides thread-safe caching for MCP resources
+type resourceCache struct {
+	mu      sync.RWMutex
+	data    map[string]*cacheEntry
+	maxSize int
+}
+
+type cacheEntry struct {
+	value     interface{}
+	timestamp time.Time
+	ttl       time.Duration
+}
+
+// newResourceCache creates a new resource cache
+func newResourceCache(maxSize int) *resourceCache {
+	return &resourceCache{
+		data:    make(map[string]*cacheEntry),
+		maxSize: maxSize,
+	}
+}
+
+// get retrieves a value from the cache if it exists and hasn't expired
+func (c *resourceCache) get(key string) (interface{}, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	
+	entry, exists := c.data[key]
+	if !exists {
+		return nil, false
+	}
+	
+	// Check if entry has expired
+	if time.Since(entry.timestamp) > entry.ttl {
+		return nil, false
+	}
+	
+	return entry.value, true
+}
+
+// set stores a value in the cache with the given TTL
+func (c *resourceCache) set(key string, value interface{}, ttl time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	
+	// Implement simple LRU eviction if cache is full
+	if len(c.data) >= c.maxSize && c.maxSize > 0 {
+		// Find oldest entry
+		var oldestKey string
+		var oldestTime time.Time
+		for k, v := range c.data {
+			if oldestKey == "" || v.timestamp.Before(oldestTime) {
+				oldestKey = k
+				oldestTime = v.timestamp
+			}
+		}
+		delete(c.data, oldestKey)
+	}
+	
+	c.data[key] = &cacheEntry{
+		value:     value,
+		timestamp: time.Now(),
+		ttl:       ttl,
+	}
+}
+
+// MCPMetrics tracks performance metrics for MCP operations
+type MCPMetrics struct {
+	mu               sync.RWMutex
+	totalRequests    int64
+	totalErrors      int64
+	methodDurations  map[string]*durationStats
+	toolExecutions   map[string]*executionStats
+	resourceReads    map[string]*executionStats
+	cacheHits        int64
+	cacheMisses      int64
+}
+
+type durationStats struct {
+	count    int64
+	totalMs  int64
+	minMs    int64
+	maxMs    int64
+}
+
+type executionStats struct {
+	count    int64
+	errors   int64
+	totalMs  int64
+}
+
+// newMCPMetrics creates a new metrics tracker
+func newMCPMetrics() *MCPMetrics {
+	return &MCPMetrics{
+		methodDurations: make(map[string]*durationStats),
+		toolExecutions:  make(map[string]*executionStats),
+		resourceReads:   make(map[string]*executionStats),
+	}
+}
+
+// recordRequest records a request metric
+func (m *MCPMetrics) recordRequest(method string, duration time.Duration, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	
+	m.totalRequests++
+	if err != nil {
+		m.totalErrors++
+	}
+	
+	durationMs := duration.Milliseconds()
+	
+	stats, exists := m.methodDurations[method]
+	if !exists {
+		stats = &durationStats{
+			minMs: durationMs,
+			maxMs: durationMs,
+		}
+		m.methodDurations[method] = stats
+	}
+	
+	stats.count++
+	stats.totalMs += durationMs
+	if durationMs < stats.minMs {
+		stats.minMs = durationMs
+	}
+	if durationMs > stats.maxMs {
+		stats.maxMs = durationMs
+	}
+}
+
+// recordToolExecution records a tool execution metric
+func (m *MCPMetrics) recordToolExecution(toolName string, duration time.Duration, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	
+	stats, exists := m.toolExecutions[toolName]
+	if !exists {
+		stats = &executionStats{}
+		m.toolExecutions[toolName] = stats
+	}
+	
+	stats.count++
+	stats.totalMs += duration.Milliseconds()
+	if err != nil {
+		stats.errors++
+	}
+}
+
+// recordResourceRead records a resource read metric
+func (m *MCPMetrics) recordResourceRead(uri string, duration time.Duration, err error, cacheHit bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	
+	if cacheHit {
+		m.cacheHits++
+		return
+	}
+	
+	m.cacheMisses++
+	
+	stats, exists := m.resourceReads[uri]
+	if !exists {
+		stats = &executionStats{}
+		m.resourceReads[uri] = stats
+	}
+	
+	stats.count++
+	stats.totalMs += duration.Milliseconds()
+	if err != nil {
+		stats.errors++
+	}
+}
+
+// GetMetricsSummary returns a summary of collected metrics
+func (m *MCPMetrics) GetMetricsSummary() map[string]interface{} {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	
+	// Calculate method stats
+	methodStats := make(map[string]interface{})
+	for method, stats := range m.methodDurations {
+		avgMs := float64(0)
+		if stats.count > 0 {
+			avgMs = float64(stats.totalMs) / float64(stats.count)
+		}
+		methodStats[method] = map[string]interface{}{
+			"count":   stats.count,
+			"avg_ms":  avgMs,
+			"min_ms":  stats.minMs,
+			"max_ms":  stats.maxMs,
+		}
+	}
+	
+	// Calculate tool stats
+	toolStats := make(map[string]interface{})
+	for tool, stats := range m.toolExecutions {
+		avgMs := float64(0)
+		if stats.count > 0 {
+			avgMs = float64(stats.totalMs) / float64(stats.count)
+		}
+		toolStats[tool] = map[string]interface{}{
+			"count":      stats.count,
+			"errors":     stats.errors,
+			"avg_ms":     avgMs,
+			"error_rate": float64(stats.errors) / float64(stats.count),
+		}
+	}
+	
+	// Calculate resource stats
+	resourceStats := make(map[string]interface{})
+	for uri, stats := range m.resourceReads {
+		avgMs := float64(0)
+		if stats.count > 0 {
+			avgMs = float64(stats.totalMs) / float64(stats.count)
+		}
+		resourceStats[uri] = map[string]interface{}{
+			"count":      stats.count,
+			"errors":     stats.errors,
+			"avg_ms":     avgMs,
+			"error_rate": float64(stats.errors) / float64(stats.count),
+		}
+	}
+	
+	// Calculate cache hit rate
+	totalCacheRequests := m.cacheHits + m.cacheMisses
+	cacheHitRate := float64(0)
+	if totalCacheRequests > 0 {
+		cacheHitRate = float64(m.cacheHits) / float64(totalCacheRequests)
+	}
+	
+	return map[string]interface{}{
+		"total_requests": m.totalRequests,
+		"total_errors":   m.totalErrors,
+		"error_rate":     float64(m.totalErrors) / float64(m.totalRequests),
+		"methods":        methodStats,
+		"tools":          toolStats,
+		"resources":      resourceStats,
+		"cache": map[string]interface{}{
+			"hits":     m.cacheHits,
+			"misses":   m.cacheMisses,
+			"hit_rate": cacheHitRate,
+		},
+	}
+}
+
+// wrapToolWithContext wraps a regular MCPTool to support context
+func wrapToolWithContext(tool MCPTool) MCPToolWithContext {
+	// If it already supports context, return as-is
+	if ctxTool, ok := tool.(MCPToolWithContext); ok {
+		return ctxTool
+	}
+	
+	// Otherwise, wrap it
+	return &contextToolWrapper{tool: tool}
+}
+
+type contextToolWrapper struct {
+	tool MCPTool
+}
+
+func (w *contextToolWrapper) Name() string {
+	return w.tool.Name()
+}
+
+func (w *contextToolWrapper) Description() string {
+	return w.tool.Description()
+}
+
+func (w *contextToolWrapper) Schema() map[string]interface{} {
+	return w.tool.Schema()
+}
+
+func (w *contextToolWrapper) Execute(params map[string]interface{}) (interface{}, error) {
+	return w.tool.Execute(params)
+}
+
+func (w *contextToolWrapper) ExecuteWithContext(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+	// Create a channel to receive the result
+	type result struct {
+		value interface{}
+		err   error
+	}
+	
+	resultChan := make(chan result, 1)
+	
+	// Run the tool in a goroutine
+	go func() {
+		value, err := w.tool.Execute(params)
+		resultChan <- result{value: value, err: err}
+	}()
+	
+	// Wait for either the result or context cancellation
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case res := <-resultChan:
+		return res.value, res.err
+	}
 }

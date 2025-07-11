@@ -10,6 +10,45 @@ import (
 	"time"
 )
 
+// Mock types for testing
+type mockTool struct {
+	name        string
+	executeFunc func(params map[string]interface{}) (interface{}, error)
+}
+
+func (t *mockTool) Name() string        { return t.name }
+func (t *mockTool) Description() string { return "Mock tool for testing" }
+func (t *mockTool) Schema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{},
+	}
+}
+func (t *mockTool) Execute(params map[string]interface{}) (interface{}, error) {
+	if t.executeFunc != nil {
+		return t.executeFunc(params)
+	}
+	return nil, nil
+}
+
+type mockResource struct {
+	uri      string
+	name     string
+	readFunc func() (interface{}, error)
+}
+
+func (r *mockResource) URI() string        { return r.uri }
+func (r *mockResource) Name() string       { return r.name }
+func (r *mockResource) Description() string { return "Mock resource for testing" }
+func (r *mockResource) MimeType() string   { return "application/json" }
+func (r *mockResource) Read() (interface{}, error) {
+	if r.readFunc != nil {
+		return r.readFunc()
+	}
+	return nil, nil
+}
+func (r *mockResource) List() ([]string, error) { return nil, nil }
+
 // TestMCPOptimizationsIntegration tests the optimizations in an integrated environment
 func TestMCPOptimizationsIntegration(t *testing.T) {
 	// Create server with MCP support

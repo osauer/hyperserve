@@ -44,6 +44,8 @@ const (
 	paramMCPEndpoint        = "HS_MCP_ENDPOINT"
 	paramMCPServerName      = "HS_MCP_SERVER_NAME"
 	paramMCPServerVersion   = "HS_MCP_SERVER_VERSION"
+	paramMCPToolsEnabled    = "HS_MCP_TOOLS_ENABLED"
+	paramMCPResourcesEnabled = "HS_MCP_RESOURCES_ENABLED"
 	paramMCPFileToolRoot    = "HS_MCP_FILE_TOOL_ROOT"
 )
 
@@ -908,6 +910,7 @@ func WithMCPFileToolRoot(rootDir string) ServerOptionFunc {
 
 // WithMCPToolsDisabled disables MCP tools.
 // Resources will still be available if enabled.
+// Deprecated: Use WithMCPBuiltinTools(false) instead
 func WithMCPToolsDisabled() ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.MCPToolsEnabled = false
@@ -916,8 +919,37 @@ func WithMCPToolsDisabled() ServerOptionFunc {
 	}
 }
 
+// WithMCPBuiltinTools enables the built-in MCP tools (read_file, list_directory, http_request, calculator)
+// By default, built-in tools are disabled and must be explicitly enabled
+func WithMCPBuiltinTools(enabled bool) ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.MCPToolsEnabled = enabled
+		if enabled {
+			logger.Info("MCP built-in tools enabled")
+		} else {
+			logger.Info("MCP built-in tools disabled")
+		}
+		return nil
+	}
+}
+
+// WithMCPBuiltinResources enables the built-in MCP resources (config, metrics, system info, logs)
+// By default, built-in resources are disabled and must be explicitly enabled
+func WithMCPBuiltinResources(enabled bool) ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.MCPResourcesEnabled = enabled
+		if enabled {
+			logger.Info("MCP built-in resources enabled")
+		} else {
+			logger.Info("MCP built-in resources disabled")
+		}
+		return nil
+	}
+}
+
 // WithMCPResourcesDisabled disables MCP resources.
 // Tools will still be available if enabled.
+// Deprecated: Use WithMCPBuiltinResources(false) instead
 func WithMCPResourcesDisabled() ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.MCPResourcesEnabled = false

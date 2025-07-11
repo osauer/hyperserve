@@ -32,6 +32,8 @@ func TestMCPSecurity_PathTraversalAttacks(t *testing.T) {
 	srv, err := NewServer(
 		WithAddr(":0"),
 		WithMCPSupport(),
+		WithMCPBuiltinTools(true),      // Enable built-in tools for tests
+		WithMCPBuiltinResources(true),  // Enable built-in resources for tests
 		WithMCPFileToolRoot(tempDir),
 	)
 	if err != nil {
@@ -120,6 +122,8 @@ func TestMCPSecurity_SymlinkAttacks(t *testing.T) {
 	srv, err := NewServer(
 		WithAddr(":0"),
 		WithMCPSupport(),
+		WithMCPBuiltinTools(true),      // Enable built-in tools for tests
+		WithMCPBuiltinResources(true),  // Enable built-in resources for tests
 		WithMCPFileToolRoot(tempDir),
 	)
 	if err != nil {
@@ -152,6 +156,7 @@ func TestMCPSecurity_InputValidation(t *testing.T) {
 	srv, err := NewServer(
 		WithAddr(":0"),
 		WithMCPSupport(),
+		WithMCPBuiltinTools(true),      // Enable built-in tools for tests
 	)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
@@ -373,6 +378,8 @@ func TestMCPSecurity_FilePermissions(t *testing.T) {
 	srv, err := NewServer(
 		WithAddr(":0"),
 		WithMCPSupport(),
+		WithMCPBuiltinTools(true),      // Enable built-in tools for tests
+		WithMCPBuiltinResources(true),  // Enable built-in resources for tests
 		WithMCPFileToolRoot(tempDir),
 	)
 	if err != nil {
@@ -414,6 +421,7 @@ func TestMCPSecurity_ResourceSanitization(t *testing.T) {
 	srv, err := NewServer(
 		WithAddr(":0"),
 		WithMCPSupport(),
+		WithMCPBuiltinResources(true),  // Enable built-in resources for tests
 		WithMCPServerInfo("test-server", "1.0.0"),
 		WithAuthTokenValidator(func(token string) (bool, error) {
 			return token == "secret_token", nil
@@ -484,6 +492,7 @@ func TestMCPSecurity_DenialOfService(t *testing.T) {
 	srv, err := NewServer(
 		WithAddr(":0"),
 		WithMCPSupport(),
+		WithMCPBuiltinTools(true),      // Enable built-in tools for tests
 	)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)

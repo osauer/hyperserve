@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.3] - 2025-07-11
+
+### Added
+- **MCP GET Request Support**: The MCP endpoint now returns helpful documentation when accessed via GET request
+- **Granular MCP Control**: New options to control built-in tools and resources separately
+  - `WithMCPBuiltinTools(bool)` - Enable/disable built-in tools
+  - `WithMCPBuiltinResources(bool)` - Enable/disable built-in resources
+  - Environment variables: `HS_MCP_TOOLS_ENABLED`, `HS_MCP_RESOURCES_ENABLED`
+
+### Changed
+- **BREAKING**: MCP built-in tools and resources are now **disabled by default** for security
+  - Users must explicitly enable them using `WithMCPBuiltinTools(true)` and/or `WithMCPBuiltinResources(true)`
+  - This change improves security by ensuring users opt-in to functionality they need
+- Consolidated MCP optimizations from separate file into main mcp.go file
+
+### Deprecated
+- `WithMCPToolsDisabled()` - Use `WithMCPBuiltinTools(false)` instead
+- `WithMCPResourcesDisabled()` - Use `WithMCPBuiltinResources(false)` instead
+
+### Fixed
+- Calculator tool now properly handles infinity/NaN results to prevent JSON marshaling errors
+- MCP integration tests adjusted for new default behavior
+
 ## [0.9.2] - 2025-07-11
 
 ### Added

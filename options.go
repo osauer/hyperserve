@@ -81,8 +81,8 @@ var defaultServerOptions = &ServerOptions{
 	MCPEndpoint:            "/mcp",
 	MCPServerName:          "hyperserve",
 	MCPServerVersion:       "1.0.0",
-	MCPToolsEnabled:        true,
-	MCPResourcesEnabled:    true,
+	MCPToolsEnabled:        false,  // Disabled by default - users must opt-in
+	MCPResourcesEnabled:    false,  // Disabled by default - users must opt-in
 	MCPFileToolRoot:        "",
 	MCPLogResourceSize:     100,
 	MCPTransport:           HTTPTransport,
@@ -155,6 +155,24 @@ func applyEnvVars(config *ServerOptions) *ServerOptions {
 	if mcpServerVersion := os.Getenv(paramMCPServerVersion); mcpServerVersion != "" {
 		config.MCPServerVersion = mcpServerVersion
 		logger.Info("MCP server version set from environment variable", "variable", paramMCPServerVersion, "version", mcpServerVersion)
+	}
+	if mcpToolsEnabled := os.Getenv(paramMCPToolsEnabled); mcpToolsEnabled != "" {
+		if mcpToolsEnabled == "true" || mcpToolsEnabled == "1" {
+			config.MCPToolsEnabled = true
+			logger.Info("MCP tools enabled from environment variable", "variable", paramMCPToolsEnabled)
+		} else if mcpToolsEnabled == "false" || mcpToolsEnabled == "0" {
+			config.MCPToolsEnabled = false
+			logger.Info("MCP tools disabled from environment variable", "variable", paramMCPToolsEnabled)
+		}
+	}
+	if mcpResourcesEnabled := os.Getenv(paramMCPResourcesEnabled); mcpResourcesEnabled != "" {
+		if mcpResourcesEnabled == "true" || mcpResourcesEnabled == "1" {
+			config.MCPResourcesEnabled = true
+			logger.Info("MCP resources enabled from environment variable", "variable", paramMCPResourcesEnabled)
+		} else if mcpResourcesEnabled == "false" || mcpResourcesEnabled == "0" {
+			config.MCPResourcesEnabled = false
+			logger.Info("MCP resources disabled from environment variable", "variable", paramMCPResourcesEnabled)
+		}
 	}
 	if mcpFileToolRoot := os.Getenv(paramMCPFileToolRoot); mcpFileToolRoot != "" {
 		config.MCPFileToolRoot = mcpFileToolRoot

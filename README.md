@@ -338,6 +338,8 @@ Enable AI assistant integration with multiple transport options:
 ```go
 srv, _ := hyperserve.NewServer(
     hyperserve.WithMCPSupport(),  // Defaults to HTTP on /mcp
+    hyperserve.WithMCPBuiltinTools(true),      // Enable built-in tools (disabled by default)
+    hyperserve.WithMCPBuiltinResources(true),  // Enable built-in resources (disabled by default)
     hyperserve.WithMCPFileToolRoot("/safe/path"),
 )
 ```
@@ -349,13 +351,37 @@ For CLI tools and Claude Desktop integration:
 ```go
 srv, _ := hyperserve.NewServer(
     hyperserve.WithMCPSupport(hyperserve.MCPOverStdio()),
+    hyperserve.WithMCPBuiltinTools(true),      // Enable built-in tools
     hyperserve.WithMCPFileToolRoot("/safe/path"),
 )
 ```
 
 See [mcp-stdio example](examples/mcp-stdio) for Claude Desktop integration.
 
-### Built-in Tools
+### Built-in Tools and Resources
+
+**Important**: Built-in tools and resources are **disabled by default** for security. You must explicitly enable them:
+
+```go
+// Enable only MCP protocol (no built-in tools/resources)
+srv, _ := hyperserve.NewServer(
+    hyperserve.WithMCPSupport(),
+)
+
+// Enable MCP with built-in tools
+srv, _ := hyperserve.NewServer(
+    hyperserve.WithMCPSupport(),
+    hyperserve.WithMCPBuiltinTools(true),
+)
+
+// Enable MCP with built-in resources
+srv, _ := hyperserve.NewServer(
+    hyperserve.WithMCPSupport(),
+    hyperserve.WithMCPBuiltinResources(true),
+)
+```
+
+#### Available Built-in Tools (when enabled)
 
 - `read_file` - Read files (sandboxed)
 - `list_directory` - List directories (sandboxed)
@@ -364,7 +390,7 @@ See [mcp-stdio example](examples/mcp-stdio) for Claude Desktop integration.
 
 All tools support context-based cancellation and have a 30-second timeout by default.
 
-### Built-in Resources
+#### Available Built-in Resources (when enabled)
 
 - `config://server/options` - Server configuration
 - `metrics://server/stats` - Performance metrics

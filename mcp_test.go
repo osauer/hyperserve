@@ -374,9 +374,14 @@ func TestMCPHandler_ServeHTTP_MethodNotAllowed(t *testing.T) {
 	
 	handler.ServeHTTP(w, req)
 	
-	// The error is wrapped so it doesn't match the exact string check
-	if w.Code != http.StatusInternalServerError {
-		t.Errorf("Expected status 500, got %d", w.Code)
+	// GET requests now return helpful HTML documentation
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200 for GET request, got %d", w.Code)
+	}
+	
+	contentType := w.Header().Get("Content-Type")
+	if contentType != "text/html; charset=utf-8" {
+		t.Errorf("Expected Content-Type text/html; charset=utf-8, got %s", contentType)
 	}
 }
 
