@@ -121,16 +121,16 @@ type ServerOptionFunc func(srv *Server) error
 func applyEnvVars(config *ServerOptions) *ServerOptions {
 	if addr := os.Getenv(paramServerAddr); addr != "" {
 		config.Addr = addr
-		logger.Info("Server address set from environment variable", "variable", paramServerAddr, "addr", addr)
+		logger.Debug("Server address set from environment variable", "variable", paramServerAddr, "addr", addr)
 	}
 	if healthAddr := os.Getenv(paramHealthAddr); healthAddr != "" {
 		config.HealthAddr = healthAddr
-		logger.Info("Health endpoint address set from environment variable", "variable", paramHealthAddr, "addr", healthAddr)
+		logger.Debug("Health endpoint address set from environment variable", "variable", paramHealthAddr, "addr", healthAddr)
 	}
 	if hardenedMode := os.Getenv(paramHardenedMode); hardenedMode != "" {
 		if hardenedMode == "true" || hardenedMode == "1" {
 			config.HardenedMode = true
-			logger.Info("Hardened mode enabled from environment variable", "variable", paramHardenedMode)
+			logger.Debug("Hardened mode enabled from environment variable", "variable", paramHardenedMode)
 		}
 	}
 	
@@ -138,45 +138,45 @@ func applyEnvVars(config *ServerOptions) *ServerOptions {
 	if mcpEnabled := os.Getenv(paramMCPEnabled); mcpEnabled != "" {
 		if mcpEnabled == "true" || mcpEnabled == "1" {
 			config.MCPEnabled = true
-			logger.Info("MCP enabled from environment variable", "variable", paramMCPEnabled)
+			logger.Debug("MCP enabled from environment variable", "variable", paramMCPEnabled)
 		} else if mcpEnabled == "false" || mcpEnabled == "0" {
 			config.MCPEnabled = false
-			logger.Info("MCP disabled from environment variable", "variable", paramMCPEnabled)
+			logger.Debug("MCP disabled from environment variable", "variable", paramMCPEnabled)
 		}
 	}
 	if mcpEndpoint := os.Getenv(paramMCPEndpoint); mcpEndpoint != "" {
 		config.MCPEndpoint = mcpEndpoint
-		logger.Info("MCP endpoint set from environment variable", "variable", paramMCPEndpoint, "endpoint", mcpEndpoint)
+		logger.Debug("MCP endpoint set from environment variable", "variable", paramMCPEndpoint, "endpoint", mcpEndpoint)
 	}
 	if mcpServerName := os.Getenv(paramMCPServerName); mcpServerName != "" {
 		config.MCPServerName = mcpServerName
-		logger.Info("MCP server name set from environment variable", "variable", paramMCPServerName, "name", mcpServerName)
+		logger.Debug("MCP server name set from environment variable", "variable", paramMCPServerName, "name", mcpServerName)
 	}
 	if mcpServerVersion := os.Getenv(paramMCPServerVersion); mcpServerVersion != "" {
 		config.MCPServerVersion = mcpServerVersion
-		logger.Info("MCP server version set from environment variable", "variable", paramMCPServerVersion, "version", mcpServerVersion)
+		logger.Debug("MCP server version set from environment variable", "variable", paramMCPServerVersion, "version", mcpServerVersion)
 	}
 	if mcpToolsEnabled := os.Getenv(paramMCPToolsEnabled); mcpToolsEnabled != "" {
 		if mcpToolsEnabled == "true" || mcpToolsEnabled == "1" {
 			config.MCPToolsEnabled = true
-			logger.Info("MCP tools enabled from environment variable", "variable", paramMCPToolsEnabled)
+			logger.Debug("MCP tools enabled from environment variable", "variable", paramMCPToolsEnabled)
 		} else if mcpToolsEnabled == "false" || mcpToolsEnabled == "0" {
 			config.MCPToolsEnabled = false
-			logger.Info("MCP tools disabled from environment variable", "variable", paramMCPToolsEnabled)
+			logger.Debug("MCP tools disabled from environment variable", "variable", paramMCPToolsEnabled)
 		}
 	}
 	if mcpResourcesEnabled := os.Getenv(paramMCPResourcesEnabled); mcpResourcesEnabled != "" {
 		if mcpResourcesEnabled == "true" || mcpResourcesEnabled == "1" {
 			config.MCPResourcesEnabled = true
-			logger.Info("MCP resources enabled from environment variable", "variable", paramMCPResourcesEnabled)
+			logger.Debug("MCP resources enabled from environment variable", "variable", paramMCPResourcesEnabled)
 		} else if mcpResourcesEnabled == "false" || mcpResourcesEnabled == "0" {
 			config.MCPResourcesEnabled = false
-			logger.Info("MCP resources disabled from environment variable", "variable", paramMCPResourcesEnabled)
+			logger.Debug("MCP resources disabled from environment variable", "variable", paramMCPResourcesEnabled)
 		}
 	}
 	if mcpFileToolRoot := os.Getenv(paramMCPFileToolRoot); mcpFileToolRoot != "" {
 		config.MCPFileToolRoot = mcpFileToolRoot
-		logger.Info("MCP file tool root set from environment variable", "variable", paramMCPFileToolRoot, "root", mcpFileToolRoot)
+		logger.Debug("MCP file tool root set from environment variable", "variable", paramMCPFileToolRoot, "root", mcpFileToolRoot)
 	}
 	
 	return config
@@ -186,7 +186,7 @@ func applyEnvVars(config *ServerOptions) *ServerOptions {
 func applyConfigFile(config *ServerOptions) *ServerOptions {
 	file, err := os.Open(paramFileName)
 	if err != nil {
-		logger.Info("Failed to open options file.", "error", err)
+		logger.Debug("Failed to open options file.", "error", err)
 		return config
 	}
 
@@ -201,10 +201,10 @@ func applyConfigFile(config *ServerOptions) *ServerOptions {
 	decoder := json.NewDecoder(file)
 	fileConfig := &ServerOptions{}
 	if err := decoder.Decode(fileConfig); err != nil {
-		logger.Info("No options file or loading failed; Using environment and defaults")
+		logger.Debug("No options file or loading failed; Using environment and defaults")
 		return config
 	}
-	logger.Info("Server configuration loaded from file", "file", paramFileName)
+	logger.Debug("Server configuration loaded from file", "file", paramFileName)
 	mergeConfig(config, fileConfig)
 	return config
 }

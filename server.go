@@ -114,7 +114,7 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 	if srv.Options.TemplateDir != "" {
 		templateRoot, err := os.OpenRoot(srv.Options.TemplateDir)
 		if err != nil {
-			logger.Warn("Failed to open template root directory", "error", err, "dir", srv.Options.TemplateDir)
+			logger.Debug("Failed to open template root directory", "error", err, "dir", srv.Options.TemplateDir)
 		} else {
 			srv.templateRoot = templateRoot
 			logger.Debug("Template root initialized", "dir", srv.Options.TemplateDir)
@@ -227,42 +227,9 @@ func (srv *Server) Run() error {
 			// Configure TLS settings
 			srv.httpServer.TLSConfig = srv.tlsConfig()
 			srv.httpServer.Addr = srv.Options.TLSAddr
-			// Log consolidated startup info
-			logger.Info("Starting HyperServe with TLS", 
-				"addr", srv.Options.TLSAddr,
-				"health", srv.Options.RunHealthServer,
-				"mcp", srv.Options.MCPEnabled,
-				"fips", srv.Options.FIPSMode,
-			)
-			if srv.Options.RunHealthServer {
-				logger.Info("Health endpoints available", "addr", srv.Options.HealthAddr)
-			}
-			if srv.Options.MCPEnabled {
-				transportType := "HTTP"
-				if srv.Options.MCPTransport == StdioTransport {
-					transportType = "stdio"
-				}
-				logger.Info("MCP endpoint available", "transport", transportType, "endpoint", srv.Options.MCPEndpoint)
-			}
 			serverErr <- srv.httpServer.ListenAndServeTLS(srv.Options.CertFile, srv.Options.KeyFile)
 		} else {
 			srv.httpServer.Addr = srv.Options.Addr
-			// Log consolidated startup info
-			logger.Info("Starting HyperServe", 
-				"addr", srv.Options.Addr,
-				"health", srv.Options.RunHealthServer,
-				"mcp", srv.Options.MCPEnabled,
-			)
-			if srv.Options.RunHealthServer {
-				logger.Info("Health endpoints available", "addr", srv.Options.HealthAddr)
-			}
-			if srv.Options.MCPEnabled {
-				transportType := "HTTP"
-				if srv.Options.MCPTransport == StdioTransport {
-					transportType = "stdio"
-				}
-				logger.Info("MCP endpoint available", "transport", transportType, "endpoint", srv.Options.MCPEndpoint)
-			}
 			serverErr <- srv.httpServer.ListenAndServe()
 		}
 	}()
