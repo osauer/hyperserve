@@ -39,7 +39,6 @@ These features work automatically when you create a server:
 | Feature | Description | Details |
 |---------|-------------|---------|
 | **Graceful Shutdown** | Clean shutdown on SIGINT/SIGTERM | Built into `srv.Run()` |
-| **Health Checks** | Kubernetes-ready health endpoints | Available on :8081 |
 | **Request Logging** | Structured request logs | Via DefaultMiddleware |
 | **Panic Recovery** | Automatic panic handling | Via DefaultMiddleware |
 | **Metrics Collection** | Request count and timing | Via DefaultMiddleware |
@@ -51,6 +50,7 @@ Add these features as needed:
 
 | Feature | How to Enable | Example |
 |---------|---------------|---------|
+| **Health Checks** | Kubernetes-ready health endpoints | `hyperserve.WithHealthServer()` |
 | **Security Headers** | Add HeadersMiddleware | `srv.AddMiddleware("*", hyperserve.HeadersMiddleware(srv.Options))` |
 | **Rate Limiting** | Add RateLimitMiddleware | `srv.AddMiddleware("/api", hyperserve.RateLimitMiddleware(srv))` |
 | **Authentication** | Configure validator + middleware | See [Authentication](#authentication) |
@@ -157,7 +157,7 @@ export HS_LOG_LEVEL=debug
 ### Default Configuration
 
 - Port: `:8080`
-- Health server: `:8081`
+- Health server: disabled by default (use `WithHealthServer()` to enable on `:8081`)
 - Rate limit: 1 req/s (burst: 10)
 - Timeouts: 5s read, 10s write, 120s idle
 - Log level: Info
@@ -462,7 +462,7 @@ See [PERFORMANCE.md](PERFORMANCE.md) for detailed benchmarks.
 
 Complete example applications:
 
-- [basic](examples/basic) - Minimal server
+- [hello-world](examples/hello-world) - Minimal server
 - [best-practices](examples/best-practices) - Demonstrates proper usage patterns and anti-patterns to avoid
 - [middleware-basics](examples/middleware-basics) - Middleware patterns
 - [static-files](examples/static-files) - Static file serving
