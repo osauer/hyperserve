@@ -34,8 +34,24 @@ func init() {
 	logger.Debug("Server initializing...")
 }
 
-// Version is set at build time using -ldflags
-var Version = "dev"
+// Build information set at compile time using -ldflags
+var (
+	Version   = "dev"      // Version from git tags
+	BuildHash = "unknown"  // Git commit hash
+	BuildTime = "unknown"  // Build timestamp
+)
+
+// GetVersionInfo returns formatted version information
+func GetVersionInfo() string {
+	info := Version
+	if BuildHash != "unknown" {
+		info += "+" + BuildHash
+	}
+	if BuildTime != "unknown" {
+		info += " (" + BuildTime + ")"
+	}
+	return info
+}
 
 // Environment management variable names
 const (
@@ -1047,8 +1063,12 @@ func (srv *Server) printStartupBanner() {
        |___/|_|                                      
 `)
 	
-	// Version information
-	fmt.Printf("\nhyperserve %s\n", Version)
+	// Version and build information
+	fmt.Printf("\nhyperserve %s", Version)
+	if BuildHash != "unknown" || BuildTime != "unknown" {
+		fmt.Printf(" (build: %s, %s)", BuildHash, BuildTime)
+	}
+	fmt.Println()
 	
 	// Build consolidated startup information
 	addr := srv.Options.Addr
