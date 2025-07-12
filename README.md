@@ -395,7 +395,7 @@ Enable AI assistant integration with multiple transport options:
 
 ```go
 srv, _ := hyperserve.NewServer(
-    hyperserve.WithMCPSupport(hyperserve.MCPServerInfo("MyApp", "1.0.0")),  // Enable MCP with server info
+    hyperserve.WithMCPSupport("MyApp", "1.0.0"),  // Enable MCP with server info
     hyperserve.WithMCPBuiltinTools(true),      // Enable built-in tools (disabled by default)
     hyperserve.WithMCPBuiltinResources(true),  // Enable built-in resources (disabled by default)
     hyperserve.WithMCPFileToolRoot("/safe/path"),

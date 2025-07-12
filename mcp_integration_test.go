@@ -53,7 +53,7 @@ func (r *mockResource) List() ([]string, error) { return nil, nil }
 func TestMCPOptimizationsIntegration(t *testing.T) {
 	// Create server with MCP support
 	srv, err := NewServer(
-		WithMCPSupport(MCPServerInfo("test-server", "1.0.0")),
+		WithMCPSupport("test-server", "1.0.0"),
 	)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
@@ -224,7 +224,7 @@ func TestMCPOptimizationsIntegration(t *testing.T) {
 // Test concurrent tool execution safety
 func TestMCPConcurrentToolExecution(t *testing.T) {
 	srv, err := NewServer(
-		WithMCPSupport(MCPServerInfo("concurrent-test", "1.0.0")),
+		WithMCPSupport("concurrent-test", "1.0.0"),
 	)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)

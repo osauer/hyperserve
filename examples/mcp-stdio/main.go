@@ -34,10 +34,7 @@ func main() {
 
 	// Create server with MCP stdio support
 	opts := []hyperserve.ServerOptionFunc{
-		hyperserve.WithMCPSupport(
-			hyperserve.MCPOverStdio(),
-			hyperserve.MCPServerInfo("hyperserve-mcp-stdio", "1.0.0"),
-		),
+		hyperserve.WithMCPSupport("hyperserve-mcp-stdio", "1.0.0", hyperserve.MCPOverStdio()),
 		hyperserve.WithMCPFileToolRoot(sandboxDir),
 	}
 

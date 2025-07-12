@@ -48,7 +48,7 @@ func TestMCPCustomRegistration(t *testing.T) {
 		t.Parallel()
 		// Create server with MCP enabled
 		srv, err := NewServer(
-			WithMCPSupport(),
+			WithMCPSupport("hyperserve", "1.0.0"),
 		)
 		if err != nil {
 			t.Fatalf("Failed to create server: %v", err)
@@ -76,7 +76,7 @@ func TestMCPCustomRegistration(t *testing.T) {
 		t.Parallel()
 		// Create server with MCP enabled
 		srv, err := NewServer(
-			WithMCPSupport(),
+			WithMCPSupport("hyperserve", "1.0.0"),
 		)
 		if err != nil {
 			t.Fatalf("Failed to create server: %v", err)
