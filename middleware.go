@@ -27,6 +27,7 @@ Middleware can be applied globally or to specific routes:
 package hyperserve
 
 import (
+	"bufio"
 	"context"
 	"crypto/subtle"
 	"fmt"
@@ -551,4 +552,14 @@ func (lrw *loggingResponseWriter) Write(b []byte) (int, error) {
 	n, err := lrw.ResponseWriter.Write(b)
 	lrw.bytesWritten += n
 	return n, err
+}
+
+// Hijack implements the http.Hijacker interface to support WebSocket upgrades.
+// It delegates to the underlying ResponseWriter if it implements http.Hijacker.
+func (lrw *loggingResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := lrw.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("response writer does not support hijacking")
+	}
+	return hijacker.Hijack()
 }
