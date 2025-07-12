@@ -381,3 +381,103 @@ func TestHandleFuncDynamicNonExistentTemplate(t *testing.T) {
 		t.Errorf("expected error to contain '%s', got: %s", expectedError, err.Error())
 	}
 }
+
+// CSP Configuration Tests
+func TestWithCSPWorkerBlob(t *testing.T) {
+	t.Parallel()
+	
+	srv, err := NewServer(WithCSPWorkerBlob())
+	if err != nil {
+		t.Fatalf("failed to create server with CSP worker blob: %v", err)
+	}
+	
+	if !srv.Options.CSPWorkerSrcBlob {
+		t.Error("expected CSP worker-src blob to be enabled")
+	}
+}
+
+func TestWithCSPChildBlob(t *testing.T) {
+	t.Parallel()
+	
+	srv, err := NewServer(WithCSPChildBlob())
+	if err != nil {
+		t.Fatalf("failed to create server with CSP child blob: %v", err)
+	}
+	
+	if !srv.Options.CSPChildSrcBlob {
+		t.Error("expected CSP child-src blob to be enabled")
+	}
+}
+
+func TestWithCSPScriptBlob(t *testing.T) {
+	t.Parallel()
+	
+	srv, err := NewServer(WithCSPScriptBlob())
+	if err != nil {
+		t.Fatalf("failed to create server with CSP script blob: %v", err)
+	}
+	
+	if !srv.Options.CSPScriptSrcBlob {
+		t.Error("expected CSP script-src blob to be enabled")
+	}
+}
+
+func TestWithCSPMediaBlob(t *testing.T) {
+	t.Parallel()
+	
+	srv, err := NewServer(WithCSPMediaBlob())
+	if err != nil {
+		t.Fatalf("failed to create server with CSP media blob: %v", err)
+	}
+	
+	if !srv.Options.CSPMediaSrcBlob {
+		t.Error("expected CSP media-src blob to be enabled")
+	}
+}
+
+func TestWithCSPWebWorkerSupport(t *testing.T) {
+	t.Parallel()
+	
+	srv, err := NewServer(WithCSPWebWorkerSupport())
+	if err != nil {
+		t.Fatalf("failed to create server with CSP web worker support: %v", err)
+	}
+	
+	if !srv.Options.CSPWorkerSrcBlob {
+		t.Error("expected CSP worker-src blob to be enabled")
+	}
+	
+	if !srv.Options.CSPChildSrcBlob {
+		t.Error("expected CSP child-src blob to be enabled")
+	}
+}
+
+func TestMultipleCSPOptions(t *testing.T) {
+	t.Parallel()
+	
+	srv, err := NewServer(
+		WithCSPWorkerBlob(),
+		WithCSPChildBlob(),
+		WithCSPScriptBlob(),
+		WithCSPMediaBlob(),
+	)
+	if err != nil {
+		t.Fatalf("failed to create server with multiple CSP options: %v", err)
+	}
+	
+	if !srv.Options.CSPWorkerSrcBlob {
+		t.Error("expected CSP worker-src blob to be enabled")
+	}
+	
+	if !srv.Options.CSPChildSrcBlob {
+		t.Error("expected CSP child-src blob to be enabled")
+	}
+	
+	if !srv.Options.CSPScriptSrcBlob {
+		t.Error("expected CSP script-src blob to be enabled")
+	}
+	
+	if !srv.Options.CSPMediaSrcBlob {
+		t.Error("expected CSP media-src blob to be enabled")
+	}
+}

@@ -48,6 +48,11 @@ type ServerOptions struct {
 	MCPLogResourceSize     int      `json:"mcp_log_resource_size,omitempty"`
 	MCPTransport           MCPTransportType `json:"mcp_transport,omitempty"`
 	mcpTransportOpts       mcpTransportOptions // Internal transport options
+	// CSP (Content Security Policy) configuration
+	CSPWorkerSrcBlob       bool     `json:"csp_worker_src_blob,omitempty"`
+	CSPChildSrcBlob        bool     `json:"csp_child_src_blob,omitempty"`
+	CSPScriptSrcBlob       bool     `json:"csp_script_src_blob,omitempty"`
+	CSPMediaSrcBlob        bool     `json:"csp_media_src_blob,omitempty"`
 }
 
 var defaultServerOptions = &ServerOptions{
@@ -86,6 +91,11 @@ var defaultServerOptions = &ServerOptions{
 	MCPFileToolRoot:        "",
 	MCPLogResourceSize:     100,
 	MCPTransport:           HTTPTransport,
+	// CSP defaults - secure by default, users must opt-in for blob: URLs
+	CSPWorkerSrcBlob:       false,
+	CSPChildSrcBlob:        false,
+	CSPScriptSrcBlob:       false,
+	CSPMediaSrcBlob:        false,
 }
 
 // Log level constants for server configuration.

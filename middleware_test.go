@@ -3,6 +3,7 @@ package hyperserve
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -154,5 +155,186 @@ func TestHeadersMiddlewareWithoutHardenedMode(t *testing.T) {
 	serverHeader := rec.Header().Get("Server")
 	if serverHeader != "hyperserve" {
 		t.Errorf("expected Server header to be 'hyperserve', got %v", serverHeader)
+	}
+}
+
+// Test CSP with no blob URLs enabled (default)
+func TestCSPDefaultNoBlob(t *testing.T) {
+	t.Parallel()
+	options := &ServerOptions{
+		CSPWorkerSrcBlob: false,
+		CSPChildSrcBlob:  false,
+		CSPScriptSrcBlob: false,
+		CSPMediaSrcBlob:  false,
+	}
+	handler := HeadersMiddleware(options)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	
+	csp := rec.Header().Get("Content-Security-Policy")
+	expectedCSP := "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; media-src 'self'; object-src 'none'; child-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+	if csp != expectedCSP {
+		t.Errorf("expected CSP %v, got %v", expectedCSP, csp)
+	}
+}
+
+// Test CSP with worker-src blob enabled
+func TestCSPWorkerSrcBlob(t *testing.T) {
+	t.Parallel()
+	options := &ServerOptions{
+		CSPWorkerSrcBlob: true,
+		CSPChildSrcBlob:  false,
+		CSPScriptSrcBlob: false,
+		CSPMediaSrcBlob:  false,
+	}
+	handler := HeadersMiddleware(options)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	
+	csp := rec.Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "worker-src 'self' blob:") {
+		t.Errorf("expected CSP to contain 'worker-src 'self' blob:', got %v", csp)
+	}
+}
+
+// Test CSP with child-src blob enabled
+func TestCSPChildSrcBlob(t *testing.T) {
+	t.Parallel()
+	options := &ServerOptions{
+		CSPWorkerSrcBlob: false,
+		CSPChildSrcBlob:  true,
+		CSPScriptSrcBlob: false,
+		CSPMediaSrcBlob:  false,
+	}
+	handler := HeadersMiddleware(options)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	
+	csp := rec.Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "child-src 'self' blob:") {
+		t.Errorf("expected CSP to contain 'child-src 'self' blob:', got %v", csp)
+	}
+}
+
+// Test CSP with script-src blob enabled
+func TestCSPScriptSrcBlob(t *testing.T) {
+	t.Parallel()
+	options := &ServerOptions{
+		CSPWorkerSrcBlob: false,
+		CSPChildSrcBlob:  false,
+		CSPScriptSrcBlob: true,
+		CSPMediaSrcBlob:  false,
+	}
+	handler := HeadersMiddleware(options)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	
+	csp := rec.Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "script-src 'self' 'unsafe-inline' blob:") {
+		t.Errorf("expected CSP to contain 'script-src 'self' 'unsafe-inline' blob:', got %v", csp)
+	}
+}
+
+// Test CSP with media-src blob enabled
+func TestCSPMediaSrcBlob(t *testing.T) {
+	t.Parallel()
+	options := &ServerOptions{
+		CSPWorkerSrcBlob: false,
+		CSPChildSrcBlob:  false,
+		CSPScriptSrcBlob: false,
+		CSPMediaSrcBlob:  true,
+	}
+	handler := HeadersMiddleware(options)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	
+	csp := rec.Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "media-src 'self' blob:") {
+		t.Errorf("expected CSP to contain 'media-src 'self' blob:', got %v", csp)
+	}
+	if !strings.Contains(csp, "img-src 'self' data: blob:") {
+		t.Errorf("expected CSP to contain 'img-src 'self' data: blob:', got %v", csp)
+	}
+}
+
+// Test CSP with all blob options enabled
+func TestCSPAllBlobEnabled(t *testing.T) {
+	t.Parallel()
+	options := &ServerOptions{
+		CSPWorkerSrcBlob: true,
+		CSPChildSrcBlob:  true,
+		CSPScriptSrcBlob: true,
+		CSPMediaSrcBlob:  true,
+	}
+	handler := HeadersMiddleware(options)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	
+	csp := rec.Header().Get("Content-Security-Policy")
+	expectedSubstrings := []string{
+		"worker-src 'self' blob:",
+		"child-src 'self' blob:",
+		"script-src 'self' 'unsafe-inline' blob:",
+		"media-src 'self' blob:",
+		"img-src 'self' data: blob:",
+	}
+	
+	for _, expected := range expectedSubstrings {
+		if !strings.Contains(csp, expected) {
+			t.Errorf("expected CSP to contain '%s', got %v", expected, csp)
+		}
+	}
+}
+
+// Test Permissions-Policy header doesn't contain 'speaker' directive
+func TestPermissionsPolicyNoSpeaker(t *testing.T) {
+	t.Parallel()
+	options := &ServerOptions{}
+	handler := HeadersMiddleware(options)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	
+	permissionsPolicy := rec.Header().Get("Permissions-Policy")
+	if strings.Contains(permissionsPolicy, "speaker=") {
+		t.Errorf("expected Permissions-Policy to not contain 'speaker=', got %v", permissionsPolicy)
+	}
+	
+	// Verify other directives are still present
+	expectedDirectives := []string{
+		"geolocation=()",
+		"microphone=()",
+		"camera=()",
+		"payment=()",
+		"usb=()",
+		"magnetometer=()",
+		"gyroscope=()",
+		"fullscreen=(self)",
+	}
+	
+	for _, expected := range expectedDirectives {
+		if !strings.Contains(permissionsPolicy, expected) {
+			t.Errorf("expected Permissions-Policy to contain '%s', got %v", expected, permissionsPolicy)
+		}
 	}
 }

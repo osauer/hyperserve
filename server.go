@@ -964,6 +964,58 @@ func WithMCPResourcesDisabled() ServerOptionFunc {
 	}
 }
 
+// WithCSPWorkerBlob enables blob: URLs in the Content Security Policy worker-src directive.
+// This is required for modern web applications that use Web Workers with libraries like Tone.js.
+func WithCSPWorkerBlob() ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.CSPWorkerSrcBlob = true
+		logger.Info("CSP worker-src blob: URLs enabled")
+		return nil
+	}
+}
+
+// WithCSPChildBlob enables blob: URLs in the Content Security Policy child-src directive.
+// This is required for modern web applications that use Web Workers with libraries like PDF.js.
+func WithCSPChildBlob() ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.CSPChildSrcBlob = true
+		logger.Info("CSP child-src blob: URLs enabled")
+		return nil
+	}
+}
+
+// WithCSPScriptBlob enables blob: URLs in the Content Security Policy script-src directive.
+// This allows dynamic script loading from blob URLs.
+func WithCSPScriptBlob() ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.CSPScriptSrcBlob = true
+		logger.Info("CSP script-src blob: URLs enabled")
+		return nil
+	}
+}
+
+// WithCSPMediaBlob enables blob: URLs in the Content Security Policy media-src directive.
+// This allows media content loading from blob URLs.
+func WithCSPMediaBlob() ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.CSPMediaSrcBlob = true
+		logger.Info("CSP media-src blob: URLs enabled")
+		return nil
+	}
+}
+
+// WithCSPWebWorkerSupport enables blob: URLs for Web Workers in both worker-src and child-src directives.
+// This is a convenience function equivalent to calling WithCSPWorkerBlob() and WithCSPChildBlob().
+// This is the recommended option for modern web applications using Web Workers.
+func WithCSPWebWorkerSupport() ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.CSPWorkerSrcBlob = true
+		srv.Options.CSPChildSrcBlob = true
+		logger.Info("CSP Web Worker support enabled (worker-src and child-src blob: URLs)")
+		return nil
+	}
+}
+
 // cleanupRateLimiters runs periodically to clean up old rate limiters
 // This prevents memory leaks from accumulating client IP rate limiters
 func (srv *Server) cleanupRateLimiters() {
