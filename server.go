@@ -52,6 +52,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -67,6 +68,24 @@ var logger = slog.Default()
 func init() {
 	slog.SetLogLoggerLevel(slog.LevelInfo)
 	logger.Debug("Server initializing...")
+	
+	// If version is still "dev", try to get it from build info
+	if Version == "dev" {
+		if info, ok := debug.ReadBuildInfo(); ok {
+			for _, dep := range info.Deps {
+				if dep.Path == "github.com/osauer/hyperserve" {
+					Version = dep.Version
+					break
+				}
+			}
+			// If we're the main module, use the Go version as a fallback
+			if Version == "dev" && info.Main.Path == "github.com/osauer/hyperserve" {
+				if info.Main.Version != "" && info.Main.Version != "(devel)" {
+					Version = info.Main.Version
+				}
+			}
+		}
+	}
 }
 
 // Build information set at compile time using -ldflags
