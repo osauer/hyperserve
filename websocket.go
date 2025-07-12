@@ -1,230 +1,242 @@
 package hyperserve
 
 import (
-	"bufio"
-	"crypto/sha1"
-	"encoding/base64"
-	"encoding/binary"
 	"errors"
-	"fmt"
 	"net"
 	"net/http"
-	"strings"
-)
+	"time"
 
-const (
-	// WebSocket magic string defined in RFC 6455
-	websocketMagicString = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-	// WebSocket version
-	websocketVersion = "13"
+	"github.com/osauer/hyperserve/internal/ws"
 )
 
 // WebSocket message types
 const (
-	TextMessage   = 1
-	BinaryMessage = 2
-	CloseMessage  = 8
-	PingMessage   = 9
-	PongMessage   = 10
+	TextMessage   = ws.OpcodeText
+	BinaryMessage = ws.OpcodeBinary
+	CloseMessage  = ws.OpcodeClose
+	PingMessage   = ws.OpcodePing
+	PongMessage   = ws.OpcodePong
+)
+
+// WebSocket close codes
+const (
+	CloseNormalClosure           = ws.CloseNormalClosure
+	CloseGoingAway               = ws.CloseGoingAway
+	CloseProtocolError           = ws.CloseProtocolError
+	CloseUnsupportedData         = ws.CloseUnsupportedData
+	CloseNoStatusReceived        = ws.CloseNoStatusReceived
+	CloseAbnormalClosure         = ws.CloseAbnormalClosure
+	CloseInvalidFramePayloadData = ws.CloseInvalidFramePayloadData
+	ClosePolicyViolation         = ws.ClosePolicyViolation
+	CloseMessageTooBig           = ws.CloseMessageTooBig
+	CloseMandatoryExtension      = ws.CloseMandatoryExtension
+	CloseInternalServerError     = ws.CloseInternalServerError
+	CloseServiceRestart          = ws.CloseServiceRestart
+	CloseTryAgainLater           = ws.CloseTryAgainLater
+	CloseTLSHandshake            = ws.CloseTLSHandshake
 )
 
 // WebSocket errors
 var (
-	ErrNotWebSocket = errors.New("not a websocket handshake")
-	ErrBadHandshake = errors.New("bad handshake")
+	ErrNotWebSocket = ws.ErrNotWebSocket
+	ErrBadHandshake = ws.ErrBadHandshake
 )
 
 // Conn represents a WebSocket connection
 type Conn struct {
-	conn   net.Conn
-	reader *bufio.Reader
-	writer *bufio.Writer
-	masked bool
+	conn         *ws.Conn
+	pingInterval time.Duration
+	pongTimeout  time.Duration
 }
 
 // Upgrader upgrades HTTP connections to WebSocket connections
 type Upgrader struct {
 	// CheckOrigin returns true if the request Origin header is acceptable
+	// If nil, a safe default is used that checks for same-origin requests
 	CheckOrigin func(r *http.Request) bool
+	
+	// Subprotocols specifies the server's supported protocols in order of preference
+	Subprotocols []string
+	
+	// Error specifies the function for generating HTTP error responses
+	Error func(w http.ResponseWriter, r *http.Request, status int, reason error)
+	
+	// MaxMessageSize is the maximum size for a message read from the peer
+	MaxMessageSize int64
+	
+	// WriteBufferSize is the size of the write buffer
+	WriteBufferSize int
+	
+	// ReadBufferSize is the size of the read buffer  
+	ReadBufferSize int
+	
+	// HandshakeTimeout specifies the duration for the handshake to complete
+	HandshakeTimeout time.Duration
+	
+	// EnableCompression specifies if the server should attempt to negotiate compression
+	EnableCompression bool
+	
+	// BeforeUpgrade is called after origin check but before sending upgrade response
+	// This can be used for authentication, rate limiting, or other pre-upgrade checks
+	BeforeUpgrade func(w http.ResponseWriter, r *http.Request) error
+	
+	// AllowedOrigins is a list of allowed origins for CORS
+	// If empty and CheckOrigin is nil, same-origin policy is enforced
+	AllowedOrigins []string
+	
+	// RequireProtocol ensures the client specifies one of the supported subprotocols
+	RequireProtocol bool
 }
 
 // Upgrade upgrades an HTTP connection to a WebSocket connection
 func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeader http.Header) (*Conn, error) {
-	// Check if this is a WebSocket upgrade request
-	if !isWebSocketUpgrade(r) {
-		return nil, ErrNotWebSocket
+	// Set defaults
+	maxMessageSize := u.MaxMessageSize
+	if maxMessageSize <= 0 {
+		maxMessageSize = 1024 * 1024 // 1MB default
 	}
-
-	// Check origin if function is provided
-	if u.CheckOrigin != nil && !u.CheckOrigin(r) {
-		return nil, ErrBadHandshake
+	
+	// Configure origin checking
+	checkOrigin := u.CheckOrigin
+	if checkOrigin == nil {
+		if len(u.AllowedOrigins) > 0 {
+			// Use allowed origins list
+			checkOrigin = checkOriginWithAllowedList(u.AllowedOrigins)
+		} else {
+			// Use safe default (same-origin only)
+			checkOrigin = defaultCheckOrigin
+		}
 	}
-
-	// Get the connection using hijacker
-	hijacker, ok := w.(http.Hijacker)
-	if !ok {
-		return nil, errors.New("responsewriter does not support hijacking")
+	
+	// Create handshake options
+	opts := &ws.HandshakeOptions{
+		CheckOrigin:   checkOrigin,
+		Subprotocols:  u.Subprotocols,
+		BeforeUpgrade: u.BeforeUpgrade,
 	}
-
-	conn, buf, err := hijacker.Hijack()
+	
+	// Perform handshake
+	netConn, buf, err := ws.PerformHandshake(w, r, opts)
 	if err != nil {
+		if u.Error != nil {
+			status := http.StatusBadRequest
+			if err == ws.ErrBadHandshake {
+				status = http.StatusForbidden
+			} else if err == ws.ErrUnsupportedVersion {
+				status = http.StatusBadRequest
+				w.Header().Set("Sec-WebSocket-Version", "13")
+			}
+			u.Error(w, r, status, err)
+		}
 		return nil, err
 	}
-
-	// Generate accept key
-	key := r.Header.Get("Sec-WebSocket-Key")
-	if key == "" {
-		conn.Close()
-		return nil, ErrBadHandshake
+	
+	// Validate protocol negotiation if required
+	if u.RequireProtocol && len(u.Subprotocols) > 0 {
+		// Check if a protocol was negotiated
+		protocol := r.Header.Get("Sec-WebSocket-Protocol")
+		if protocol == "" {
+			if u.Error != nil {
+				u.Error(w, r, http.StatusBadRequest, errors.New("subprotocol required"))
+			}
+			netConn.Close()
+			return nil, errors.New("subprotocol required")
+		}
 	}
-
-	acceptKey := generateAcceptKey(key)
-
-	// Send upgrade response
-	response := fmt.Sprintf(
-		"HTTP/1.1 101 Switching Protocols\r\n"+
-			"Upgrade: websocket\r\n"+
-			"Connection: Upgrade\r\n"+
-			"Sec-WebSocket-Accept: %s\r\n"+
-			"\r\n",
-		acceptKey,
-	)
-
-	if _, err := conn.Write([]byte(response)); err != nil {
-		conn.Close()
-		return nil, err
+	
+	// Apply handshake timeout if specified
+	if u.HandshakeTimeout > 0 {
+		netConn.SetDeadline(time.Now().Add(u.HandshakeTimeout))
+		defer netConn.SetDeadline(time.Time{})
 	}
-
+	
+	// Create WebSocket connection
+	wsConn := ws.NewConn(netConn, buf, true, maxMessageSize)
+	
 	return &Conn{
-		conn:   conn,
-		reader: buf.Reader,
-		writer: buf.Writer,
-		masked: false, // Server connections don't mask
+		conn: wsConn,
 	}, nil
-}
-
-// isWebSocketUpgrade checks if the request is a WebSocket upgrade
-func isWebSocketUpgrade(r *http.Request) bool {
-	return strings.ToLower(r.Header.Get("Upgrade")) == "websocket" &&
-		strings.ToLower(r.Header.Get("Connection")) == "upgrade" &&
-		r.Header.Get("Sec-WebSocket-Version") == websocketVersion &&
-		r.Header.Get("Sec-WebSocket-Key") != ""
-}
-
-// generateAcceptKey generates the Sec-WebSocket-Accept header value
-func generateAcceptKey(key string) string {
-	h := sha1.New()
-	h.Write([]byte(key))
-	h.Write([]byte(websocketMagicString))
-	return base64.StdEncoding.EncodeToString(h.Sum(nil))
 }
 
 // ReadMessage reads a message from the WebSocket connection
 func (c *Conn) ReadMessage() (messageType int, p []byte, err error) {
-	// Read frame header
-	header := make([]byte, 2)
-	if _, err = c.reader.Read(header); err != nil {
-		return 0, nil, err
-	}
-
-	// Parse frame header
-	fin := (header[0] & 0x80) != 0
-	opcode := int(header[0] & 0x0F)
-	masked := (header[1] & 0x80) != 0
-	payloadLen := int(header[1] & 0x7F)
-
-	// Handle extended payload length
-	if payloadLen == 126 {
-		extLen := make([]byte, 2)
-		if _, err = c.reader.Read(extLen); err != nil {
-			return 0, nil, err
-		}
-		payloadLen = int(binary.BigEndian.Uint16(extLen))
-	} else if payloadLen == 127 {
-		extLen := make([]byte, 8)
-		if _, err = c.reader.Read(extLen); err != nil {
-			return 0, nil, err
-		}
-		payloadLen = int(binary.BigEndian.Uint64(extLen))
-	}
-
-	// Read mask key if present
-	var maskKey []byte
-	if masked {
-		maskKey = make([]byte, 4)
-		if _, err = c.reader.Read(maskKey); err != nil {
-			return 0, nil, err
-		}
-	}
-
-	// Read payload
-	payload := make([]byte, payloadLen)
-	if _, err = c.reader.Read(payload); err != nil {
-		return 0, nil, err
-	}
-
-	// Unmask payload if needed
-	if masked {
-		for i := 0; i < payloadLen; i++ {
-			payload[i] ^= maskKey[i%4]
-		}
-	}
-
-	if !fin {
-		return 0, nil, errors.New("fragmented frames not supported")
-	}
-
-	return opcode, payload, nil
+	return c.conn.ReadMessage()
 }
 
 // WriteMessage writes a message to the WebSocket connection
 func (c *Conn) WriteMessage(messageType int, data []byte) error {
-	return c.writeFrame(messageType, data)
+	return c.conn.WriteMessage(messageType, data)
 }
 
-// writeFrame writes a WebSocket frame
-func (c *Conn) writeFrame(opcode int, data []byte) error {
-	dataLen := len(data)
-	
-	// Create frame header
-	var header []byte
-	
-	// First byte: FIN=1, RSV=0, opcode
-	header = append(header, byte(0x80|opcode))
-	
-	// Second byte and extended length
-	if dataLen < 126 {
-		header = append(header, byte(dataLen))
-	} else if dataLen < 65536 {
-		header = append(header, 126)
-		lenBytes := make([]byte, 2)
-		binary.BigEndian.PutUint16(lenBytes, uint16(dataLen))
-		header = append(header, lenBytes...)
-	} else {
-		header = append(header, 127)
-		lenBytes := make([]byte, 8)
-		binary.BigEndian.PutUint64(lenBytes, uint64(dataLen))
-		header = append(header, lenBytes...)
-	}
-	
-	// Write header
-	if _, err := c.writer.Write(header); err != nil {
-		return err
-	}
-	
-	// Write payload
-	if _, err := c.writer.Write(data); err != nil {
-		return err
-	}
-	
-	return c.writer.Flush()
+// WriteControl writes a control message with the given deadline
+func (c *Conn) WriteControl(messageType int, data []byte, deadline time.Time) error {
+	c.conn.SetWriteDeadline(deadline)
+	defer c.conn.SetWriteDeadline(time.Time{})
+	return c.conn.WriteControl(messageType, data)
 }
 
 // Close closes the WebSocket connection
 func (c *Conn) Close() error {
-	// Send close frame
-	c.writeFrame(CloseMessage, []byte{})
 	return c.conn.Close()
+}
+
+// CloseHandler returns the current close handler
+func (c *Conn) CloseHandler() func(code int, text string) error {
+	return func(code int, text string) error {
+		// Default close handler
+		return nil
+	}
+}
+
+// SetCloseHandler sets the handler for close messages
+func (c *Conn) SetCloseHandler(h func(code int, text string) error) {
+	// TODO: Implement close handler support
+}
+
+// PingHandler returns the current ping handler
+func (c *Conn) PingHandler() func(appData string) error {
+	return func(appData string) error {
+		// Default ping handler - send pong
+		return c.WriteControl(PongMessage, []byte(appData), time.Now().Add(time.Second))
+	}
+}
+
+// SetPingHandler sets the handler for ping messages
+func (c *Conn) SetPingHandler(h func(appData string) error) {
+	// TODO: Implement ping handler support
+}
+
+// PongHandler returns the current pong handler
+func (c *Conn) PongHandler() func(appData string) error {
+	return func(appData string) error {
+		// Default pong handler - no-op
+		return nil
+	}
+}
+
+// SetPongHandler sets the handler for pong messages
+func (c *Conn) SetPongHandler(h func(appData string) error) {
+	// TODO: Implement pong handler support
+}
+
+// SetReadDeadline sets the read deadline on the connection
+func (c *Conn) SetReadDeadline(t time.Time) error {
+	return c.conn.SetReadDeadline(t)
+}
+
+// SetWriteDeadline sets the write deadline on the connection
+func (c *Conn) SetWriteDeadline(t time.Time) error {
+	return c.conn.SetWriteDeadline(t)
+}
+
+// LocalAddr returns the local network address
+func (c *Conn) LocalAddr() net.Addr {
+	return c.conn.LocalAddr()
+}
+
+// RemoteAddr returns the remote network address
+func (c *Conn) RemoteAddr() net.Addr {
+	return c.conn.RemoteAddr()
 }
 
 // WriteJSON writes a JSON-encoded message to the connection
@@ -243,6 +255,30 @@ func (c *Conn) ReadJSON(v interface{}) error {
 
 // IsUnexpectedCloseError checks if the error is an unexpected close error
 func IsUnexpectedCloseError(err error, expectedCodes ...int) bool {
-	// Simplified implementation - in a real implementation you'd check for specific WebSocket close codes
-	return err != nil && !strings.Contains(err.Error(), "use of closed network connection")
+	if err == nil {
+		return false
+	}
+	
+	if closeErr, ok := err.(*ws.CloseError); ok {
+		for _, code := range expectedCodes {
+			if closeErr.Code == code {
+				return false
+			}
+		}
+		return true
+	}
+	
+	return false
+}
+
+// IsCloseError returns true if the error is a close error with one of the specified codes
+func IsCloseError(err error, codes ...int) bool {
+	if closeErr, ok := err.(*ws.CloseError); ok {
+		for _, code := range codes {
+			if closeErr.Code == code {
+				return true
+			}
+		}
+	}
+	return false
 }

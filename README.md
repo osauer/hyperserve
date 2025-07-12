@@ -74,6 +74,7 @@ Add these features as needed:
 | **Static Files** | HandleStatic | `srv.HandleStatic("/static/")` |
 | **Templates** | HandleTemplate | See [Templates](#templates) |
 | **SSE** | Custom handler | See [Server-Sent Events](#server-sent-events-sse) |
+| **WebSocket** | Upgrader | See [WebSocket Support](#websocket-support) |
 | **MCP Support** | WithMCPSupport | `hyperserve.WithMCPSupport()` |
 
 ## Common Patterns
@@ -358,6 +359,39 @@ srv.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
     }
 })
 ```
+
+## WebSocket Support
+
+hyperserve provides secure, RFC 6455-compliant WebSocket support with zero dependencies.
+
+```go
+upgrader := hyperserve.Upgrader{
+    CheckOrigin: func(r *http.Request) bool {
+        return true // Configure based on your security needs
+    },
+}
+
+srv.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+    conn, err := upgrader.Upgrade(w, r, nil)
+    if err != nil {
+        log.Print("upgrade error:", err)
+        return
+    }
+    defer conn.Close()
+    
+    // Handle WebSocket messages
+    for {
+        messageType, p, err := conn.ReadMessage()
+        if err != nil {
+            break
+        }
+        // Echo message back
+        conn.WriteMessage(messageType, p)
+    }
+})
+```
+
+See the [WebSocket Implementation Guide](docs/WEBSOCKET_GUIDE.md) for security features, middleware compatibility, and best practices.
 
 ## Go 1.24 Features
 

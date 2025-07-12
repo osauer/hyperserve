@@ -31,6 +31,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"fmt"
+	"io"
 	"log"
 	"math/rand"
 	"net"
@@ -562,4 +563,25 @@ func (lrw *loggingResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) 
 		return nil, nil, fmt.Errorf("response writer does not support hijacking")
 	}
 	return hijacker.Hijack()
+}
+
+// ReadFrom implements io.ReaderFrom to optimize static file serving
+func (lrw *loggingResponseWriter) ReadFrom(r io.Reader) (n int64, err error) {
+	rf, ok := lrw.ResponseWriter.(io.ReaderFrom)
+	if !ok {
+		// Fall back to default behavior
+		return io.Copy(lrw, r)
+	}
+	n, err = rf.ReadFrom(r)
+	lrw.bytesWritten += int(n)
+	return n, err
+}
+
+// Push implements http.Pusher for HTTP/2 server push support
+func (lrw *loggingResponseWriter) Push(target string, opts *http.PushOptions) error {
+	pusher, ok := lrw.ResponseWriter.(http.Pusher)
+	if !ok {
+		return http.ErrNotSupported
+	}
+	return pusher.Push(target, opts)
 }
