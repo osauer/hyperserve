@@ -52,6 +52,7 @@ Add these features as needed:
 |---------|---------------|---------|
 | **Health Checks** | Kubernetes-ready health endpoints | `hyperserve.WithHealthServer()` |
 | **Security Headers** | Add HeadersMiddleware | `srv.AddMiddleware("*", hyperserve.HeadersMiddleware(srv.Options))` |
+| **Web Worker Support** | Enable CSP for blob: URLs | `hyperserve.WithCSPWebWorkerSupport()` |
 | **Rate Limiting** | Add RateLimitMiddleware | `srv.AddMiddleware("/api", hyperserve.RateLimitMiddleware(srv))` |
 | **Authentication** | Configure validator + middleware | See [Authentication](#authentication) |
 | **TLS/HTTPS** | WithTLS option | `hyperserve.WithTLS("cert.pem", "key.pem")` |
@@ -126,6 +127,45 @@ srv.AddMiddlewareStack("/", hyperserve.SecureWeb(srv.Options))
 srv.Run()
 ```
 
+## Web Worker Support
+
+Modern web applications often use Web Workers for performance optimization. Libraries like Tone.js, PDF.js, and others create Web Workers using `blob:` URLs, which are blocked by default by Content Security Policy (CSP).
+
+### Enable Web Worker Support
+
+```go
+srv, _ := hyperserve.NewServer(
+    hyperserve.WithCSPWebWorkerSupport(),
+)
+
+// Apply security headers with Web Worker support
+srv.AddMiddleware("*", hyperserve.HeadersMiddleware(srv.Options))
+```
+
+This adds `blob:` URLs to the CSP `worker-src` and `child-src` directives, enabling Web Workers while maintaining security.
+
+### Environment Variable
+
+```bash
+export HS_CSP_WEB_WORKER_SUPPORT=true
+```
+
+### JSON Configuration
+
+```json
+{
+    "csp_web_worker_support": true
+}
+```
+
+### Use Cases
+
+- **Audio Applications**: Tone.js, Web Audio API libraries
+- **PDF Rendering**: PDF.js and similar libraries
+- **Performance Optimization**: Any library using Web Workers with blob: URLs
+
+**Security Note**: Web Worker support is disabled by default. Enable only when needed for your application.
+
 ## Configuration
 
 ### Configuration Methods (in precedence order)
@@ -135,6 +175,7 @@ srv.Run()
 hyperserve.NewServer(
     hyperserve.WithAddr(":3000"),
     hyperserve.WithRateLimit(200, 400),
+    hyperserve.WithCSPWebWorkerSupport(),  // Enable Web Worker support for Tone.js, PDF.js, etc.
 )
 ```
 
@@ -143,6 +184,7 @@ hyperserve.NewServer(
 export HS_PORT=3000
 export HS_RATE_LIMIT=200
 export HS_LOG_LEVEL=debug
+export HS_CSP_WEB_WORKER_SUPPORT=true  # Enable Web Worker support
 ```
 
 3. **JSON File** (`options.json`)
@@ -150,7 +192,8 @@ export HS_LOG_LEVEL=debug
 {
     "port": 3000,
     "rateLimit": 200,
-    "logLevel": "debug"
+    "logLevel": "debug",
+    "csp_web_worker_support": true
 }
 ```
 

@@ -347,8 +347,7 @@ var securityHeaders = []Header{
 	{"X-Frame-Options", "DENY"},                                                   // Mitigate clickjacking
 	{"Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload"}, // Enforce HTTPS with preload
 	{"Referrer-Policy", "strict-origin-when-cross-origin"},                        // Balance privacy and functionality
-	{"Permissions-Policy", "geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), speaker=(), fullscreen=(self)"},                                                                                                                                                  // Modern replacement for Feature-Policy
-	{"Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; media-src 'self'; object-src 'none'; child-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"}, // Comprehensive CSP
+	{"Permissions-Policy", "geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), fullscreen=(self)"},                                                                                                                                                  // Modern replacement for Feature-Policy (removed invalid 'speaker' directive)
 	{"Cross-Origin-Embedder-Policy", "require-corp"},                // Prevent cross-origin attacks
 	{"Cross-Origin-Opener-Policy", "same-origin"},                   // Isolate browsing context
 	{"Cross-Origin-Resource-Policy", "same-origin"},                 // Control cross-origin resource sharing
@@ -357,6 +356,20 @@ var securityHeaders = []Header{
 	{"Access-Control-Allow-Headers", "Content-Type, Authorization"}, // Allowed headers
 	{"Access-Control-Allow-Credentials", "true"},                    // If cookies or credentials are needed
 	{"Access-Control-Max-Age", "600"},                               // Pre-flight request cache
+}
+
+// generateCSP generates a Content Security Policy header value based on server options
+func generateCSP(options *ServerOptions) string {
+	// Base CSP without worker-src (will fall back to child-src)
+	csp := "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; media-src 'self'; object-src 'none'; child-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+	
+	// Add Web Worker support if enabled
+	if options.CSPWebWorkerSupport {
+		// Add blob: to worker-src and child-src for Web Worker support
+		csp = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; media-src 'self'; object-src 'none'; child-src 'self' blob:; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+	}
+	
+	return csp
 }
 
 // HeadersMiddleware returns a middleware function that adds security headers to responses.
@@ -370,9 +383,13 @@ func HeadersMiddleware(options *ServerOptions) MiddlewareFunc {
 				w.Header().Set("Server", "hyperserve")
 			}
 
+			// Set static security headers
 			for _, h := range securityHeaders {
 				w.Header().Set(h.key, h.value)
 			}
+
+			// Set dynamic CSP based on configuration
+			w.Header().Set("Content-Security-Policy", generateCSP(options))
 
 			if options.EnableTLS {
 				w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")

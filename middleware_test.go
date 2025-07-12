@@ -3,6 +3,7 @@ package hyperserve
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -154,5 +155,112 @@ func TestHeadersMiddlewareWithoutHardenedMode(t *testing.T) {
 	serverHeader := rec.Header().Get("Server")
 	if serverHeader != "hyperserve" {
 		t.Errorf("expected Server header to be 'hyperserve', got %v", serverHeader)
+	}
+}
+
+func TestCSPGenerationWithoutWebWorkerSupport(t *testing.T) {
+	t.Parallel()
+	options := &ServerOptions{
+		CSPWebWorkerSupport: false,
+	}
+	
+	csp := generateCSP(options)
+	
+	// Should not contain blob: URLs
+	if strings.Contains(csp, "blob:") {
+		t.Errorf("expected CSP to not contain blob: URLs when WebWorker support is disabled")
+	}
+	
+	// Should contain basic directives
+	if !strings.Contains(csp, "default-src 'self'") {
+		t.Errorf("expected CSP to contain default-src 'self'")
+	}
+	
+	// Should contain child-src without blob:
+	if !strings.Contains(csp, "child-src 'self'") {
+		t.Errorf("expected CSP to contain child-src 'self'")
+	}
+	
+	// Should not contain worker-src directive (will fall back to child-src)
+	if strings.Contains(csp, "worker-src") {
+		t.Errorf("expected CSP to not contain worker-src directive when WebWorker support is disabled")
+	}
+}
+
+func TestCSPGenerationWithWebWorkerSupport(t *testing.T) {
+	t.Parallel()
+	options := &ServerOptions{
+		CSPWebWorkerSupport: true,
+	}
+	
+	csp := generateCSP(options)
+	
+	// Should contain blob: URLs for workers
+	if !strings.Contains(csp, "worker-src 'self' blob:") {
+		t.Errorf("expected CSP to contain worker-src 'self' blob: when WebWorker support is enabled")
+	}
+	
+	// Should contain blob: URLs for child-src
+	if !strings.Contains(csp, "child-src 'self' blob:") {
+		t.Errorf("expected CSP to contain child-src 'self' blob: when WebWorker support is enabled")
+	}
+	
+	// Should contain basic directives
+	if !strings.Contains(csp, "default-src 'self'") {
+		t.Errorf("expected CSP to contain default-src 'self'")
+	}
+}
+
+func TestHeadersMiddlewareCSPWebWorkerSupport(t *testing.T) {
+	t.Parallel()
+	options := &ServerOptions{
+		CSPWebWorkerSupport: true,
+	}
+	handler := HeadersMiddleware(options)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	
+	csp := rec.Header().Get("Content-Security-Policy")
+	if csp == "" {
+		t.Error("expected Content-Security-Policy header to be set")
+	}
+	
+	// Should contain blob: URLs for workers
+	if !strings.Contains(csp, "worker-src 'self' blob:") {
+		t.Errorf("expected CSP to contain worker-src 'self' blob: when WebWorker support is enabled")
+	}
+	
+	// Should contain blob: URLs for child-src
+	if !strings.Contains(csp, "child-src 'self' blob:") {
+		t.Errorf("expected CSP to contain child-src 'self' blob: when WebWorker support is enabled")
+	}
+}
+
+func TestHeadersMiddlewarePermissionsPolicyFixed(t *testing.T) {
+	t.Parallel()
+	options := &ServerOptions{}
+	handler := HeadersMiddleware(options)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	
+	permissionsPolicy := rec.Header().Get("Permissions-Policy")
+	if permissionsPolicy == "" {
+		t.Error("expected Permissions-Policy header to be set")
+	}
+	
+	// Should not contain the invalid 'speaker' directive
+	if strings.Contains(permissionsPolicy, "speaker") {
+		t.Errorf("expected Permissions-Policy to not contain invalid 'speaker' directive")
+	}
+	
+	// Should contain valid directives
+	if !strings.Contains(permissionsPolicy, "geolocation=()") {
+		t.Errorf("expected Permissions-Policy to contain geolocation=()")
 	}
 }
