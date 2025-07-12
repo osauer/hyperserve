@@ -28,9 +28,8 @@ func main() {
 	// Note: We only set non-default options
 	srv, err := hyperserve.NewServer(
 		hyperserve.WithTemplateDir("./templates"),
-		hyperserve.WithMCPSupport(),
+		hyperserve.WithMCPSupport(hyperserve.MCPServerInfo("mcp-example", "1.0.0")),
 		hyperserve.WithMCPFileToolRoot(sandboxDir),
-		hyperserve.WithMCPServerInfo("mcp-example", "1.0.0"),
 	)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)

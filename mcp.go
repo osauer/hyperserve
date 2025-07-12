@@ -43,6 +43,8 @@ type MCPTransportConfig func(*mcpTransportOptions)
 type mcpTransportOptions struct {
 	transport MCPTransportType
 	endpoint  string
+	serverName string
+	serverVersion string
 }
 
 // MCP Tool interface defines the contract for MCP tools
@@ -115,6 +117,15 @@ func MCPOverHTTP(endpoint string) MCPTransportConfig {
 func MCPOverStdio() MCPTransportConfig {
 	return func(o *mcpTransportOptions) {
 		o.transport = StdioTransport
+	}
+}
+
+// MCPServerInfo configures the MCP server identification.
+// This is a convenience function to set server name and version in WithMCPSupport.
+func MCPServerInfo(name, version string) MCPTransportConfig {
+	return func(o *mcpTransportOptions) {
+		o.serverName = name
+		o.serverVersion = version
 	}
 }
 

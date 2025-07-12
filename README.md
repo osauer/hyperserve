@@ -395,7 +395,7 @@ Enable AI assistant integration with multiple transport options:
 
 ```go
 srv, _ := hyperserve.NewServer(
-    hyperserve.WithMCPSupport(),  // Defaults to HTTP on /mcp
+    hyperserve.WithMCPSupport(hyperserve.MCPServerInfo("MyApp", "1.0.0")),  // Enable MCP with server info
     hyperserve.WithMCPBuiltinTools(true),      // Enable built-in tools (disabled by default)
     hyperserve.WithMCPBuiltinResources(true),  // Enable built-in resources (disabled by default)
     hyperserve.WithMCPFileToolRoot("/safe/path"),
@@ -423,18 +423,23 @@ See [mcp-stdio example](examples/mcp-stdio) for Claude Desktop integration.
 ```go
 // Enable only MCP protocol (no built-in tools/resources)
 srv, _ := hyperserve.NewServer(
-    hyperserve.WithMCPSupport(),
+    hyperserve.WithMCPSupport(hyperserve.MCPServerInfo("MyApp", "1.0.0")),
+)
+
+// Alternative: Use the convenience function
+srv, _ := hyperserve.NewServer(
+    hyperserve.WithMCPServer("MyApp", "1.0.0"),  // Same as WithMCPSupport(MCPServerInfo(...))
 )
 
 // Enable MCP with built-in tools
 srv, _ := hyperserve.NewServer(
-    hyperserve.WithMCPSupport(),
+    hyperserve.WithMCPSupport(hyperserve.MCPServerInfo("MyApp", "1.0.0")),
     hyperserve.WithMCPBuiltinTools(true),
 )
 
 // Enable MCP with built-in resources
 srv, _ := hyperserve.NewServer(
-    hyperserve.WithMCPSupport(),
+    hyperserve.WithMCPSupport(hyperserve.MCPServerInfo("MyApp", "1.0.0")),
     hyperserve.WithMCPBuiltinResources(true),
 )
 ```

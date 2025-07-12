@@ -870,7 +870,8 @@ func WithEncryptedClientHello(echKeys ...[]byte) ServerOptionFunc {
 // WithMCPSupport enables MCP (Model Context Protocol) support on the server.
 // This allows AI assistants to connect and use tools/resources provided by the server.
 // By default, MCP uses HTTP transport on the "/mcp" endpoint.
-// Pass MCPOverHTTP() or MCPOverStdio() to configure the transport.
+// You can pass configuration options like MCPServerInfo(), MCPOverHTTP(), or MCPOverStdio().
+// Example: WithMCPSupport(MCPServerInfo("MyServer", "1.0.0"))
 func WithMCPSupport(configs ...MCPTransportConfig) ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.MCPEnabled = true
@@ -889,6 +890,13 @@ func WithMCPSupport(configs ...MCPTransportConfig) ServerOptionFunc {
 			srv.Options.MCPTransport = srv.Options.mcpTransportOpts.transport
 			if srv.Options.mcpTransportOpts.endpoint != "" {
 				srv.Options.MCPEndpoint = srv.Options.mcpTransportOpts.endpoint
+			}
+			// Apply server info if provided
+			if srv.Options.mcpTransportOpts.serverName != "" {
+				srv.Options.MCPServerName = srv.Options.mcpTransportOpts.serverName
+			}
+			if srv.Options.mcpTransportOpts.serverVersion != "" {
+				srv.Options.MCPServerVersion = srv.Options.mcpTransportOpts.serverVersion
 			}
 		}
 		
@@ -913,6 +921,7 @@ func WithMCPEndpoint(endpoint string) ServerOptionFunc {
 
 // WithMCPServerInfo configures the MCP server identification.
 // This information is returned to MCP clients during initialization.
+// Deprecated: Use WithMCPSupport(MCPServerInfo(name, version)) instead for a more concise API.
 func WithMCPServerInfo(name, version string) ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.MCPServerName = name
@@ -920,6 +929,15 @@ func WithMCPServerInfo(name, version string) ServerOptionFunc {
 		logger.Debug("MCP server info configured", "name", name, "version", version)
 		return nil
 	}
+}
+
+// WithMCPServer is a convenience function that enables MCP with custom server info.
+// This is equivalent to WithMCPSupport(MCPServerInfo(name, version)).
+// Example: WithMCPServer("MyApp", "1.0.0")
+func WithMCPServer(name, version string, configs ...MCPTransportConfig) ServerOptionFunc {
+	// Prepend server info to any additional configs
+	allConfigs := append([]MCPTransportConfig{MCPServerInfo(name, version)}, configs...)
+	return WithMCPSupport(allConfigs...)
 }
 
 // WithMCPFileToolRoot configures a root directory for MCP file operations.

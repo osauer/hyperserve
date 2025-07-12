@@ -337,8 +337,7 @@ func BenchmarkMCPToolExecution(b *testing.B) {
 func BenchmarkMCPResourceAccess(b *testing.B) {
 	srv, err := NewServer(
 		WithAddr(":0"),
-		WithMCPSupport(),
-		WithMCPServerInfo("benchmark-server", "1.0.0"),
+		WithMCPSupport(MCPServerInfo("benchmark-server", "1.0.0")),
 	)
 	if err != nil {
 		b.Fatal(err)
@@ -403,8 +402,7 @@ func BenchmarkMCPResourceAccess(b *testing.B) {
 func BenchmarkMCPInitializeHandshake(b *testing.B) {
 	srv, err := NewServer(
 		WithAddr(":0"),
-		WithMCPSupport(),
-		WithMCPServerInfo("benchmark-server", "1.0.0"),
+		WithMCPSupport(MCPServerInfo("benchmark-server", "1.0.0")),
 	)
 	if err != nil {
 		b.Fatal(err)
