@@ -48,6 +48,8 @@ type ServerOptions struct {
 	MCPLogResourceSize     int      `json:"mcp_log_resource_size,omitempty"`
 	MCPTransport           MCPTransportType `json:"mcp_transport,omitempty"`
 	mcpTransportOpts       mcpTransportOptions // Internal transport options
+	// CSP (Content Security Policy) configuration
+	CSPWebWorkerSupport    bool     `json:"csp_web_worker_support,omitempty"`
 }
 
 var defaultServerOptions = &ServerOptions{
@@ -86,6 +88,8 @@ var defaultServerOptions = &ServerOptions{
 	MCPFileToolRoot:        "",
 	MCPLogResourceSize:     100,
 	MCPTransport:           HTTPTransport,
+	// CSP defaults
+	CSPWebWorkerSupport:    false,  // Disabled by default - users must opt-in
 }
 
 // Log level constants for server configuration.
@@ -177,6 +181,17 @@ func applyEnvVars(config *ServerOptions) *ServerOptions {
 	if mcpFileToolRoot := os.Getenv(paramMCPFileToolRoot); mcpFileToolRoot != "" {
 		config.MCPFileToolRoot = mcpFileToolRoot
 		logger.Debug("MCP file tool root set from environment variable", "variable", paramMCPFileToolRoot, "root", mcpFileToolRoot)
+	}
+	
+	// CSP (Content Security Policy) environment variables
+	if cspWebWorkerSupport := os.Getenv(paramCSPWebWorkerSupport); cspWebWorkerSupport != "" {
+		if cspWebWorkerSupport == "true" || cspWebWorkerSupport == "1" {
+			config.CSPWebWorkerSupport = true
+			logger.Debug("CSP Web Worker support enabled from environment variable", "variable", paramCSPWebWorkerSupport)
+		} else if cspWebWorkerSupport == "false" || cspWebWorkerSupport == "0" {
+			config.CSPWebWorkerSupport = false
+			logger.Debug("CSP Web Worker support disabled from environment variable", "variable", paramCSPWebWorkerSupport)
+		}
 	}
 	
 	return config

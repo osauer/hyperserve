@@ -50,6 +50,7 @@ const (
 	paramMCPToolsEnabled    = "HS_MCP_TOOLS_ENABLED"
 	paramMCPResourcesEnabled = "HS_MCP_RESOURCES_ENABLED"
 	paramMCPFileToolRoot    = "HS_MCP_FILE_TOOL_ROOT"
+	paramCSPWebWorkerSupport = "HS_CSP_WEB_WORKER_SUPPORT"
 )
 
 // rateLimit limits requests per second that can be requested from the httpServer. Requires to add [RateLimitMiddleware]
@@ -960,6 +961,18 @@ func WithMCPResourcesDisabled() ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.MCPResourcesEnabled = false
 		logger.Info("MCP resources disabled")
+		return nil
+	}
+}
+
+// WithCSPWebWorkerSupport enables Content Security Policy support for Web Workers using blob: URLs.
+// This is required for modern web applications that use libraries like Tone.js, PDF.js, or other
+// libraries that create Web Workers with blob: URLs for performance optimization.
+// By default, this is disabled for security reasons and must be explicitly enabled.
+func WithCSPWebWorkerSupport() ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.CSPWebWorkerSupport = true
+		logger.Info("CSP Web Worker support enabled - blob: URLs allowed for workers")
 		return nil
 	}
 }

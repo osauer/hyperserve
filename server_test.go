@@ -381,3 +381,27 @@ func TestHandleFuncDynamicNonExistentTemplate(t *testing.T) {
 		t.Errorf("expected error to contain '%s', got: %s", expectedError, err.Error())
 	}
 }
+
+func TestWithCSPWebWorkerSupport(t *testing.T) {
+	t.Parallel()
+	
+	// Test that the option is disabled by default
+	srv, err := NewServer()
+	if err != nil {
+		t.Fatalf("error creating server: %v", err)
+	}
+	
+	if srv.Options.CSPWebWorkerSupport {
+		t.Error("expected CSPWebWorkerSupport to be disabled by default")
+	}
+	
+	// Test that the option can be enabled
+	srv, err = NewServer(WithCSPWebWorkerSupport())
+	if err != nil {
+		t.Fatalf("error creating server with CSP Web Worker support: %v", err)
+	}
+	
+	if !srv.Options.CSPWebWorkerSupport {
+		t.Error("expected CSPWebWorkerSupport to be enabled")
+	}
+}
