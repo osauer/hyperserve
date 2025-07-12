@@ -3,8 +3,7 @@
 
 /*
 Package hyperserve provides a lightweight, high-performance HTTP server framework
-with minimal external dependencies (golang.org/x/time/rate for rate limiting and 
-github.com/gorilla/websocket for WebSocket support).
+with minimal external dependencies (golang.org/x/time/rate for rate limiting only).
 
 Key Features:
   - Zero configuration with sensible defaults
@@ -12,7 +11,7 @@ Key Features:
   - Graceful shutdown handling
   - Health check endpoints for Kubernetes
   - Model Context Protocol (MCP) support for AI assistants
-  - WebSocket support for real-time communication
+  - WebSocket support for real-time communication (standard library only)
   - TLS/HTTPS support with automatic certificate management
   - Rate limiting and authentication
   - Template rendering support
@@ -42,9 +41,7 @@ With Options:
 
 WebSocket Support:
 
-	import "github.com/gorilla/websocket"
-	
-	upgrader := websocket.Upgrader{
+	upgrader := hyperserve.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
 			return true // Configure based on your needs
 		},

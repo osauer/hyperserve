@@ -4,20 +4,18 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/gorilla/websocket"
 	"github.com/osauer/hyperserve"
 )
 
 func main() {
-	srv := hyperserve.NewServer(
-		hyperserve.WithPort(8080),
-		hyperserve.WithDebug(true),
+	srv, err := hyperserve.NewServer(
+		hyperserve.WithAddr(":8080"),
 	)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	// Add middleware stack
-	srv.AddMiddleware("*", hyperserve.DefaultMiddleware(srv))
-
-	upgrader := websocket.Upgrader{
+	upgrader := hyperserve.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
 			return true // Allow all origins for demo
 		},
@@ -60,7 +58,7 @@ func main() {
 		http.ServeFile(w, r, "demo.html")
 	})
 
-	log.Printf("Starting WebSocket echo server on port 8080")
+	log.Printf("Starting WebSocket echo server on :8080")
 	log.Printf("Open http://localhost:8080 in your browser")
-	log.Fatal(srv.ListenAndServe())
+	log.Fatal(srv.Run())
 }

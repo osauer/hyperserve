@@ -7,151 +7,66 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/osauer/hyperserve"
 )
 
-// ChatMessage represents a chat message
-type ChatMessage struct {
-	Type      string    `json:"type"`
+// Message represents a simple message
+type Message struct {
 	Username  string    `json:"username"`
 	Message   string    `json:"message"`
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// ChatClient represents a connected chat client
-type ChatClient struct {
-	conn     *websocket.Conn
-	send     chan ChatMessage
-	username string
+// SimpleChat maintains connected clients and broadcasts messages
+type SimpleChat struct {
+	clients map[*hyperserve.Conn]string
+	mutex   sync.RWMutex
 }
 
-// ChatHub maintains the set of active clients and broadcasts messages
-type ChatHub struct {
-	clients    map[*ChatClient]bool
-	broadcast  chan ChatMessage
-	register   chan *ChatClient
-	unregister chan *ChatClient
-	mutex      sync.RWMutex
-}
-
-func NewChatHub() *ChatHub {
-	return &ChatHub{
-		clients:    make(map[*ChatClient]bool),
-		broadcast:  make(chan ChatMessage),
-		register:   make(chan *ChatClient),
-		unregister: make(chan *ChatClient),
+func NewSimpleChat() *SimpleChat {
+	return &SimpleChat{
+		clients: make(map[*hyperserve.Conn]string),
 	}
 }
 
-func (h *ChatHub) Run() {
-	for {
-		select {
-		case client := <-h.register:
-			h.mutex.Lock()
-			h.clients[client] = true
-			h.mutex.Unlock()
-			
-			log.Printf("Client %s connected. Total clients: %d", client.username, len(h.clients))
-			
-			// Send welcome message
-			welcomeMsg := ChatMessage{
-				Type:      "system",
-				Username:  "System",
-				Message:   client.username + " joined the chat",
-				Timestamp: time.Now(),
-			}
-			h.broadcast <- welcomeMsg
-
-		case client := <-h.unregister:
-			h.mutex.Lock()
-			if _, ok := h.clients[client]; ok {
-				delete(h.clients, client)
-				close(client.send)
-				log.Printf("Client %s disconnected. Total clients: %d", client.username, len(h.clients))
-				
-				// Send goodbye message
-				goodbyeMsg := ChatMessage{
-					Type:      "system",
-					Username:  "System",
-					Message:   client.username + " left the chat",
-					Timestamp: time.Now(),
-				}
-				h.broadcast <- goodbyeMsg
-			}
-			h.mutex.Unlock()
-
-		case message := <-h.broadcast:
-			h.mutex.RLock()
-			for client := range h.clients {
-				select {
-				case client.send <- message:
-				default:
-					close(client.send)
-					delete(h.clients, client)
-				}
-			}
-			h.mutex.RUnlock()
-		}
-	}
+func (c *SimpleChat) AddClient(conn *hyperserve.Conn, username string) {
+	c.mutex.Lock()
+	c.clients[conn] = username
+	c.mutex.Unlock()
+	log.Printf("Client %s connected. Total clients: %d", username, len(c.clients))
 }
 
-func (c *ChatClient) writePump() {
-	defer c.conn.Close()
+func (c *SimpleChat) RemoveClient(conn *hyperserve.Conn) {
+	c.mutex.Lock()
+	username := c.clients[conn]
+	delete(c.clients, conn)
+	c.mutex.Unlock()
+	log.Printf("Client %s disconnected. Total clients: %d", username, len(c.clients))
+}
+
+func (c *SimpleChat) Broadcast(message Message) {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
 	
-	for {
-		select {
-		case message, ok := <-c.send:
-			if !ok {
-				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
-				return
-			}
-			
-			if err := c.conn.WriteJSON(message); err != nil {
-				log.Printf("Write error for %s: %v", c.username, err)
-				return
-			}
+	data, _ := json.Marshal(message)
+	for conn := range c.clients {
+		if err := conn.WriteMessage(hyperserve.TextMessage, data); err != nil {
+			log.Printf("Error sending message to client: %v", err)
 		}
-	}
-}
-
-func (c *ChatClient) readPump(hub *ChatHub) {
-	defer func() {
-		hub.unregister <- c
-		c.conn.Close()
-	}()
-	
-	for {
-		var msg ChatMessage
-		err := c.conn.ReadJSON(&msg)
-		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("WebSocket error for %s: %v", c.username, err)
-			}
-			break
-		}
-		
-		msg.Username = c.username
-		msg.Timestamp = time.Now()
-		msg.Type = "message"
-		
-		hub.broadcast <- msg
 	}
 }
 
 func main() {
-	srv := hyperserve.NewServer(
-		hyperserve.WithPort(8080),
-		hyperserve.WithDebug(true),
+	srv, err := hyperserve.NewServer(
+		hyperserve.WithAddr(":8080"),
 	)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	// Add middleware stack
-	srv.AddMiddleware("*", hyperserve.DefaultMiddleware(srv))
-
-	hub := NewChatHub()
-	go hub.Run()
-
-	upgrader := websocket.Upgrader{
+	chat := NewSimpleChat()
+	
+	upgrader := hyperserve.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
 			return true // Allow all origins for demo
 		},
@@ -164,33 +79,43 @@ func main() {
 			log.Printf("WebSocket upgrade error: %v", err)
 			return
 		}
+		defer conn.Close()
 
 		username := r.URL.Query().Get("username")
 		if username == "" {
 			username = "Anonymous"
 		}
 
-		client := &ChatClient{
-			conn:     conn,
-			send:     make(chan ChatMessage, 256),
-			username: username,
+		chat.AddClient(conn, username)
+		defer chat.RemoveClient(conn)
+
+		// Message loop
+		for {
+			_, data, err := conn.ReadMessage()
+			if err != nil {
+				log.Printf("Read error: %v", err)
+				break
+			}
+
+			// Create and broadcast message
+			message := Message{
+				Username:  username,
+				Message:   string(data),
+				Timestamp: time.Now(),
+			}
+			
+			chat.Broadcast(message)
 		}
-
-		hub.register <- client
-
-		// Start goroutines for this client
-		go client.writePump()
-		go client.readPump(hub)
 	})
 
 	// Get active users endpoint
 	srv.HandleFunc("/api/users", func(w http.ResponseWriter, r *http.Request) {
-		hub.mutex.RLock()
-		usernames := make([]string, 0, len(hub.clients))
-		for client := range hub.clients {
-			usernames = append(usernames, client.username)
+		chat.mutex.RLock()
+		usernames := make([]string, 0, len(chat.clients))
+		for _, username := range chat.clients {
+			usernames = append(usernames, username)
 		}
-		hub.mutex.RUnlock()
+		chat.mutex.RUnlock()
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -208,8 +133,8 @@ func main() {
 		http.ServeFile(w, r, "demo.html")
 	})
 
-	log.Printf("Starting WebSocket chat server on port 8080")
+	log.Printf("Starting WebSocket chat server on :8080")
 	log.Printf("Open http://localhost:8080 in your browser")
 	log.Printf("Connect to /ws/chat?username=YourName for chat")
-	log.Fatal(srv.ListenAndServe())
+	log.Fatal(srv.Run())
 }
