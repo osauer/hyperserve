@@ -1,8 +1,43 @@
 // Copyright 2024 by Oliver Sauer
 // Use of this source code is governed by a MIT-style license that can be found in the LICENSE file.
 
-// Simple HTTP Server with MiddlewareFunc and various option to handle requests and responses.
+/*
+Package hyperserve provides a lightweight, high-performance HTTP server framework
+with zero external dependencies (except golang.org/x/time/rate for rate limiting).
 
+Key Features:
+  - Zero configuration with sensible defaults
+  - Built-in middleware for logging, recovery, and metrics
+  - Graceful shutdown handling
+  - Health check endpoints for Kubernetes
+  - Model Context Protocol (MCP) support for AI assistants
+  - TLS/HTTPS support with automatic certificate management
+  - Rate limiting and authentication
+  - Template rendering support
+  - Server-Sent Events (SSE) support
+
+Basic Usage:
+
+	srv, err := hyperserve.NewServer()
+	if err != nil {
+		log.Fatal(err)
+	}
+	
+	srv.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, "Hello, World!")
+	})
+	
+	srv.Run() // Blocks until shutdown signal
+
+With Options:
+
+	srv, err := hyperserve.NewServer(
+		hyperserve.WithAddr(":8080"),
+		hyperserve.WithHealthServer(),
+		hyperserve.WithTLS("cert.pem", "key.pem"),
+		hyperserve.WithMCPSupport("MyApp", "1.0.0"),
+	)
+*/
 package hyperserve
 
 import (
@@ -79,8 +114,21 @@ type rateLimiterEntry struct {
 	lastAccess time.Time
 }
 
-// Server represents an HTTP server that can handle requests and responses.
-// It provides middleware support, health checks, template rendering, and various configuration options.
+// Server represents an HTTP server with built-in middleware support, health checks,
+// template rendering, and various configuration options.
+//
+// The Server manages both the main HTTP server and an optional health check server.
+// It handles graceful shutdown, request metrics, and can be extended with custom middleware.
+//
+// Example:
+//
+//	srv, _ := hyperserve.NewServer(
+//		hyperserve.WithAddr(":8080"),
+//		hyperserve.WithHealthServer(),
+//	)
+//	
+//	srv.HandleFunc("/api/users", handleUsers)
+//	srv.Run()
 type Server struct {
 	mux               *http.ServeMux
 	healthMux         *http.ServeMux
@@ -105,7 +153,18 @@ type Server struct {
 }
 
 // NewServer creates a new instance of the Server with the given options.
-// It initializes the server with default middleware and applies all provided ServerOptionFunc options.
+// By default, the server includes request logging, panic recovery, and metrics collection middleware.
+// The server will listen on ":8080" unless configured otherwise.
+//
+// Options can be provided to customize the server behavior:
+//
+//	srv, err := hyperserve.NewServer(
+//		hyperserve.WithAddr(":3000"),
+//		hyperserve.WithHealthServer(),          // Enable health checks on :8081
+//		hyperserve.WithTLS("cert.pem", "key.pem"), // Enable HTTPS
+//		hyperserve.WithRateLimit(100, 200),     // 100 req/s, burst of 200
+//	)
+//
 // Returns an error if any of the options fail to apply.
 func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 	// init new httpServer
@@ -190,9 +249,22 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 	return srv, nil
 }
 
-// Run starts the server and listens for incoming requests.
-// It sets up TLS if enabled, starts the health server if configured, and handles graceful shutdown.
-// Returns an error if the server fails to start or encounters an error during operation.
+// Run starts the server and blocks until a shutdown signal is received.
+// It automatically:
+//   - Starts the main HTTP/HTTPS server
+//   - Starts the health check server (if enabled)
+//   - Sets up graceful shutdown on SIGINT/SIGTERM
+//   - Handles cleanup of resources
+//   - Waits for active requests to complete before shutting down
+//
+// The method will block until the server is shut down, either by signal or error.
+// Returns an error if the server fails to start or encounters a fatal error.
+//
+// Example:
+//
+//	if err := srv.Run(); err != nil {
+//	    log.Fatal("Server failed:", err)
+//	}
 func (srv *Server) Run() error {
 	// Print ASCII art on startup (skip in stdio mode)
 	if srv.Options.MCPTransport != StdioTransport {
@@ -482,11 +554,24 @@ func (srv *Server) Handle(pattern string, handlerFunc http.HandlerFunc) {
 }
 
 // HandleFunc registers the handler function for the given pattern.
-// This is a wrapper around http.ServeMux.HandleFunc that integrates with the server's middleware system.
-// Example usage:
+// The pattern follows the standard net/http ServeMux patterns:
+//   - "/path" matches exactly
+//   - "/path/" matches the path and any subpaths
+//   - Patterns are matched in order of specificity
 //
-//	srv.HandleFunc("/hello", func(w http.ResponseWriter, r *http.Request) {
-//	    fmt.Fprintln(w, "Hello, world!")
+// Registered handlers automatically benefit from any global middleware
+// (logging, recovery, metrics) plus any route-specific middleware.
+//
+// Example:
+//
+//	srv.HandleFunc("/api/users", func(w http.ResponseWriter, r *http.Request) {
+//	    users := getUsersFromDB()
+//	    json.NewEncoder(w).Encode(users)
+//	})
+//	
+//	srv.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+//	    w.WriteHeader(http.StatusOK)
+//	    fmt.Fprintln(w, "OK")
 //	})
 func (srv *Server) HandleFunc(pattern string, handler http.HandlerFunc) {
 	srv.mux.HandleFunc(pattern, handler)

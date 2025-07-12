@@ -1,3 +1,31 @@
+/*
+Package hyperserve provides configuration options for the HTTP server.
+
+Configuration follows a hierarchical priority:
+  1. Function parameters (highest priority)
+  2. Environment variables
+  3. Configuration file (options.json)
+  4. Default values (lowest priority)
+
+Environment Variables:
+  - SERVER_ADDR: Main server address (default ":8080")
+  - HEALTH_ADDR: Health check server address (default ":8081")
+  - HS_HARDENED_MODE: Enable security headers (default "false")
+  - HS_MCP_ENABLED: Enable Model Context Protocol (default "false")
+  - HS_MCP_ENDPOINT: MCP endpoint path (default "/mcp")
+  - HS_CSP_WEB_WORKER_SUPPORT: Enable Web Worker CSP headers (default "false")
+
+Example configuration file (options.json):
+
+	{
+	  "addr": ":3000",
+	  "tls": true,
+	  "cert_file": "server.crt",
+	  "key_file": "server.key",
+	  "run_health_server": true,
+	  "hardened_mode": true
+	}
+*/
 package hyperserve
 
 import (
@@ -9,7 +37,10 @@ import (
 )
 
 // ServerOptions contains all configuration settings for the HTTP server.
-// Options are loaded from environment variables, configuration files, and defaults in that priority order.
+// Options can be set via WithXXX functions when creating a new server,
+// environment variables, or a configuration file.
+//
+// Zero values are sensible defaults for most applications.
 type ServerOptions struct {
 	Addr                   string        `json:"addr,omitempty"`
 	EnableTLS              bool          `json:"tls,omitempty"`

@@ -1,3 +1,29 @@
+/*
+Package hyperserve provides built-in middleware for common HTTP server functionality.
+
+The middleware package includes:
+  - Request logging with structured output
+  - Panic recovery to prevent server crashes
+  - Request metrics collection
+  - Authentication (Basic, Bearer token, custom)
+  - Rate limiting per IP address
+  - Security headers (HSTS, CSP, etc.)
+  - Request/Response timing
+
+Middleware can be applied globally or to specific routes:
+
+	// Global middleware
+	srv.AddMiddleware("*", hyperserve.RequestLoggerMiddleware)
+	
+	// Route-specific middleware
+	srv.AddMiddleware("/api", hyperserve.AuthMiddleware(srv.Options))
+	
+	// Combine multiple middleware
+	srv.AddMiddlewareGroup("/admin",
+		hyperserve.AuthMiddleware(srv.Options),
+		hyperserve.RateLimitMiddleware(srv),
+	)
+*/
 package hyperserve
 
 import (
@@ -239,9 +265,17 @@ func AuthMiddleware(options *ServerOptions) MiddlewareFunc {
 	}
 }
 
-// RequestLoggerMiddleware returns a middleware function that logs detailed request information.
-// Logs IP address, method, URL, trace ID, status code, and request duration.
-// Use with caution as it may impact server performance.
+// RequestLoggerMiddleware returns a middleware function that logs structured request information.
+// It captures and logs:
+//   - Client IP address
+//   - HTTP method and URL path  
+//   - Trace ID (if present in X-Trace-ID header)
+//   - Response status code
+//   - Request duration
+//   - Response size in bytes
+//
+// This middleware is included by default in NewServer().
+// For high-traffic applications, consider the performance impact of logging.
 func RequestLoggerMiddleware(next http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// create a new logging response writer to capture status code and bytes written
