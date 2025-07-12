@@ -9,7 +9,7 @@ This example demonstrates correct usage of HyperServe features, including zero-c
 These work out of the box with `hyperserve.NewServer()`:
 
 - **Graceful Shutdown** - Automatic on Ctrl+C via `srv.Run()`
-- **Health Checks** - Available on :8081 by default
+- **Health Checks** - Available on :8081 when enabled with WithHealthServer()
 - **Request Logging** - Via DefaultMiddleware
 - **Panic Recovery** - Via DefaultMiddleware  
 - **Metrics Collection** - Via DefaultMiddleware
@@ -100,7 +100,7 @@ srv.AddMiddlewareStack("/api", hs.SecureAPI(srv))
 ```go
 // These features work automatically:
 // - Graceful shutdown (in srv.Run())
-// - Health checks (on :8081)
+// - Health checks (on :8081 when enabled with WithHealthServer())
 // - Request logging (DefaultMiddleware)
 // - Panic recovery (DefaultMiddleware)
 // - Metrics (DefaultMiddleware)
