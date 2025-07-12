@@ -230,7 +230,7 @@ func sseHandler(w http.ResponseWriter, r *http.Request) {
 func getFeatureList() []map[string]string {
 	return []map[string]string{
 		{"name": "Graceful Shutdown", "status": "automatic", "endpoint": "Built into srv.Run()"},
-		{"name": "Health Checks", "status": "automatic", "endpoint": "http://localhost:8081/healthz"},
+		{"name": "Health Checks", "status": "configured", "endpoint": "http://localhost:8081/healthz"},
 		{"name": "Request Logging", "status": "automatic", "endpoint": "Via DefaultMiddleware"},
 		{"name": "Panic Recovery", "status": "automatic", "endpoint": "Via DefaultMiddleware"},
 		{"name": "Metrics Collection", "status": "automatic", "endpoint": "Via DefaultMiddleware"},

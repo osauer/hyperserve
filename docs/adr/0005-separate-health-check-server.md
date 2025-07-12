@@ -49,7 +49,7 @@ The health server is minimal with no middleware, ensuring reliable responses.
 
 ## Implementation Details
 
-- Health server starts automatically with main server
+- Health server starts when explicitly enabled via WithHealthServer()
 - Shares the same graceful shutdown mechanism
 - Minimal HTTP server with no middleware
 - Returns appropriate HTTP status codes:
@@ -82,10 +82,10 @@ spec:
 ```
 
 ```go
-// Server automatically starts health server
+// Server with health server explicitly enabled
 srv, _ := hyperserve.NewServer(
-    hyperserve.WithPort(8080),  // Main server on 8080
-    // Health server automatically on 8081
+    hyperserve.WithPort(8080),     // Main server on 8080
+    hyperserve.WithHealthServer(), // Health server on 8081
 )
 
 // Optional: Custom health checks
