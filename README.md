@@ -30,6 +30,21 @@ func main() {
 }
 ```
 
+## Building
+
+HyperServe uses dynamic version detection at build time:
+
+```bash
+# Build with automatic version detection from git tags
+make build
+
+# Install globally with version
+make install
+
+# Manual build with specific version
+go build -ldflags "-X github.com/osauer/hyperserve.Version=v1.0.0" .
+```
+
 ## Features
 
 ### Zero Configuration Features

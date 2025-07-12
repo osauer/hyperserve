@@ -110,13 +110,13 @@ func (h *MCPHandler) RunStdioLoop() error {
 	// Note: Close() is currently a no-op but called for future compatibility
 	defer transport.Close()
 	
-	h.logger.Info("MCP stdio server started")
+	h.logger.Debug("MCP stdio server started")
 	
 	// Main message loop
 	for {
 		err := h.ProcessRequestWithTransport(transport)
 		if err == io.EOF {
-			h.logger.Info("MCP stdio server shutting down", "reason", "EOF received")
+			h.logger.Debug("MCP stdio server shutting down", "reason", "EOF received")
 			break
 		}
 		if err != nil {

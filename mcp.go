@@ -449,7 +449,7 @@ func (h *MCPHandler) handleInitialize(params interface{}) (interface{}, error) {
 
 func (h *MCPHandler) handleInitialized(params interface{}) (interface{}, error) {
 	// The initialized notification doesn't require a response
-	h.logger.Info("MCP client confirmed initialization")
+	h.logger.Debug("MCP client confirmed initialization")
 	return nil, nil
 }
 

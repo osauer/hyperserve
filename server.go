@@ -34,10 +34,11 @@ func init() {
 	logger.Debug("Server initializing...")
 }
 
+// Version is set at build time using -ldflags
+var Version = "dev"
+
 // Environment management variable names
 const (
-	// Version is the current version of hyperserve
-	Version = "v0.9.4"
 	
 	paramServerAddr         = "SERVER_ADDR"
 	paramHealthAddr         = "HEALTH_ADDR"
@@ -879,7 +880,7 @@ func WithMCPSupport(configs ...MCPTransportConfig) ServerOptionFunc {
 		if srv.Options.MCPTransport == StdioTransport {
 			transportName = "stdio"
 		}
-		logger.Info("MCP (Model Context Protocol) support enabled", "transport", transportName, "endpoint", srv.Options.MCPEndpoint)
+		logger.Debug("MCP (Model Context Protocol) support enabled", "transport", transportName, "endpoint", srv.Options.MCPEndpoint)
 		return nil
 	}
 }
@@ -889,7 +890,7 @@ func WithMCPSupport(configs ...MCPTransportConfig) ServerOptionFunc {
 func WithMCPEndpoint(endpoint string) ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.MCPEndpoint = endpoint
-		logger.Info("MCP endpoint configured", "endpoint", endpoint)
+		logger.Debug("MCP endpoint configured", "endpoint", endpoint)
 		return nil
 	}
 }
@@ -900,7 +901,7 @@ func WithMCPServerInfo(name, version string) ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.MCPServerName = name
 		srv.Options.MCPServerVersion = version
-		logger.Info("MCP server info configured", "name", name, "version", version)
+		logger.Debug("MCP server info configured", "name", name, "version", version)
 		return nil
 	}
 }
@@ -910,7 +911,7 @@ func WithMCPServerInfo(name, version string) ServerOptionFunc {
 func WithMCPFileToolRoot(rootDir string) ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.MCPFileToolRoot = rootDir
-		logger.Info("MCP file tool root configured", "root", rootDir)
+		logger.Debug("MCP file tool root configured", "root", rootDir)
 		return nil
 	}
 }
@@ -921,7 +922,7 @@ func WithMCPFileToolRoot(rootDir string) ServerOptionFunc {
 func WithMCPToolsDisabled() ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.MCPToolsEnabled = false
-		logger.Info("MCP tools disabled")
+		logger.Debug("MCP tools disabled")
 		return nil
 	}
 }
@@ -932,9 +933,9 @@ func WithMCPBuiltinTools(enabled bool) ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.MCPToolsEnabled = enabled
 		if enabled {
-			logger.Info("MCP built-in tools enabled")
+			logger.Debug("MCP built-in tools enabled")
 		} else {
-			logger.Info("MCP built-in tools disabled")
+			logger.Debug("MCP built-in tools disabled")
 		}
 		return nil
 	}
@@ -946,9 +947,9 @@ func WithMCPBuiltinResources(enabled bool) ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.MCPResourcesEnabled = enabled
 		if enabled {
-			logger.Info("MCP built-in resources enabled")
+			logger.Debug("MCP built-in resources enabled")
 		} else {
-			logger.Info("MCP built-in resources disabled")
+			logger.Debug("MCP built-in resources disabled")
 		}
 		return nil
 	}
@@ -960,7 +961,7 @@ func WithMCPBuiltinResources(enabled bool) ServerOptionFunc {
 func WithMCPResourcesDisabled() ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.MCPResourcesEnabled = false
-		logger.Info("MCP resources disabled")
+		logger.Debug("MCP resources disabled")
 		return nil
 	}
 }
@@ -1047,32 +1048,29 @@ func (srv *Server) printStartupBanner() {
 `)
 	
 	// Version information
-	fmt.Printf("\nhyperserve %s\n\n", Version)
+	fmt.Printf("\nhyperserve %s\n", Version)
 	
-	// Consolidated startup information
+	// Build consolidated startup information
 	addr := srv.Options.Addr
 	if srv.Options.EnableTLS {
 		addr = srv.Options.TLSAddr
 	}
 	
-	// Main server info
 	protocol := "http"
 	if srv.Options.EnableTLS {
 		protocol = "https"
 	}
-	logger.Info("Starting HyperServe", 
-		"addr", addr,
-		"protocol", protocol,
-		"health", srv.Options.RunHealthServer,
-		"mcp", srv.Options.MCPEnabled,
-	)
 	
-	// Feature-specific messages
+	// Print consolidated startup info
+	fmt.Printf("\nServer:    %s://%s\n", protocol, addr)
+	
 	if srv.Options.RunHealthServer {
-		logger.Info("Health endpoints enabled", "addr", srv.Options.HealthAddr)
+		fmt.Printf("Health:    http://%s\n", srv.Options.HealthAddr)
 	}
 	
 	if srv.Options.MCPEnabled {
-		logger.Info("MCP endpoint enabled", "path", srv.Options.MCPEndpoint)
+		fmt.Printf("MCP:       %s\n", srv.Options.MCPEndpoint)
 	}
+	
+	fmt.Println() // Empty line after banner
 }
