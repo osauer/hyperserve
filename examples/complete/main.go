@@ -41,9 +41,8 @@ func main() {
 		hs.WithAuthTokenValidator(validateToken),
 		
 		// Advanced features
-		hs.WithMCPSupport(),
+		hs.WithMCPSupport("complete-example", "1.0.0"),
 		hs.WithMCPEndpoint("/mcp"),
-		hs.WithMCPServerInfo("complete-example", "1.0.0"),
 		
 		// Rate limiting configuration
 		hs.WithRateLimit(100, 200),

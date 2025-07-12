@@ -13,7 +13,7 @@ func TestMCPBuiltinDefaults(t *testing.T) {
 	t.Run("BuiltinToolsDisabledByDefault", func(t *testing.T) {
 		// Create server with MCP support but no explicit tool enabling
 		srv, err := NewServer(
-			WithMCPSupport(),
+			WithMCPSupport("test-server", "1.0.0"),
 		)
 		if err != nil {
 			t.Fatalf("Failed to create server: %v", err)
@@ -53,7 +53,7 @@ func TestMCPBuiltinDefaults(t *testing.T) {
 	t.Run("BuiltinResourcesDisabledByDefault", func(t *testing.T) {
 		// Create server with MCP support but no explicit resource enabling
 		srv, err := NewServer(
-			WithMCPSupport(),
+			WithMCPSupport("test-server", "1.0.0"),
 		)
 		if err != nil {
 			t.Fatalf("Failed to create server: %v", err)
@@ -93,7 +93,7 @@ func TestMCPBuiltinDefaults(t *testing.T) {
 	t.Run("BuiltinToolsEnabledExplicitly", func(t *testing.T) {
 		// Create server with MCP support and explicitly enable tools
 		srv, err := NewServer(
-			WithMCPSupport(),
+			WithMCPSupport("test-server", "1.0.0"),
 			WithMCPBuiltinTools(true),
 		)
 		if err != nil {
@@ -153,7 +153,7 @@ func TestMCPBuiltinDefaults(t *testing.T) {
 	t.Run("BuiltinResourcesEnabledExplicitly", func(t *testing.T) {
 		// Create server with MCP support and explicitly enable resources
 		srv, err := NewServer(
-			WithMCPSupport(),
+			WithMCPSupport("test-server", "1.0.0"),
 			WithMCPBuiltinResources(true),
 		)
 		if err != nil {
@@ -214,7 +214,7 @@ func TestMCPBuiltinDefaults(t *testing.T) {
 // TestMCPGetRequest verifies that GET requests return helpful documentation
 func TestMCPGetRequest(t *testing.T) {
 	srv, err := NewServer(
-		WithMCPSupport(),
+		WithMCPSupport("test-server", "1.0.0"),
 	)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)

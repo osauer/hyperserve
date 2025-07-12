@@ -69,7 +69,7 @@ func main() {
 		// Graceful shutdown timeout is configurable via timeouts
 
 		// Feature configuration
-		hyperserve.WithMCPSupport(),                                   // Enable MCP
+		hyperserve.WithMCPSupport("best-practices", "1.0.0"),         // Enable MCP
 		hyperserve.WithMCPFileToolRoot("./safe-directory"),            // Sandboxed file access
 		hyperserve.WithTemplateDir("./templates"),                     // Template support
 	)

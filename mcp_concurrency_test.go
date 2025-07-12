@@ -35,11 +35,10 @@ func TestMCPHandler_ConcurrentRequests(t *testing.T) {
 
 	srv, err := NewServer(
 		WithAddr(":0"),
-		WithMCPSupport(),
+		WithMCPSupport("concurrency-test-server", "1.0.0"),
 		WithMCPBuiltinTools(true),      // Enable built-in tools for tests
 		WithMCPBuiltinResources(true),  // Enable built-in resources for tests
 		WithMCPFileToolRoot(tempDir),
-		WithMCPServerInfo("concurrency-test-server", "1.0.0"),
 	)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
@@ -295,7 +294,7 @@ func TestMCPHandler_HighConcurrency(t *testing.T) {
 
 	srv, err := NewServer(
 		WithAddr(":0"),
-		WithMCPSupport(),
+		WithMCPSupport("test-server", "1.0.0"),
 		WithMCPBuiltinTools(true),      // Enable built-in tools for tests
 		WithMCPBuiltinResources(true),  // Enable built-in resources for tests
 	)
@@ -401,10 +400,9 @@ func TestMCPHandler_HighConcurrency(t *testing.T) {
 func TestMCPResources_ThreadSafety(t *testing.T) {
 	srv, err := NewServer(
 		WithAddr(":0"),
-		WithMCPSupport(),
+		WithMCPSupport("thread-safety-test", "1.0.0"),
 		WithMCPBuiltinTools(true),      // Enable built-in tools for tests
 		WithMCPBuiltinResources(true),  // Enable built-in resources for tests
-		WithMCPServerInfo("thread-safety-test", "1.0.0"),
 	)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
@@ -545,7 +543,7 @@ func TestMCPConcurrency_DataRace(t *testing.T) {
 
 	srv, err := NewServer(
 		WithAddr(":0"),
-		WithMCPSupport(),
+		WithMCPSupport("test-server", "1.0.0"),
 		WithMCPBuiltinTools(true),      // Enable built-in tools for tests
 		WithMCPBuiltinResources(true),  // Enable built-in resources for tests
 	)
@@ -628,7 +626,7 @@ func TestMCPConcurrency_MemoryUsage(t *testing.T) {
 
 	srv, err := NewServer(
 		WithAddr(":0"),
-		WithMCPSupport(),
+		WithMCPSupport("test-server", "1.0.0"),
 		WithMCPBuiltinTools(true),      // Enable built-in tools for tests
 		WithMCPBuiltinResources(true),  // Enable built-in resources for tests
 	)
