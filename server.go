@@ -262,35 +262,42 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 		}
 	}
 	
-	// Auto-configure MCP if enabled via environment/flags
+	// Auto-configure MCP if enabled via environment/flags but not already configured programmatically
 	if srv.Options.MCPEnabled && srv.Options.MCPServerName != "" && srv.mcpHandler == nil {
-		var mcpConfigs []MCPTransportConfig
-		
-		// Set transport
-		if srv.Options.MCPTransport == StdioTransport {
-			mcpConfigs = append(mcpConfigs, MCPOverStdio())
+		// Check if MCP was already configured programmatically (via WithMCPSupport)
+		if srv.Options.mcpTransportOpts.developerMode || srv.Options.mcpTransportOpts.observabilityMode {
+			// MCP was already configured with specific modes, skip auto-configuration
+			logger.Debug("MCP already configured programmatically, skipping auto-configuration")
+		} else if srv.Options.MCPDev || srv.Options.MCPObservability {
+			// Auto-configure from environment/flags
+			var mcpConfigs []MCPTransportConfig
+			
+			// Set transport
+			if srv.Options.MCPTransport == StdioTransport {
+				mcpConfigs = append(mcpConfigs, MCPOverStdio())
+			}
+			// HTTP is the default, no need to explicitly add
+			
+			// Add developer mode if enabled
+			if srv.Options.MCPDev {
+				mcpConfigs = append(mcpConfigs, MCPDev())
+			}
+			
+			// Add observability if enabled
+			if srv.Options.MCPObservability {
+				mcpConfigs = append(mcpConfigs, MCPObservability())
+			}
+			
+			// Apply MCP configuration
+			if err := WithMCPSupport(srv.Options.MCPServerName, srv.Options.MCPServerVersion, mcpConfigs...)(srv); err != nil {
+				return nil, fmt.Errorf("failed to auto-configure MCP: %w", err)
+			}
+			logger.Info("MCP auto-configured from environment/flags", 
+				"name", srv.Options.MCPServerName,
+				"transport", srv.Options.MCPTransport,
+				"dev", srv.Options.MCPDev,
+				"observability", srv.Options.MCPObservability)
 		}
-		// HTTP is the default, no need to explicitly add
-		
-		// Add developer mode if enabled
-		if srv.Options.MCPDev {
-			mcpConfigs = append(mcpConfigs, MCPDev())
-		}
-		
-		// Add observability if enabled
-		if srv.Options.MCPObservability {
-			mcpConfigs = append(mcpConfigs, MCPObservability())
-		}
-		
-		// Apply MCP configuration
-		if err := WithMCPSupport(srv.Options.MCPServerName, srv.Options.MCPServerVersion, mcpConfigs...)(srv); err != nil {
-			return nil, fmt.Errorf("failed to auto-configure MCP: %w", err)
-		}
-		logger.Info("MCP auto-configured from options", 
-			"name", srv.Options.MCPServerName,
-			"transport", srv.Options.MCPTransport,
-			"dev", srv.Options.MCPDev,
-			"observability", srv.Options.MCPObservability)
 	}
 
 	// Static root will be initialized lazily when HandleStatic is called

@@ -34,7 +34,8 @@
       "Bash(make:*)",
       "Bash(./hyperserve -version)",
       "Bash(./test-hf-daw --mcp-dev)",
-      "Bash(./mcp-flags --mcp-dev)"
+      "Bash(./mcp-flags --mcp-dev)",
+      "Bash(go mod:*)"
     ],
     "deny": []
   }
