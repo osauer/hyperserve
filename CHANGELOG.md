@@ -27,9 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `WithDebugMode()` and `WithLogLevel()` options
 
 ### Changed
-- **BREAKING**: Renamed `WithMCPSupport(name, version)` to require transport config
+- **BREAKING**: MCP support now requires transport configuration (HTTP or STDIO)
 - **BREAKING**: MCP built-in tools and resources now disabled by default
-- Improved README with professional tone and MCP examples
+- Restructured MCP API for better separation of concerns
+- Improved README with professional tone and Claude Desktop examples
 
 ### Security
 - MCP DevOps resources explicitly exclude sensitive data
