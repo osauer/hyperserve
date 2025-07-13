@@ -492,7 +492,10 @@ func (h *MCPHandler) handleResourcesRead(params interface{}) (interface{}, error
 		}
 		
 		// Debug logging to understand what parameters are being passed
-		h.logger.Debug("MCP resources/read parameters received", "params", string(paramBytes))
+		// Only perform expensive marshaling if debug logging is enabled
+		if h.logger.Enabled(context.Background(), slog.LevelDebug) {
+			h.logger.Debug("MCP resources/read parameters received", "params", string(paramBytes))
+		}
 		
 		if err := json.Unmarshal(paramBytes, &readParams); err != nil {
 			// Check if the client is mistakenly sending tool call parameters
@@ -502,6 +505,13 @@ func (h *MCPHandler) handleResourcesRead(params interface{}) (interface{}, error
 				}
 			}
 			return nil, fmt.Errorf("failed to unmarshal read params: %w", err)
+		}
+		
+		// Check if the client is mistakenly sending tool call parameters even if unmarshaling succeeded
+		if paramsMap, ok := params.(map[string]interface{}); ok {
+			if _, hasArguments := paramsMap["arguments"]; hasArguments {
+				return nil, fmt.Errorf("invalid parameters: resources/read expects 'uri' parameter, not 'arguments'. Use tools/call for tool execution")
+			}
 		}
 	}
 	
