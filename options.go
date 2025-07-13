@@ -61,6 +61,7 @@ type ServerOptions struct {
 	ReadTimeout            time.Duration `json:"read_timeout,omitempty"`
 	WriteTimeout           time.Duration `json:"write_timeout,omitempty"`
 	IdleTimeout            time.Duration `json:"idle_timeout,omitempty"`
+	ReadHeaderTimeout      time.Duration `json:"read_header_timeout,omitempty"`
 	StaticDir              string        `json:"static_dir,omitempty"`
 	TemplateDir            string        `json:"template_dir,omitempty"`
 	RunHealthServer        bool          `json:"run_health_server,omitempty"`

@@ -422,7 +422,11 @@ func (srv *Server) Run() error {
 		ReadTimeout:       srv.Options.ReadTimeout,
 		WriteTimeout:      srv.Options.WriteTimeout,
 		IdleTimeout:       srv.Options.IdleTimeout,
-		ReadHeaderTimeout: srv.Options.ReadTimeout, // Prevent Slowloris attacks
+		ReadHeaderTimeout: srv.Options.ReadHeaderTimeout, // Prevent Slowloris attacks
+	}
+	// If ReadHeaderTimeout is not set, default to ReadTimeout
+	if srv.httpServer.ReadHeaderTimeout == 0 && srv.httpServer.ReadTimeout > 0 {
+		srv.httpServer.ReadHeaderTimeout = srv.httpServer.ReadTimeout
 	}
 	srv.httpServer.RegisterOnShutdown(srv.logServerMetrics)
 
@@ -543,10 +547,17 @@ func (srv *Server) initHealthServer() error {
 	srv.healthServer = &http.Server{
 		Addr:              srv.Options.HealthAddr,
 		Handler:           srv.healthMux,
-		ReadHeaderTimeout: 30 * time.Second, // Prevent Slowloris attacks
+		ReadTimeout:       srv.Options.ReadTimeout,
+		WriteTimeout:      srv.Options.WriteTimeout,
+		IdleTimeout:       srv.Options.IdleTimeout,
+		ReadHeaderTimeout: srv.Options.ReadHeaderTimeout, // Prevent Slowloris attacks
 		BaseContext: func(_ net.Listener) context.Context {
 			return context.WithValue(context.Background(), "health", true)
 		},
+	}
+	// If ReadHeaderTimeout is not set, default to ReadTimeout
+	if srv.healthServer.ReadHeaderTimeout == 0 && srv.healthServer.ReadTimeout > 0 {
+		srv.healthServer.ReadHeaderTimeout = srv.healthServer.ReadTimeout
 	}
 
 	// Channel to receive errors from the health server goroutine
@@ -1026,6 +1037,39 @@ func WithLogger(l *slog.Logger) ServerOptionFunc {
 func WithTimeouts(readTimeout, writeTimeout, idleTimeout time.Duration) ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.setTimeouts(readTimeout, writeTimeout, idleTimeout)
+		return nil
+	}
+}
+
+// WithReadTimeout sets the maximum duration for reading the entire request.
+func WithReadTimeout(timeout time.Duration) ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.ReadTimeout = timeout
+		return nil
+	}
+}
+
+// WithWriteTimeout sets the maximum duration before timing out writes of the response.
+func WithWriteTimeout(timeout time.Duration) ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.WriteTimeout = timeout
+		return nil
+	}
+}
+
+// WithIdleTimeout sets the maximum time to wait for the next request when keep-alives are enabled.
+func WithIdleTimeout(timeout time.Duration) ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.IdleTimeout = timeout
+		return nil
+	}
+}
+
+// WithReadHeaderTimeout sets the amount of time allowed to read request headers.
+// This helps prevent Slowloris attacks.
+func WithReadHeaderTimeout(timeout time.Duration) ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.ReadHeaderTimeout = timeout
 		return nil
 	}
 }

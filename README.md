@@ -150,16 +150,51 @@ Now Claude can interact with your app:
 
 ### Security
 
+HyperServe is designed with security as a top priority, providing multiple layers of protection:
+
+#### Protection Against Common Attacks
+
+- **Slowloris Protection**: Automatic `ReadHeaderTimeout` prevents slow HTTP attacks
+- **Integer Overflow Protection**: Safe WebSocket frame size handling
+- **Origin Validation**: Configurable CORS and WebSocket origin checking
+- **Rate Limiting**: Built-in protection against DoS attacks
+
+#### Secure Configuration
+
 ```go
-// FIPS 140-3 compliant mode
+// FIPS 140-3 compliant mode with comprehensive security settings
 srv, _ := hyperserve.NewServer(
     hyperserve.WithFIPSMode(),
     hyperserve.WithTLS("cert.pem", "key.pem"),
+    // Timeout configurations for attack prevention
+    hyperserve.WithReadTimeout(5*time.Second),     // Prevents slow-read attacks
+    hyperserve.WithWriteTimeout(10*time.Second),   // Prevents slow-write attacks
+    hyperserve.WithIdleTimeout(120*time.Second),   // Closes idle connections
+    hyperserve.WithReadHeaderTimeout(5*time.Second), // Prevents Slowloris
 )
 
-// Automatic security headers
+// Automatic security headers for all routes
 srv.AddMiddleware("*", hyperserve.HeadersMiddleware(srv.Options))
+
+// WebSocket with secure origin validation
+upgrader := hyperserve.Upgrader{
+    CheckOrigin: hyperserve.SameOriginCheck(), // Only allow same-origin connections
+    // Or use custom validation:
+    // CheckOrigin: func(r *http.Request) bool {
+    //     origin := r.Header.Get("Origin")
+    //     return origin == "https://trusted-domain.com"
+    // },
+}
 ```
+
+#### Security Headers
+
+HyperServe automatically sets security headers when using `HeadersMiddleware`:
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: DENY`
+- `X-XSS-Protection: 1; mode=block`
+- `Strict-Transport-Security` (when TLS is enabled)
+- `Content-Security-Policy` (configurable)
 
 ### Performance
 
@@ -203,9 +238,27 @@ srv, _ := hyperserve.NewServer(
     hyperserve.WithAddr(":3000"),
     hyperserve.WithHealthServer(),         // Kubernetes health checks
     hyperserve.WithRateLimit(100, 1000),   // 100 req/s, burst 1000
+    
+    // Timeout configurations (all timeouts are optional with sensible defaults)
     hyperserve.WithTimeouts(5*time.Second, 10*time.Second, 120*time.Second),
+    // Or configure individually:
+    hyperserve.WithReadTimeout(5*time.Second),      // Max time to read request
+    hyperserve.WithWriteTimeout(10*time.Second),    // Max time to write response
+    hyperserve.WithIdleTimeout(120*time.Second),    // Max time between requests
+    hyperserve.WithReadHeaderTimeout(5*time.Second), // Max time to read headers (Slowloris protection)
 )
 ```
+
+#### Timeout Configuration Guide
+
+| Timeout | Default | Purpose | Recommendation |
+|---------|---------|---------|----------------|
+| ReadTimeout | 30s | Maximum duration for reading entire request | 5-30s depending on expected request size |
+| WriteTimeout | 30s | Maximum duration for writing response | 10-60s depending on response size |
+| IdleTimeout | 120s | Maximum time to wait for next request | 60-180s for keep-alive connections |
+| ReadHeaderTimeout | ReadTimeout | Maximum duration for reading request headers | 5-10s (prevents Slowloris attacks) |
+
+**Note**: Health check endpoints automatically use the same timeouts as the main server for consistency.
 
 ### Environment Variables
 

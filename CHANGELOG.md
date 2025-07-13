@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2025-07-13
+
+### Added
+- **Enhanced Security Features**
+  - Individual timeout configuration options: `WithReadTimeout`, `WithWriteTimeout`, `WithIdleTimeout`, `WithReadHeaderTimeout`
+  - Automatic Slowloris attack protection via `ReadHeaderTimeout` (defaults to `ReadTimeout` if not set)
+  - Comprehensive security documentation in README
+  - Timeout configuration guide with recommendations
+  - Integration tests for security features
+- **Improved Error Handling**
+  - Added `closeWithLog` helper for proper defer close error handling
+  - Updated error comparisons to use `errors.Is` and `errors.As`
+  - Added error wrapping for better context in external package errors
+- **Documentation**
+  - Added missing comments on exported types
+  - Documented SHA1 usage in WebSocket as RFC 6455 requirement
+  - Added security best practices section
+
+### Fixed
+- Integer overflow protection in WebSocket frame size handling
+- Unchecked errors in defer close statements
+- Health server now uses same timeout configuration as main server
+- ReadHeaderTimeout properly applied to both main and health servers
+
+### Security
+- Mitigated Slowloris attacks with proper timeout configuration
+- Protected against integer overflow in WebSocket frame parsing
+- Improved error handling to prevent information leakage
+
 ## [0.12.2] - 2025-07-13
 
 ### Fixed
