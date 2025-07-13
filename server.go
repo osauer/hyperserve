@@ -150,6 +150,8 @@ const (
 	paramMCPResourcesEnabled = "HS_MCP_RESOURCES_ENABLED"
 	paramMCPFileToolRoot    = "HS_MCP_FILE_TOOL_ROOT"
 	paramCSPWebWorkerSupport = "HS_CSP_WEB_WORKER_SUPPORT"
+	paramLogLevel           = "HS_LOG_LEVEL"
+	paramDebugMode          = "HS_DEBUG"
 )
 
 // rateLimit limits requests per second that can be requested from the httpServer. Requires to add [RateLimitMiddleware]
@@ -223,6 +225,30 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 		clientLimiters: make(map[string]*rateLimiterEntry),
 		cleanupDone:    make(chan bool),
 	}
+	
+	// Apply log level from configuration before anything else
+	if srv.Options.LogLevel != "" {
+		switch srv.Options.LogLevel {
+		case "DEBUG":
+			slog.SetLogLoggerLevel(slog.LevelDebug)
+		case "INFO":
+			slog.SetLogLoggerLevel(slog.LevelInfo)
+		case "WARN":
+			slog.SetLogLoggerLevel(slog.LevelWarn)
+		case "ERROR":
+			slog.SetLogLoggerLevel(slog.LevelError)
+		default:
+			logger.Warn("Unknown log level, using INFO", "level", srv.Options.LogLevel)
+			slog.SetLogLoggerLevel(slog.LevelInfo)
+		}
+	}
+
+	// Apply debug mode if enabled
+	if srv.Options.DebugMode {
+		slog.SetLogLoggerLevel(slog.LevelDebug)
+		logger.Debug("Debug mode enabled from configuration")
+	}
+	
 	srv.middleware = NewMiddlewareRegistry(DefaultMiddleware(srv))
 	logger.Debug("Default middleware registered", "middlewares", []string{"MetricsMiddleware", "RequestLoggerMiddleware", "RecoveryMiddleware"})
 
@@ -277,10 +303,20 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 		
 		// Register built-in resources if enabled
 		if srv.Options.MCPResourcesEnabled {
-			srv.mcpHandler.RegisterResource(NewConfigResource(srv.Options))
-			srv.mcpHandler.RegisterResource(NewMetricsResource(srv))
-			srv.mcpHandler.RegisterResource(NewSystemResource())
-			srv.mcpHandler.RegisterResource(NewLogResource(srv.Options.MCPLogResourceSize))
+			// Check preset mode
+			if srv.Options.mcpTransportOpts.observabilityMode {
+				// Observability mode: minimal monitoring resources only
+				srv.RegisterObservabilityMCPResources()
+			} else if srv.Options.mcpTransportOpts.developerMode {
+				// Developer mode: development tools and resources
+				srv.RegisterDeveloperMCPTools()
+			} else {
+				// Standard mode: full set of built-in resources
+				srv.mcpHandler.RegisterResource(NewConfigResource(srv.Options))
+				srv.mcpHandler.RegisterResource(NewMetricsResource(srv))
+				srv.mcpHandler.RegisterResource(NewSystemResource())
+				srv.mcpHandler.RegisterResource(NewLogResource(srv.Options.MCPLogResourceSize))
+			}
 		}
 		
 		// Register MCP endpoint
@@ -884,6 +920,18 @@ func WithLoglevel(level slog.Level) ServerOptionFunc {
 	}
 }
 
+// WithDebugMode enables debug logging and additional debug features.
+// This is equivalent to WithLoglevel(LevelDebug) plus additional debug information.
+func WithDebugMode() ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.DebugMode = true
+		srv.Options.LogLevel = "DEBUG"
+		slog.SetLogLoggerLevel(slog.LevelDebug)
+		logger.Debug("Debug mode enabled")
+		return nil
+	}
+}
+
 // WithHealthServer enables the health server on a separate port.
 // The health server provides /healthz/, /readyz/, and /livez/ endpoints for monitoring.
 func WithHealthServer() ServerOptionFunc {
@@ -1027,6 +1075,17 @@ func WithMCPSupport(name, version string, configs ...MCPTransportConfig) ServerO
 			}
 		}
 		
+		// Handle presets
+		if srv.Options.mcpTransportOpts.observabilityMode {
+			// Observability: minimal resources only for production monitoring
+			srv.Options.MCPResourcesEnabled = true
+			srv.Options.MCPToolsEnabled = false
+		} else if srv.Options.mcpTransportOpts.developerMode {
+			// Developer mode: enable everything needed for development
+			srv.Options.MCPResourcesEnabled = true
+			srv.Options.MCPToolsEnabled = true
+		}
+		
 		transportName := "HTTP"
 		if srv.Options.MCPTransport == StdioTransport {
 			transportName = "stdio"
@@ -1036,6 +1095,8 @@ func WithMCPSupport(name, version string, configs ...MCPTransportConfig) ServerO
 			"version", version,
 			"transport", transportName, 
 			"endpoint", srv.Options.MCPEndpoint,
+			"observabilityMode", srv.Options.mcpTransportOpts.observabilityMode,
+			"developerMode", srv.Options.mcpTransportOpts.developerMode,
 		)
 		return nil
 	}

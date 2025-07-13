@@ -41,8 +41,10 @@ type MCPTransportConfig func(*mcpTransportOptions)
 
 // mcpTransportOptions holds internal transport configuration
 type mcpTransportOptions struct {
-	transport MCPTransportType
-	endpoint  string
+	transport          MCPTransportType
+	endpoint           string
+	observabilityMode  bool   // If true, only register observability resources
+	developerMode      bool   // If true, enable developer tools (NEVER in production!)
 }
 
 // MCP Tool interface defines the contract for MCP tools

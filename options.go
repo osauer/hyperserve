@@ -14,6 +14,8 @@ Environment Variables:
   - HS_MCP_ENABLED: Enable Model Context Protocol (default "false")
   - HS_MCP_ENDPOINT: MCP endpoint path (default "/mcp")
   - HS_CSP_WEB_WORKER_SUPPORT: Enable Web Worker CSP headers (default "false")
+  - HS_LOG_LEVEL: Set log level (DEBUG, INFO, WARN, ERROR) (default "INFO")
+  - HS_DEBUG: Enable debug mode and debug logging (default "false")
 
 Example configuration file (options.json):
 
@@ -23,7 +25,9 @@ Example configuration file (options.json):
 	  "cert_file": "server.crt",
 	  "key_file": "server.key",
 	  "run_health_server": true,
-	  "hardened_mode": true
+	  "hardened_mode": true,
+	  "debug_mode": false,
+	  "log_level": "INFO"
 	}
 */
 package hyperserve
@@ -81,6 +85,9 @@ type ServerOptions struct {
 	mcpTransportOpts       mcpTransportOptions // Internal transport options
 	// CSP (Content Security Policy) configuration
 	CSPWebWorkerSupport    bool     `json:"csp_web_worker_support,omitempty"`
+	// Logging configuration
+	LogLevel               string   `json:"log_level,omitempty"`
+	DebugMode              bool     `json:"debug_mode,omitempty"`
 }
 
 var defaultServerOptions = &ServerOptions{
@@ -121,6 +128,9 @@ var defaultServerOptions = &ServerOptions{
 	MCPTransport:           HTTPTransport,
 	// CSP defaults
 	CSPWebWorkerSupport:    false,  // Disabled by default - users must opt-in
+	// Logging defaults
+	LogLevel:               "INFO",
+	DebugMode:              false,
 }
 
 // Log level constants for server configuration.
@@ -222,6 +232,22 @@ func applyEnvVars(config *ServerOptions) *ServerOptions {
 		} else if cspWebWorkerSupport == "false" || cspWebWorkerSupport == "0" {
 			config.CSPWebWorkerSupport = false
 			logger.Debug("CSP Web Worker support disabled from environment variable", "variable", paramCSPWebWorkerSupport)
+		}
+	}
+	
+	// Logging environment variables
+	if logLevel := os.Getenv(paramLogLevel); logLevel != "" {
+		config.LogLevel = logLevel
+		logger.Debug("Log level set from environment variable", "variable", paramLogLevel, "level", logLevel)
+	}
+	if debugMode := os.Getenv(paramDebugMode); debugMode != "" {
+		if debugMode == "true" || debugMode == "1" {
+			config.DebugMode = true
+			config.LogLevel = "DEBUG" // Debug mode implies debug log level
+			logger.Debug("Debug mode enabled from environment variable", "variable", paramDebugMode)
+		} else if debugMode == "false" || debugMode == "0" {
+			config.DebugMode = false
+			logger.Debug("Debug mode disabled from environment variable", "variable", paramDebugMode)
 		}
 	}
 	
