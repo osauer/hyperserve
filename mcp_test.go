@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -301,6 +302,162 @@ func TestMCPHandler_ResourcesRead(t *testing.T) {
 	content := contents[0].(map[string]interface{})
 	if content["uri"] != systemResource.URI() {
 		t.Errorf("Expected content URI %s, got %v", systemResource.URI(), content["uri"])
+	}
+}
+
+func TestMCPHandler_ResourcesRead_Validation(t *testing.T) {
+	handler := NewMCPHandler(MCPServerInfo{Name: "test", Version: "1.0"})
+	
+	// Register a test resource
+	systemResource := NewSystemResource()
+	handler.RegisterResource(systemResource)
+	
+	testCases := []struct {
+		name        string
+		params      map[string]interface{}
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name:        "empty params",
+			params:      map[string]interface{}{},
+			expectError: true,
+			errorMsg:    "uri parameter is required",
+		},
+		{
+			name:        "empty uri",
+			params:      map[string]interface{}{"uri": ""},
+			expectError: true,
+			errorMsg:    "uri parameter is required",
+		},
+		{
+			name:        "arguments param instead of uri",
+			params:      map[string]interface{}{"arguments": map[string]interface{}{}},
+			expectError: true,
+			errorMsg:    "expects 'uri' parameter, not 'arguments'",
+		},
+		{
+			name:        "valid uri",
+			params:      map[string]interface{}{"uri": systemResource.URI()},
+			expectError: false,
+			errorMsg:    "",
+		},
+		{
+			name:        "nonexistent resource",
+			params:      map[string]interface{}{"uri": "nonexistent://resource"},
+			expectError: true,
+			errorMsg:    "resource not found",
+		},
+	}
+	
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			request := map[string]interface{}{
+				"jsonrpc": "2.0",
+				"method":  "resources/read",
+				"params":  tc.params,
+				"id":      1,
+			}
+			
+			requestData, _ := json.Marshal(request)
+			responseData := handler.ProcessRequest(requestData)
+			
+			var response JSONRPCResponse
+			if err := json.Unmarshal(responseData, &response); err != nil {
+				t.Fatalf("Failed to unmarshal response: %v", err)
+			}
+			
+			if tc.expectError {
+				if response.Error == nil {
+					t.Errorf("Expected error but got none")
+				} else {
+					// Check both the message and data fields for the error text
+					errorText := response.Error.Message
+					if response.Error.Data != nil {
+						if dataStr, ok := response.Error.Data.(string); ok {
+							errorText = dataStr
+						}
+					}
+					if !strings.Contains(errorText, tc.errorMsg) {
+						t.Errorf("Expected error to contain '%s', got '%s'", tc.errorMsg, errorText)
+					}
+				}
+			} else {
+				if response.Error != nil {
+					t.Errorf("Expected no error, got %+v", response.Error)
+				}
+			}
+		})
+	}
+}
+
+func TestMCPHandler_ResourcesRead_InvalidParams(t *testing.T) {
+	handler := NewMCPHandler(MCPServerInfo{Name: "test", Version: "1.0"})
+	
+	testCases := []struct {
+		name        string
+		params      interface{}
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name:        "string params",
+			params:      "invalid",
+			expectError: true,
+			errorMsg:    "failed to unmarshal",
+		},
+		{
+			name:        "number params",
+			params:      123,
+			expectError: true,
+			errorMsg:    "failed to unmarshal",
+		},
+		{
+			name:        "nil params",
+			params:      nil,
+			expectError: true,
+			errorMsg:    "uri parameter is required",
+		},
+	}
+	
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			request := map[string]interface{}{
+				"jsonrpc": "2.0",
+				"method":  "resources/read",
+				"params":  tc.params,
+				"id":      1,
+			}
+			
+			requestData, _ := json.Marshal(request)
+			responseData := handler.ProcessRequest(requestData)
+			
+			var response JSONRPCResponse
+			if err := json.Unmarshal(responseData, &response); err != nil {
+				t.Fatalf("Failed to unmarshal response: %v", err)
+			}
+			
+			if tc.expectError {
+				if response.Error == nil {
+					t.Errorf("Expected error but got none")
+				} else {
+					// Check both the message and data fields for the error text
+					errorText := response.Error.Message
+					if response.Error.Data != nil {
+						if dataStr, ok := response.Error.Data.(string); ok {
+							errorText = dataStr
+						}
+					}
+					if !strings.Contains(errorText, tc.errorMsg) {
+						t.Errorf("Expected error to contain '%s', got '%s'", tc.errorMsg, errorText)
+					}
+				}
+			} else {
+				if response.Error != nil {
+					t.Errorf("Expected no error, got %+v", response.Error)
+				}
+			}
+		})
 	}
 }
 
