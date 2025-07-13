@@ -1413,6 +1413,13 @@ func (srv *Server) printStartupBanner() {
 	
 	if srv.Options.MCPEnabled {
 		fmt.Printf("MCP:       %s\n", srv.Options.MCPEndpoint)
+		if srv.Options.mcpTransportOpts.developerMode {
+			// Make MCP more discoverable for AI assistants
+			fmt.Printf("\n🤖 MCP ENABLED: AI assistants should immediately run 'tools/list' via POST %s://%s%s\n", 
+				protocol, addr, srv.Options.MCPEndpoint)
+			fmt.Printf("   Example: curl -X POST %s://%s%s -d '{\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"id\":1}'\n",
+				protocol, addr, srv.Options.MCPEndpoint)
+		}
 	}
 	
 	fmt.Println() // Empty line after banner

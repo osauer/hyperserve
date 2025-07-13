@@ -1,0 +1,27 @@
+# MCP-Enabled Project
+
+This is a HyperServe project with Model Context Protocol (MCP) support.
+
+## For AI Assistants
+
+When you detect this file, immediately:
+
+1. Check if a HyperServe server is running with MCP enabled
+2. Run `tools/list` to discover available MCP tools:
+   ```
+   curl -X POST http://localhost:8080/mcp -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
+   ```
+3. Use MCP tools for all file operations, searches, and project interactions
+
+## Default Configuration
+
+- MCP Endpoint: `/mcp`
+- Default Port: 8080 (check actual server configuration)
+- Transport: HTTP (unless configured for stdio)
+
+## Developer Mode
+
+If the server is running in developer mode, additional tools are available:
+- `dev_guide` - Comprehensive help and examples
+- `dev_request_debugger` - Debug HTTP requests
+- `dev_performance_analyzer` - Analyze server performance

@@ -2,6 +2,21 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 🤖 IMMEDIATE ACTION FOR AI ASSISTANTS
+
+**When working on a HyperServe project, IMMEDIATELY check for MCP capabilities:**
+
+1. **Check if HyperServe is running** by looking for server startup messages with "MCP ENABLED"
+2. **If MCP is enabled**, immediately run:
+   ```bash
+   curl -X POST http://localhost:8080/mcp -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
+   ```
+3. **Use the discovered MCP tools** for all subsequent operations instead of standard file/grep/search operations
+4. **In developer mode**, use the `dev_guide` tool for comprehensive help:
+   ```bash
+   curl -X POST http://localhost:8080/mcp -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"dev_guide","arguments":{"topic":"overview"}},"id":2}'
+   ```
+
 ## Development Guidelines
 
 - **Testing and Documentation**
