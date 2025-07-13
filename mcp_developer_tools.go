@@ -749,9 +749,19 @@ func (srv *Server) RegisterDeveloperMCPTools() {
 	logger.Info("Request capture middleware registered for MCP dev mode")
 
 	// Register resources
+	// Create and register log resource with log interceptor
+	logResource := NewServerLogResource(1000) // Larger buffer for development
 	srv.mcpHandler.RegisterResource(&StreamingLogResource{
-		ServerLogResource: NewServerLogResource(1000), // Larger buffer for development
+		ServerLogResource: logResource,
 	})
+	
+	// Set up log interceptor to capture logs into the resource
+	originalHandler := logger.Handler()
+	logResource.handler = originalHandler
+	multiLogger := slog.New(logResource)
+	slog.SetDefault(multiLogger)
+	logger = multiLogger
+	
 	srv.mcpHandler.RegisterResource(&RouteListResource{server: srv})
 
 	logger.Info("Developer MCP tools registered", 
