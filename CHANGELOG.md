@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.3] - 2025-07-13
+
+### Changed
+- **BREAKING**: Removed `SecureWebWithRateLimit` middleware to avoid API bloat
+  - Use `SecureWeb` with separate `RateLimitMiddleware` instead
+- Implemented "secure by default" approach for server timeouts
+  - Default timeouts increased for better compatibility (30s read/write)
+  - Automatic Slowloris protection with 10s ReadHeaderTimeout
+  - No longer requires explicit configuration for basic security
+
+### Security
+- Server now starts with secure timeout defaults out of the box
+- Slowloris attacks are mitigated by default with ReadHeaderTimeout
+
 ## [0.13.2] - 2025-07-13
 
 ### Fixed
@@ -161,6 +175,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Protection against frame injection attacks
 - Secure defaults for origin checking
 
+[0.13.3]: https://github.com/osauer/hyperserve/compare/v0.13.2...v0.13.3
 [0.13.2]: https://github.com/osauer/hyperserve/compare/v0.13.1...v0.13.2
 [0.13.1]: https://github.com/osauer/hyperserve/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/osauer/hyperserve/compare/v0.12.2...v0.13.0
