@@ -32,7 +32,9 @@
       "Bash(gh release create:*)",
       "Bash(gh release view:*)",
       "Bash(make:*)",
-      "Bash(./hyperserve -version)"
+      "Bash(./hyperserve -version)",
+      "Bash(./test-hf-daw --mcp-dev)",
+      "Bash(./mcp-flags --mcp-dev)"
     ],
     "deny": []
   }

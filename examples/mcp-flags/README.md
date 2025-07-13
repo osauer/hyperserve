@@ -2,6 +2,8 @@
 
 This example demonstrates different ways to configure MCP support in HyperServe without hardcoding development settings in your source code.
 
+**Important**: HyperServe does not parse command-line flags. Your application must handle flag parsing and use the parsed values to configure HyperServe.
+
 ## Running the Examples
 
 ### Basic Usage (No MCP)
