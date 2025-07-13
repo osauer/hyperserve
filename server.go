@@ -192,24 +192,25 @@ type rateLimiterEntry struct {
 type Server struct {
 	mux               *http.ServeMux
 	healthMux         *http.ServeMux
-	httpServer        *http.Server
-	healthServer      *http.Server
-	middleware        *MiddlewareRegistry
-	templates         *template.Template
-	templatesMu       sync.Mutex
-	Options           *ServerOptions
-	isReady           atomic.Bool
-	isRunning         atomic.Bool
-	totalRequests     atomic.Uint64
-	totalResponseTime atomic.Int64
-	serverStart       time.Time
-	clientLimiters    map[string]*rateLimiterEntry
-	limitersMu        sync.RWMutex
-	cleanupTicker     *time.Ticker
-	cleanupDone       chan bool
-	staticRoot        *os.Root
-	templateRoot      *os.Root
-	mcpHandler        *MCPHandler
+	httpServer            *http.Server
+	healthServer          *http.Server
+	middleware            *MiddlewareRegistry
+	templates             *template.Template
+	templatesMu           sync.Mutex
+	Options               *ServerOptions
+	isReady               atomic.Bool
+	isRunning             atomic.Bool
+	totalRequests         atomic.Uint64
+	totalResponseTime     atomic.Int64
+	websocketConnections  atomic.Uint64
+	serverStart           time.Time
+	clientLimiters        map[string]*rateLimiterEntry
+	limitersMu            sync.RWMutex
+	cleanupTicker         *time.Ticker
+	cleanupDone           chan bool
+	staticRoot            *os.Root
+	templateRoot          *os.Root
+	mcpHandler            *MCPHandler
 }
 
 // NewServer creates a new instance of the Server with the given options.
@@ -472,8 +473,11 @@ func (srv *Server) logServerMetrics() {
 		tp = srv.totalRequests.Load() / uint64(resp)
 	}
 	upTime := time.Since(srv.serverStart)
-	logger.Info("Server metrics:", "up-time", upTime, "µs-in-handlers", resp, "total-req",
-		srv.totalRequests.Load(),
+	logger.Info("Server metrics:", 
+		"up-time", upTime, 
+		"µs-in-handlers", resp, 
+		"total-req", srv.totalRequests.Load(),
+		"websocket-connections", srv.websocketConnections.Load(),
 		"avg-handles-per-µs", tp)
 }
 
@@ -659,6 +663,24 @@ func (srv *Server) shutdown(ctx context.Context) error {
 	}
 
 	return shutdownErr
+}
+
+// WebSocketUpgrader returns a WebSocket upgrader that tracks connections in server telemetry.
+// Use this instead of creating a standalone Upgrader to ensure WebSocket connections are counted
+// in the server's request metrics.
+func (srv *Server) WebSocketUpgrader() *Upgrader {
+	return &Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			// Default to same-origin policy
+			return defaultCheckOrigin(r)
+		},
+		BeforeUpgrade: func(w http.ResponseWriter, r *http.Request) error {
+			// Track WebSocket upgrade as a request
+			srv.totalRequests.Add(1)
+			srv.websocketConnections.Add(1)
+			return nil
+		},
+	}
 }
 
 // Stop gracefully stops the server with a default timeout of 10 seconds

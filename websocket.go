@@ -153,6 +153,7 @@ func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeade
 	// Create WebSocket connection
 	wsConn := ws.NewConn(netConn, buf, true, maxMessageSize)
 	
+	
 	return &Conn{
 		conn: wsConn,
 	}, nil
@@ -284,3 +285,4 @@ func IsCloseError(err error, codes ...int) bool {
 	}
 	return false
 }
+

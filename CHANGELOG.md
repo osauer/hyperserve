@@ -11,9 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Enhanced Security Features**
   - Individual timeout configuration options: `WithReadTimeout`, `WithWriteTimeout`, `WithIdleTimeout`, `WithReadHeaderTimeout`
   - Automatic Slowloris attack protection via `ReadHeaderTimeout` (defaults to `ReadTimeout` if not set)
+  - New `SecureWebWithRateLimit` middleware stack that combines security headers with optional rate limiting
   - Comprehensive security documentation in README
   - Timeout configuration guide with recommendations
   - Integration tests for security features
+- **WebSocket Telemetry**
+  - WebSocket connections are now tracked in server telemetry
+  - New `WebSocketUpgrader()` method on Server that automatically tracks WebSocket metrics
+  - WebSocket connection count displayed in server shutdown metrics
+  - Helper functions for WebSocket origin validation (`defaultCheckOrigin`, `checkOriginWithAllowedList`)
 - **Improved Error Handling**
   - Added `closeWithLog` helper for proper defer close error handling
   - Updated error comparisons to use `errors.Is` and `errors.As`
@@ -22,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added missing comments on exported types
   - Documented SHA1 usage in WebSocket as RFC 6455 requirement
   - Added security best practices section
+  - Enhanced middleware documentation with security examples
 
 ### Fixed
 - Integer overflow protection in WebSocket frame size handling
@@ -33,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Mitigated Slowloris attacks with proper timeout configuration
 - Protected against integer overflow in WebSocket frame parsing
 - Improved error handling to prevent information leakage
+- Enhanced WebSocket origin validation with secure defaults
 
 ## [0.12.2] - 2025-07-13
 
