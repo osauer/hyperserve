@@ -554,15 +554,31 @@ func (h *MCPHandler) handleResourcesRead(params interface{}) (interface{}, error
 		return nil, fmt.Errorf("failed to read resource: %w", err)
 	}
 	
-	// Cache the result (with 5 minute TTL for now)
-	h.cache.set(cacheKey, content, 5*time.Minute)
+	// Convert content to string if it's not already
+	var textContent string
+	switch v := content.(type) {
+	case string:
+		textContent = v
+	case []byte:
+		textContent = string(v)
+	default:
+		// For any other type (maps, structs, etc.), marshal to JSON
+		jsonBytes, err := json.Marshal(v)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal resource content to JSON: %w", err)
+		}
+		textContent = string(jsonBytes)
+	}
+	
+	// Cache the string result (with 5 minute TTL for now)
+	h.cache.set(cacheKey, textContent, 5*time.Minute)
 	
 	return map[string]interface{}{
 		"contents": []map[string]interface{}{
 			{
 				"uri":      resource.URI(),
 				"mimeType": resource.MimeType(),
-				"text":     content,
+				"text":     textContent,
 			},
 		},
 	}, nil

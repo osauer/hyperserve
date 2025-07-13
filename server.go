@@ -346,9 +346,8 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 				srv.mcpHandler.RegisterTool(listDirTool)
 			}
 			
-			// HTTP and calculator tools
+			// HTTP request tool
 			srv.mcpHandler.RegisterTool(NewHTTPRequestTool())
-			srv.mcpHandler.RegisterTool(NewCalculatorTool())
 		}
 		
 		// Register built-in resources if enabled
