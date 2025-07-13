@@ -532,13 +532,27 @@ func (h *MCPHandler) handleResourcesRead(params interface{}) (interface{}, error
 		cacheHit = true
 		h.metrics.recordResourceRead(readParams.URI, time.Since(start), nil, true)
 		
+		// Serialize cached content to JSON string if it's not already a string
+		var textContent interface{}
+		if str, ok := cachedContent.(string); ok {
+			// Already a string, use as-is
+			textContent = str
+		} else {
+			// Non-string content, serialize to JSON
+			jsonBytes, err := json.Marshal(cachedContent)
+			if err != nil {
+				return nil, fmt.Errorf("failed to serialize cached resource content to JSON: %w", err)
+			}
+			textContent = string(jsonBytes)
+		}
+		
 		// Return cached content
 		return map[string]interface{}{
 			"contents": []map[string]interface{}{
 				{
 					"uri":      resource.URI(),
 					"mimeType": resource.MimeType(),
-					"text":     cachedContent,
+					"text":     textContent,
 				},
 			},
 		}, nil
@@ -557,12 +571,26 @@ func (h *MCPHandler) handleResourcesRead(params interface{}) (interface{}, error
 	// Cache the result (with 5 minute TTL for now)
 	h.cache.set(cacheKey, content, 5*time.Minute)
 	
+	// Serialize content to JSON string if it's not already a string
+	var textContent interface{}
+	if str, ok := content.(string); ok {
+		// Already a string, use as-is
+		textContent = str
+	} else {
+		// Non-string content, serialize to JSON
+		jsonBytes, err := json.Marshal(content)
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize resource content to JSON: %w", err)
+		}
+		textContent = string(jsonBytes)
+	}
+	
 	return map[string]interface{}{
 		"contents": []map[string]interface{}{
 			{
 				"uri":      resource.URI(),
 				"mimeType": resource.MimeType(),
-				"text":     content,
+				"text":     textContent,
 			},
 		},
 	}, nil

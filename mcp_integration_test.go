@@ -163,8 +163,13 @@ func TestMCPOptimizationsIntegration(t *testing.T) {
 		contents1 := response1["result"].(map[string]interface{})["contents"].([]interface{})[0].(map[string]interface{})
 		contents2 := response2["result"].(map[string]interface{})["contents"].([]interface{})[0].(map[string]interface{})
 
-		text1 := contents1["text"].(map[string]interface{})["count"].(float64)
-		text2 := contents2["text"].(map[string]interface{})["count"].(float64)
+		// Parse the JSON string in the text field
+		var textData1, textData2 map[string]interface{}
+		json.Unmarshal([]byte(contents1["text"].(string)), &textData1)
+		json.Unmarshal([]byte(contents2["text"].(string)), &textData2)
+		
+		text1 := textData1["count"].(float64)
+		text2 := textData2["count"].(float64)
 
 		if text1 != 1 || text2 != 1 {
 			t.Errorf("Expected cached value (count=1), got %v and %v", text1, text2)
