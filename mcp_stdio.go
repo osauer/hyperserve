@@ -3,6 +3,7 @@ package hyperserve
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -115,7 +116,7 @@ func (h *MCPHandler) RunStdioLoop() error {
 	// Main message loop
 	for {
 		err := h.ProcessRequestWithTransport(transport)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			h.logger.Debug("MCP stdio server shutting down", "reason", "EOF received")
 			break
 		}

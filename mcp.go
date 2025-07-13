@@ -47,7 +47,7 @@ type mcpTransportOptions struct {
 	developerMode      bool   // If true, enable developer tools (NEVER in production!)
 }
 
-// MCP Tool interface defines the contract for MCP tools
+// MCPTool defines the interface for Model Context Protocol tools.
 type MCPTool interface {
 	Name() string
 	Description() string
@@ -55,7 +55,7 @@ type MCPTool interface {
 	Execute(params map[string]interface{}) (interface{}, error)
 }
 
-// MCP Resource interface defines the contract for MCP resources
+// MCPResource defines the interface for Model Context Protocol resources.
 type MCPResource interface {
 	URI() string
 	Name() string
@@ -81,16 +81,24 @@ type MCPCapabilities struct {
 	Sampling       *SamplingCapability    `json:"sampling,omitempty"`
 }
 
-// Individual capability structs
+// LoggingCapability represents the server's logging capability.
 type LoggingCapability struct{}
+
+// PromptsCapability represents the server's prompt handling capability.
 type PromptsCapability struct{}
+
+// ResourcesCapability represents the server's resource management capabilities.
 type ResourcesCapability struct {
 	Subscribe   bool `json:"subscribe,omitempty"`
 	ListChanged bool `json:"listChanged,omitempty"`
 }
+
+// ToolsCapability represents the server's tool execution capabilities.
 type ToolsCapability struct {
 	ListChanged bool `json:"listChanged,omitempty"`
 }
+
+// SamplingCapability represents the server's sampling capability.
 type SamplingCapability struct{}
 
 // MCPServerInfo represents MCP server information

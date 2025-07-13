@@ -120,9 +120,9 @@ func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeade
 	if err != nil {
 		if u.Error != nil {
 			status := http.StatusBadRequest
-			if err == ws.ErrBadHandshake {
+			if errors.Is(err, ws.ErrBadHandshake) {
 				status = http.StatusForbidden
-			} else if err == ws.ErrUnsupportedVersion {
+			} else if errors.Is(err, ws.ErrUnsupportedVersion) {
 				status = http.StatusBadRequest
 				w.Header().Set("Sec-WebSocket-Version", "13")
 			}
@@ -259,7 +259,8 @@ func IsUnexpectedCloseError(err error, expectedCodes ...int) bool {
 		return false
 	}
 	
-	if closeErr, ok := err.(*ws.CloseError); ok {
+	var closeErr *ws.CloseError
+	if errors.As(err, &closeErr) {
 		for _, code := range expectedCodes {
 			if closeErr.Code == code {
 				return false
@@ -273,7 +274,8 @@ func IsUnexpectedCloseError(err error, expectedCodes ...int) bool {
 
 // IsCloseError returns true if the error is a close error with one of the specified codes
 func IsCloseError(err error, codes ...int) bool {
-	if closeErr, ok := err.(*ws.CloseError); ok {
+	var closeErr *ws.CloseError
+	if errors.As(err, &closeErr) {
 		for _, code := range codes {
 			if closeErr.Code == code {
 				return true

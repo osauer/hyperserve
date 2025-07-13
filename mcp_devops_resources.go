@@ -12,6 +12,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"runtime"
 	"sync"
 	"time"
@@ -29,22 +30,27 @@ func NewServerConfigResource(srv *Server) *ServerConfigResource {
 	return &ServerConfigResource{server: srv}
 }
 
+// URI returns the resource URI.
 func (r *ServerConfigResource) URI() string {
 	return "config://server/current"
 }
 
+// Name returns the resource name.
 func (r *ServerConfigResource) Name() string {
 	return "Server Configuration"
 }
 
+// Description returns the resource description.
 func (r *ServerConfigResource) Description() string {
 	return "Current server configuration and runtime settings"
 }
 
+// MimeType returns the resource MIME type.
 func (r *ServerConfigResource) MimeType() string {
 	return "application/json"
 }
 
+// Read returns the current server configuration.
 func (r *ServerConfigResource) Read() (interface{}, error) {
 	if r.server == nil {
 		return nil, fmt.Errorf("server not initialized")
@@ -86,6 +92,7 @@ func (r *ServerConfigResource) Read() (interface{}, error) {
 	return config, nil
 }
 
+// List returns the available resource URIs.
 func (r *ServerConfigResource) List() ([]string, error) {
 	return []string{r.URI()}, nil
 }
@@ -100,22 +107,27 @@ func NewServerHealthResource(srv *Server) *ServerHealthResource {
 	return &ServerHealthResource{server: srv}
 }
 
+// URI returns the resource URI.
 func (r *ServerHealthResource) URI() string {
 	return "health://server/status"
 }
 
+// Name returns the resource name.
 func (r *ServerHealthResource) Name() string {
 	return "Server Health Status"
 }
 
+// Description returns the resource description.
 func (r *ServerHealthResource) Description() string {
 	return "Current server health, readiness, and liveness status"
 }
 
+// MimeType returns the resource MIME type.
 func (r *ServerHealthResource) MimeType() string {
 	return "application/json"
 }
 
+// Read returns the current server health status.
 func (r *ServerHealthResource) Read() (interface{}, error) {
 	if r.server == nil {
 		return nil, fmt.Errorf("server not initialized")
@@ -146,6 +158,7 @@ func (r *ServerHealthResource) Read() (interface{}, error) {
 	return health, nil
 }
 
+// List returns the available resource URIs.
 func (r *ServerHealthResource) List() ([]string, error) {
 	return []string{r.URI()}, nil
 }
@@ -176,22 +189,27 @@ func NewServerLogResource(maxSize int) *ServerLogResource {
 	}
 }
 
+// URI returns the resource URI.
 func (r *ServerLogResource) URI() string {
 	return "logs://server/recent"
 }
 
+// Name returns the resource name.
 func (r *ServerLogResource) Name() string {
 	return "Server Logs"
 }
 
+// Description returns the resource description.
 func (r *ServerLogResource) Description() string {
 	return fmt.Sprintf("Recent server logs (last %d entries)", r.maxSize)
 }
 
+// MimeType returns the resource MIME type.
 func (r *ServerLogResource) MimeType() string {
 	return "application/json"
 }
 
+// Read returns the recent server logs.
 func (r *ServerLogResource) Read() (interface{}, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -208,6 +226,7 @@ func (r *ServerLogResource) Read() (interface{}, error) {
 	}, nil
 }
 
+// List returns the available resource URIs.
 func (r *ServerLogResource) List() ([]string, error) {
 	return []string{r.URI()}, nil
 }
@@ -265,7 +284,11 @@ func calculateAvgResponseTime(srv *Server) int64 {
 	if requests == 0 {
 		return 0
 	}
-	return srv.totalResponseTime.Load() / int64(requests)
+	// Safe conversion - requests is uint64, check for overflow
+	if requests > math.MaxInt64 {
+		return 0 // Return 0 for overflow case rather than panic
+	}
+	return srv.totalResponseTime.Load() / int64(requests) //nolint:gosec // checked above
 }
 
 // RegisterObservabilityMCPResources registers minimal observability resources for production monitoring
