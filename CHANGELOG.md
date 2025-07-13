@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.2] - 2025-07-13
+
+### Fixed
+- **MCP Request Debugger** - Fixed request capture middleware that was not intercepting HTTP requests
+  - Added RequestCaptureMiddleware to actually intercept and store requests
+  - Added CaptureRequest method with atomic ID generation
+  - Added captureResponseWriter to capture response headers, status, and body
+  - Automatic middleware registration in MCP dev mode
+  - Memory management with 100 request limit and 64KB response body limit
+  - Thread-safe operation using sync.Map
+
 ## [0.13.1] - 2025-07-13
 
 ### Added
@@ -150,6 +161,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Protection against frame injection attacks
 - Secure defaults for origin checking
 
+[0.13.2]: https://github.com/osauer/hyperserve/compare/v0.13.1...v0.13.2
+[0.13.1]: https://github.com/osauer/hyperserve/compare/v0.13.0...v0.13.1
+[0.13.0]: https://github.com/osauer/hyperserve/compare/v0.12.2...v0.13.0
+[0.12.2]: https://github.com/osauer/hyperserve/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/osauer/hyperserve/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/osauer/hyperserve/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/osauer/hyperserve/compare/v0.10.0...v0.11.0
