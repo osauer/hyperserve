@@ -10,6 +10,7 @@ package hyperserve
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
@@ -218,12 +219,21 @@ func (r *ServerLogResource) Read() (interface{}, error) {
 	logsCopy := make([]logEntry, len(r.logs))
 	copy(logsCopy, r.logs)
 
-	return map[string]interface{}{
+	// For MCP compatibility, serialize the log data as JSON string
+	logData := map[string]interface{}{
 		"logs":       logsCopy,
 		"count":      len(logsCopy),
 		"max_size":   r.maxSize,
 		"truncated":  len(r.logs) >= r.maxSize,
-	}, nil
+	}
+	
+	// Convert to JSON string for MCP text field
+	jsonBytes, err := json.Marshal(logData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal log data: %w", err)
+	}
+	
+	return string(jsonBytes), nil
 }
 
 // List returns the available resource URIs.
