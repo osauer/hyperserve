@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.2] - 2025-07-13
+
+### Fixed
+- MCP tool response formatting now properly handles different return types (strings, maps, arrays)
+- Fixed Zod validation errors in Claude by correctly formatting tool responses with content arrays
+- Tool responses returning maps/objects are now JSON-serialized to text content
+
+### Added
+- Comprehensive test coverage for MCP tool response formatting
+- New `dev_guide` tool for better MCP developer experience
+  - Interactive help system showing available tools and resources
+  - Usage examples and common workflows
+  - Topic-based documentation (overview, tools, resources, examples, workflows)
+
+### Improved
+- Enhanced tool descriptions with detailed parameter explanations
+- Better discovery of MCP capabilities for AI assistants
+- More helpful error messages and guidance in developer tools
+
 ## [0.12.1] - 2025-07-13
 
 ### Fixed

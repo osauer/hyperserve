@@ -53,7 +53,7 @@ func (t *ServerControlTool) Name() string {
 }
 
 func (t *ServerControlTool) Description() string {
-	return "Control server lifecycle: restart, reload, change log levels, get status"
+	return "Control HyperServe server lifecycle and configuration. Actions: get_status (check server health), set_log_level (DEBUG/INFO/WARN/ERROR), reload (refresh config), restart (graceful restart)"
 }
 
 func (t *ServerControlTool) Schema() map[string]interface{} {
@@ -63,12 +63,12 @@ func (t *ServerControlTool) Schema() map[string]interface{} {
 			"action": map[string]interface{}{
 				"type": "string",
 				"enum": []string{"restart", "reload", "set_log_level", "get_status"},
-				"description": "Action to perform",
+				"description": "Action to perform: get_status (check server health), set_log_level (change logging verbosity), reload (refresh configuration without restart), restart (graceful server restart)",
 			},
 			"log_level": map[string]interface{}{
 				"type": "string",
 				"enum": []string{"DEBUG", "INFO", "WARN", "ERROR"},
-				"description": "New log level (for set_log_level action)",
+				"description": "New log level for set_log_level action. DEBUG shows all logs, INFO shows informational and above, WARN shows warnings and errors, ERROR shows only errors",
 			},
 		},
 		"required": []string{"action"},
@@ -155,7 +155,7 @@ func (t *RouteInspectorTool) Name() string {
 }
 
 func (t *RouteInspectorTool) Description() string {
-	return "Inspect registered routes and their middleware"
+	return "List all registered HTTP routes in HyperServe with their patterns and middleware. Use pattern parameter to filter routes (e.g., '/api' shows only API routes)"
 }
 
 func (t *RouteInspectorTool) Schema() map[string]interface{} {
@@ -164,11 +164,11 @@ func (t *RouteInspectorTool) Schema() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"pattern": map[string]interface{}{
 				"type": "string",
-				"description": "Optional pattern to filter routes",
+				"description": "Optional pattern to filter routes (e.g., '/api' to show only API routes, '/health' for health check endpoints)",
 			},
 			"include_middleware": map[string]interface{}{
 				"type": "boolean",
-				"description": "Include middleware information",
+				"description": "Include middleware chain information for each route (default: true). Shows security headers, rate limiting, auth middleware, etc.",
 				"default": true,
 			},
 		},
@@ -245,7 +245,7 @@ func (t *RequestDebuggerTool) Name() string {
 }
 
 func (t *RequestDebuggerTool) Description() string {
-	return "Capture, inspect, and replay HTTP requests for debugging"
+	return "Debug HTTP requests in HyperServe. Actions: list (show captured requests), get (inspect request details), replay (resend with modifications), clear (remove all captures). Captures last 100 requests automatically."
 }
 
 func (t *RequestDebuggerTool) Schema() map[string]interface{} {
@@ -255,17 +255,24 @@ func (t *RequestDebuggerTool) Schema() map[string]interface{} {
 			"action": map[string]interface{}{
 				"type": "string",
 				"enum": []string{"list", "get", "replay", "clear"},
+				"description": "Operation to perform: list (show all captured requests), get (view request details by ID), replay (resend a request), clear (delete all captures)",
 			},
 			"request_id": map[string]interface{}{
 				"type": "string",
-				"description": "Request ID for get/replay actions",
+				"description": "Request ID for get/replay actions. Get the ID from 'list' action first.",
 			},
 			"modifications": map[string]interface{}{
 				"type": "object",
-				"description": "Modifications to apply when replaying",
+				"description": "Optional modifications to apply when replaying a request (for replay action only)",
 				"properties": map[string]interface{}{
-					"headers": map[string]interface{}{"type": "object"},
-					"body":    map[string]interface{}{"type": "string"},
+					"headers": map[string]interface{}{
+						"type": "object",
+						"description": "Headers to add/override as key-value pairs",
+					},
+					"body": map[string]interface{}{
+						"type": "string",
+						"description": "New request body to use instead of original",
+					},
 				},
 			},
 		},
@@ -379,6 +386,214 @@ func (r *RouteListResource) List() ([]string, error) {
 	return []string{r.URI()}, nil
 }
 
+// DevGuideTool provides helpful information about available MCP tools
+type DevGuideTool struct {
+	server *Server
+}
+
+func (t *DevGuideTool) Name() string {
+	return "dev_guide"
+}
+
+func (t *DevGuideTool) Description() string {
+	return "Get help and examples for using HyperServe MCP developer tools. Shows available tools, resources, and common workflows."
+}
+
+func (t *DevGuideTool) Schema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"topic": map[string]interface{}{
+				"type": "string",
+				"enum": []string{"overview", "tools", "resources", "examples", "workflows"},
+				"description": "Help topic: overview (all capabilities), tools (available tools), resources (data sources), examples (usage examples), workflows (common tasks)",
+			},
+		},
+	}
+}
+
+func (t *DevGuideTool) Execute(params map[string]interface{}) (interface{}, error) {
+	topic, _ := params["topic"].(string)
+	if topic == "" {
+		topic = "overview"
+	}
+
+	switch topic {
+	case "overview":
+		return map[string]interface{}{
+			"description": "HyperServe MCP Developer Tools",
+			"tools": []map[string]interface{}{
+				{
+					"name": "server_control",
+					"purpose": "Manage server lifecycle and configuration",
+					"actions": []string{"get_status", "set_log_level", "reload", "restart"},
+				},
+				{
+					"name": "route_inspector", 
+					"purpose": "View all registered HTTP routes",
+					"features": []string{"filter by pattern", "show middleware chains"},
+				},
+				{
+					"name": "request_debugger",
+					"purpose": "Capture and debug HTTP requests",
+					"actions": []string{"list", "get", "replay", "clear"},
+				},
+				{
+					"name": "dev_guide",
+					"purpose": "This help tool",
+					"topics": []string{"overview", "tools", "resources", "examples", "workflows"},
+				},
+			},
+			"resources": []map[string]interface{}{
+				{
+					"uri": "logs://server/stream",
+					"purpose": "Real-time server logs",
+				},
+				{
+					"uri": "routes://server/all", 
+					"purpose": "Detailed route information",
+				},
+			},
+			"tip": "Use 'dev_guide' with topic='examples' to see usage examples",
+		}, nil
+
+	case "tools":
+		return map[string]interface{}{
+			"available_tools": []map[string]interface{}{
+				{
+					"tool": "server_control",
+					"actions": map[string]string{
+						"get_status": "Check if server is running, uptime, current log level",
+						"set_log_level": "Change logging verbosity (DEBUG, INFO, WARN, ERROR)", 
+						"reload": "Reload configuration without restart",
+						"restart": "Gracefully restart the server",
+					},
+					"example": map[string]interface{}{
+						"name": "server_control",
+						"arguments": map[string]string{
+							"action": "set_log_level",
+							"log_level": "DEBUG",
+						},
+					},
+				},
+				{
+					"tool": "route_inspector",
+					"parameters": map[string]string{
+						"pattern": "Filter routes by pattern (optional)",
+						"include_middleware": "Show middleware info (default: true)",
+					},
+					"example": map[string]interface{}{
+						"name": "route_inspector",
+						"arguments": map[string]interface{}{
+							"pattern": "/api",
+						},
+					},
+				},
+				{
+					"tool": "request_debugger",
+					"actions": map[string]string{
+						"list": "Show all captured requests",
+						"get": "View full details of a specific request",
+						"replay": "Resend a request with modifications", 
+						"clear": "Delete all captured requests",
+					},
+					"workflow": []string{
+						"1. Use action='list' to see captured requests",
+						"2. Note the request_id you want to inspect",
+						"3. Use action='get' with request_id to see details",
+						"4. Use action='replay' to resend with modifications",
+					},
+				},
+			},
+		}, nil
+
+	case "resources":
+		return map[string]interface{}{
+			"available_resources": []map[string]interface{}{
+				{
+					"uri": "logs://server/stream",
+					"description": "Real-time server log stream",
+					"contents": "Recent log entries with timestamp, level, message",
+					"use_case": "Monitor server activity during development",
+				},
+				{
+					"uri": "routes://server/all",
+					"description": "Complete list of registered routes",
+					"contents": "Route patterns, HTTP methods, middleware chains",
+					"use_case": "Understand request routing and middleware pipeline",
+				},
+			},
+		}, nil
+
+	case "examples":
+		return map[string]interface{}{
+			"common_examples": []map[string]interface{}{
+				{
+					"task": "Enable debug logging",
+					"tool": "server_control",
+					"arguments": map[string]interface{}{
+						"action": "set_log_level",
+						"log_level": "DEBUG",
+					},
+				},
+				{
+					"task": "Find all API routes",
+					"tool": "route_inspector",
+					"arguments": map[string]interface{}{
+						"pattern": "/api",
+					},
+				},
+				{
+					"task": "Debug a failing request",
+					"steps": []string{
+						"1. Set log level to DEBUG",
+						"2. Make the failing request",
+						"3. Use request_debugger with action='list'",
+						"4. Get the request_id and use action='get' to inspect",
+						"5. Check logs://server/stream for error details",
+					},
+				},
+			},
+		}, nil
+
+	case "workflows":
+		return map[string]interface{}{
+			"common_workflows": []map[string]interface{}{
+				{
+					"workflow": "Debug 404 errors",
+					"steps": []string{
+						"1. Use route_inspector to list all routes",
+						"2. Check if your path matches any pattern",
+						"3. Enable DEBUG logging to see route matching",
+						"4. Use request_debugger to capture the 404 request",
+					},
+				},
+				{
+					"workflow": "Performance debugging", 
+					"steps": []string{
+						"1. Enable DEBUG logging",
+						"2. Monitor logs://server/stream",
+						"3. Use request_debugger to capture slow requests",
+						"4. Check middleware execution in route_inspector",
+					},
+				},
+				{
+					"workflow": "Test configuration changes",
+					"steps": []string{
+						"1. Make configuration changes",
+						"2. Use server_control with action='reload'",
+						"3. Verify changes with action='get_status'",
+						"4. Test affected routes",
+					},
+				},
+			},
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unknown topic: %s. Valid topics: overview, tools, resources, examples, workflows", topic)
+	}
+}
+
 // RegisterDeveloperMCPTools registers all developer tools
 func (srv *Server) RegisterDeveloperMCPTools() {
 	if srv.mcpHandler == nil {
@@ -390,7 +605,7 @@ func (srv *Server) RegisterDeveloperMCPTools() {
 	logger.Warn("⚠️  MCP DEVELOPER MODE ENABLED ⚠️",
 		"warning", "This mode allows server restart and configuration changes",
 		"security", "Only use in development environments",
-		"tools", []string{"server_control", "route_inspector", "request_debugger"},
+		"tools", []string{"server_control", "route_inspector", "request_debugger", "dev_guide"},
 	)
 
 	// Register tools
@@ -399,6 +614,7 @@ func (srv *Server) RegisterDeveloperMCPTools() {
 	})
 	srv.mcpHandler.RegisterTool(&RouteInspectorTool{server: srv})
 	srv.mcpHandler.RegisterTool(&RequestDebuggerTool{server: srv})
+	srv.mcpHandler.RegisterTool(&DevGuideTool{server: srv})
 
 	// Register resources
 	srv.mcpHandler.RegisterResource(&StreamingLogResource{
@@ -407,7 +623,7 @@ func (srv *Server) RegisterDeveloperMCPTools() {
 	srv.mcpHandler.RegisterResource(&RouteListResource{server: srv})
 
 	logger.Info("Developer MCP tools registered", 
-		"tools", []string{"server_control", "route_inspector", "request_debugger"},
+		"tools", []string{"server_control", "route_inspector", "request_debugger", "dev_guide"},
 		"resources", []string{"logs://server/stream", "routes://server/all"},
 	)
 }

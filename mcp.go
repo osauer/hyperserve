@@ -590,14 +590,87 @@ func (h *MCPHandler) handleToolsCall(params interface{}) (interface{}, error) {
 		return nil, fmt.Errorf("tool execution failed: %w", err)
 	}
 	
-	return map[string]interface{}{
-		"content": []map[string]interface{}{
+	// Handle different response types
+	var content []map[string]interface{}
+	
+	switch v := result.(type) {
+	case string:
+		// Simple string response
+		content = []map[string]interface{}{
 			{
 				"type": "text",
-				"text": result,
+				"text": v,
 			},
-		},
-	}, nil
+		}
+	case map[string]interface{}:
+		// Check if it's already an MCP-formatted response with content array
+		if existingContent, ok := v["content"].([]map[string]interface{}); ok {
+			content = existingContent
+		} else if existingContent, ok := v["content"].([]interface{}); ok {
+			// Convert []interface{} to []map[string]interface{}
+			content = make([]map[string]interface{}, len(existingContent))
+			for i, item := range existingContent {
+				if m, ok := item.(map[string]interface{}); ok {
+					content[i] = m
+				} else {
+					// Fallback: convert to JSON string
+					jsonBytes, _ := json.Marshal(v)
+					content = []map[string]interface{}{
+						{
+							"type": "text",
+							"text": string(jsonBytes),
+						},
+					}
+					break
+				}
+			}
+		} else {
+			// Regular map response - convert to JSON string
+			jsonBytes, err := json.Marshal(v)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal tool response: %w", err)
+			}
+			content = []map[string]interface{}{
+				{
+					"type": "text",
+					"text": string(jsonBytes),
+				},
+			}
+		}
+	case []interface{}:
+		// Array response - convert to JSON string
+		jsonBytes, err := json.Marshal(v)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal tool response: %w", err)
+		}
+		content = []map[string]interface{}{
+			{
+				"type": "text",
+				"text": string(jsonBytes),
+			},
+		}
+	default:
+		// Any other type - convert to string representation
+		content = []map[string]interface{}{
+			{
+				"type": "text",
+				"text": fmt.Sprintf("%v", result),
+			},
+		}
+	}
+	
+	response := map[string]interface{}{
+		"content": content,
+	}
+	
+	// Check if the tool response included an error flag
+	if resultMap, ok := result.(map[string]interface{}); ok {
+		if isError, ok := resultMap["isError"].(bool); ok && isError {
+			response["isError"] = true
+		}
+	}
+	
+	return response, nil
 }
 
 func (h *MCPHandler) handlePing(params interface{}) (interface{}, error) {
