@@ -7,18 +7,15 @@ import (
 	"testing"
 )
 
-// TestSecureWebWithRateLimit tests the enhanced SecureWeb middleware stack with rate limiting
-func TestSecureWebWithRateLimit(t *testing.T) {
-	// Create server with rate limiting enabled
-	srv, err := NewServer(
-		WithRateLimit(10, 20), // 10 requests per second, burst of 20
-	)
+// TestSecureWebMiddleware tests the SecureWeb middleware stack
+func TestSecureWebMiddleware(t *testing.T) {
+	srv, err := NewServer()
 	if err != nil {
 		t.Fatalf("failed to create server: %v", err)
 	}
 
-	// Apply SecureWebWithRateLimit middleware
-	srv.AddMiddlewareStack("/secure", SecureWebWithRateLimit(srv))
+	// Apply SecureWeb middleware
+	srv.AddMiddlewareStack("/secure", SecureWeb(srv.Options))
 
 	// Create a test handler
 	srv.HandleFunc("/secure/test", func(w http.ResponseWriter, r *http.Request) {
@@ -48,29 +45,9 @@ func TestSecureWebWithRateLimit(t *testing.T) {
 		}
 	}
 
-	// Test rate limiting
-	clientIP := "192.168.1.100"
-	
-	// Send requests up to the burst limit
-	for i := 0; i < 20; i++ {
-		req := httptest.NewRequest(http.MethodGet, "/secure/test", nil)
-		req.RemoteAddr = clientIP + ":12345"
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
-		
-		if rec.Code != http.StatusOK {
-			t.Errorf("Request %d: expected status 200, got %d", i+1, rec.Code)
-		}
-	}
-
-	// The next request should be rate limited
-	req = httptest.NewRequest(http.MethodGet, "/secure/test", nil)
-	req.RemoteAddr = clientIP + ":12345"
-	rec = httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusTooManyRequests {
-		t.Errorf("Expected rate limit status 429, got %d", rec.Code)
+	// Verify response is OK
+	if rec.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", rec.Code)
 	}
 }
 
@@ -116,8 +93,8 @@ func TestSecureWebWithoutRateLimit(t *testing.T) {
 	}
 }
 
-// TestSecureWebConcurrent tests SecureWebWithRateLimit under concurrent load
-func TestSecureWebConcurrent(t *testing.T) {
+// TestRateLimitingUnderLoad tests rate limiting middleware under concurrent load
+func TestRateLimitingUnderLoad(t *testing.T) {
 	srv, err := NewServer(
 		WithRateLimit(50, 100), // 50 req/s, burst 100
 	)
@@ -125,7 +102,8 @@ func TestSecureWebConcurrent(t *testing.T) {
 		t.Fatalf("failed to create server: %v", err)
 	}
 
-	srv.AddMiddlewareStack("/api", SecureWebWithRateLimit(srv))
+	// Apply rate limiting middleware directly
+	srv.AddMiddleware("/api", RateLimitMiddleware(srv))
 	srv.HandleFunc("/api/test", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})

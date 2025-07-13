@@ -106,9 +106,10 @@ var defaultServerOptions = &ServerOptions{
 	CertFile:               "server.crt",
 	RateLimit:              1,
 	Burst:                  10,
-	ReadTimeout:            5 * time.Second,
-	WriteTimeout:           10 * time.Second,
+	ReadTimeout:            30 * time.Second,    // Increased from 5s for better compatibility
+	WriteTimeout:           30 * time.Second,    // Increased from 10s for better compatibility
 	IdleTimeout:            120 * time.Second,
+	ReadHeaderTimeout:      10 * time.Second,    // Slowloris protection
 	StaticDir:              "static/",
 	TemplateDir:            "template/",
 	RunHealthServer:        false,

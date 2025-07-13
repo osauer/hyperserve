@@ -35,7 +35,8 @@
       "Bash(./hyperserve -version)",
       "Bash(./test-hf-daw --mcp-dev)",
       "Bash(./mcp-flags --mcp-dev)",
-      "Bash(go mod:*)"
+      "Bash(go mod:*)",
+      "Bash(gh release list:*)"
     ],
     "deny": []
   }

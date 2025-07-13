@@ -181,22 +181,6 @@ func SecureWeb(options *ServerOptions) MiddlewareStack {
 	return MiddlewareStack{HeadersMiddleware(options)}
 }
 
-// SecureWebWithRateLimit returns a middleware stack configured for secure web endpoints with rate limiting.
-// This includes security headers and rate limiting to prevent abuse.
-// Use this for public-facing web endpoints that need protection against DoS attacks.
-func SecureWebWithRateLimit(srv *Server) MiddlewareStack {
-	stack := []MiddlewareFunc{
-		HeadersMiddleware(srv.Options),
-	}
-	
-	// Add rate limiting if configured
-	if srv.Options.RateLimit > 0 {
-		stack = append(stack, RateLimitMiddleware(srv))
-	}
-	
-	return MiddlewareStack(stack)
-}
-
 // FileServer returns a middleware stack optimized for serving static files.
 // Includes appropriate security headers for file serving.
 func FileServer(options *ServerOptions) MiddlewareStack {
