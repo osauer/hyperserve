@@ -698,11 +698,15 @@ func (h *MCPHandler) handleToolsCall(params interface{}) (interface{}, error) {
 			},
 		}
 	default:
-		// Any other type - convert to string representation
+		// For any other type (structs, etc.), marshal to JSON
+		jsonBytes, err := json.Marshal(result)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal tool response: %w", err)
+		}
 		content = []map[string]interface{}{
 			{
 				"type": "text",
-				"text": fmt.Sprintf("%v", result),
+				"text": string(jsonBytes),
 			},
 		}
 	}
