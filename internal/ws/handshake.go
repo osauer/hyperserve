@@ -4,7 +4,7 @@ package ws
 
 import (
 	"bufio"
-	"crypto/sha1"
+	"crypto/sha1" //nolint:gosec // Required by WebSocket RFC 6455
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -119,7 +119,7 @@ func PerformHandshake(w http.ResponseWriter, r *http.Request, opts *HandshakeOpt
 	response += "\r\n"
 	
 	if _, err := conn.Write([]byte(response)); err != nil {
-		conn.Close()
+		_ = conn.Close() // Best effort close on error
 		return nil, nil, err
 	}
 	
@@ -133,7 +133,11 @@ func isWebSocketUpgrade(r *http.Request) bool {
 		r.Method == "GET"
 }
 
-// generateAcceptKey generates the Sec-WebSocket-Accept header value
+// generateAcceptKey generates the Sec-WebSocket-Accept header value.
+// Note: SHA1 is required by RFC 6455 section 1.3 for WebSocket handshake.
+// This is not used for security purposes, only for protocol compliance.
+//
+//nolint:gosec // SHA1 required by WebSocket RFC
 func generateAcceptKey(key string) string {
 	h := sha1.New()
 	h.Write([]byte(key))

@@ -69,7 +69,7 @@ func (t *FileReadTool) Execute(params map[string]interface{}) (interface{}, erro
 		if err != nil {
 			return nil, fmt.Errorf("failed to open file: %w", err)
 		}
-		defer file.Close()
+		defer closeWithLog(file, path)
 		
 		content, err = io.ReadAll(file)
 		if err != nil {
@@ -143,7 +143,7 @@ func (t *ListDirectoryTool) Execute(params map[string]interface{}) (interface{},
 		if err != nil {
 			return nil, fmt.Errorf("failed to open directory: %w", err)
 		}
-		defer file.Close()
+		defer closeWithLog(file, path)
 		
 		entries, err = file.ReadDir(-1)
 		if err != nil {
@@ -263,7 +263,7 @@ func (t *HTTPRequestTool) Execute(params map[string]interface{}) (interface{}, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to make request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer closeWithLog(resp.Body, "HTTP response body")
 	
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {

@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"math"
 )
 
 // Frame opcodes defined in RFC 6455
@@ -111,6 +112,10 @@ func (fr *FrameReader) ReadFrame() (*Frame, error) {
 		if err := binary.Read(fr.reader, binary.BigEndian, &len64); err != nil {
 			return nil, err
 		}
+		// Check for int64 overflow
+		if len64 > math.MaxInt64 {
+			return nil, errors.New("payload length exceeds maximum int64 value")
+		}
 		payloadLen = int64(len64)
 	}
 	
@@ -194,7 +199,7 @@ func (fw *FrameWriter) WriteFrame(frame *Frame) error {
 	} else if payloadLen < 65536 {
 		header = append(header, maskBit|126)
 		b := make([]byte, 2)
-		binary.BigEndian.PutUint16(b, uint16(payloadLen))
+		binary.BigEndian.PutUint16(b, uint16(payloadLen)) //nolint:gosec // payloadLen is already range-checked
 		header = append(header, b...)
 	} else {
 		header = append(header, maskBit|127)

@@ -123,6 +123,14 @@ var (
 	BuildTime = "unknown"  // Build timestamp
 )
 
+// closeWithLog is a helper to handle Close errors in defer statements.
+// Usage: defer closeWithLog(file, "file")
+func closeWithLog(c io.Closer, name string) {
+	if err := c.Close(); err != nil {
+		logger.Warn("Failed to close resource", "resource", name, "error", err)
+	}
+}
+
 // GetVersionInfo returns formatted version information
 func GetVersionInfo() string {
 	info := Version
@@ -410,10 +418,11 @@ func (srv *Server) Run() error {
 
 	// initialize the underlying http httpServer for serving requests
 	srv.httpServer = &http.Server{
-		Handler:      srv.mux,
-		ReadTimeout:  srv.Options.ReadTimeout,
-		WriteTimeout: srv.Options.WriteTimeout,
-		IdleTimeout:  srv.Options.IdleTimeout,
+		Handler:           srv.mux,
+		ReadTimeout:       srv.Options.ReadTimeout,
+		WriteTimeout:      srv.Options.WriteTimeout,
+		IdleTimeout:       srv.Options.IdleTimeout,
+		ReadHeaderTimeout: srv.Options.ReadTimeout, // Prevent Slowloris attacks
 	}
 	srv.httpServer.RegisterOnShutdown(srv.logServerMetrics)
 
@@ -532,8 +541,9 @@ func (srv *Server) initHealthServer() error {
 	srv.healthMux.HandleFunc("/livez/", srv.livezHandler)
 
 	srv.healthServer = &http.Server{
-		Addr:    srv.Options.HealthAddr,
-		Handler: srv.healthMux,
+		Addr:              srv.Options.HealthAddr,
+		Handler:           srv.healthMux,
+		ReadHeaderTimeout: 30 * time.Second, // Prevent Slowloris attacks
 		BaseContext: func(_ net.Listener) context.Context {
 			return context.WithValue(context.Background(), "health", true)
 		},
@@ -654,7 +664,10 @@ func (srv *Server) shutdownHealthServer(ctx context.Context) error {
 		logger.Info("Shutting down health server.")
 		// Close any dependencies if needed
 		// ...
-		return srv.healthServer.Shutdown(ctx)
+		if err := srv.healthServer.Shutdown(ctx); err != nil {
+			return fmt.Errorf("health server shutdown: %w", err)
+		}
+		return nil
 	} else {
 		return nil
 	}

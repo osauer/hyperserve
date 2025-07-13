@@ -111,7 +111,7 @@ func (c *Conn) ReadMessage() (messageType int, data []byte, err error) {
 					Opcode:  OpcodeClose,
 					Payload: frame.Payload, // Echo the close code
 				}
-				c.WriteFrame(closeFrame)
+				_ = c.WriteFrame(closeFrame) // Best effort close frame
 			}
 			c.closeMu.Unlock()
 			
@@ -198,7 +198,7 @@ func (c *Conn) Close() error {
 		// Send close frame with normal closure
 		closePayload := make([]byte, 2)
 		binary.BigEndian.PutUint16(closePayload, uint16(CloseNormalClosure))
-		c.WriteControl(OpcodeClose, closePayload)
+		_ = c.WriteControl(OpcodeClose, closePayload) // Best effort close notification
 	}
 	
 	return c.conn.Close()
