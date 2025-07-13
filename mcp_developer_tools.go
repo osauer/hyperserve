@@ -9,10 +9,14 @@
 package hyperserve
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -222,6 +226,7 @@ func (t *RouteInspectorTool) Execute(params map[string]interface{}) (interface{}
 type RequestDebuggerTool struct {
 	server *Server
 	captures sync.Map // map[string]*CapturedRequest
+	requestIDCounter int64
 }
 
 type CapturedRequest struct {
@@ -331,6 +336,126 @@ func (t *RequestDebuggerTool) Execute(params map[string]interface{}) (interface{
 	default:
 		return nil, fmt.Errorf("unknown action: %s", action)
 	}
+}
+
+// CaptureRequest captures an HTTP request and stores it in the debug tool
+func (t *RequestDebuggerTool) CaptureRequest(r *http.Request, responseHeaders map[string][]string, statusCode int, responseBody string) {
+	// Generate unique request ID
+	counter := atomic.AddInt64(&t.requestIDCounter, 1)
+	id := fmt.Sprintf("req_%d_%d", time.Now().UnixNano(), counter)
+	
+	// Read request body if present
+	var body string
+	if r.Body != nil {
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err == nil {
+			body = string(bodyBytes)
+			// Replace body with a new ReadCloser so the original handler can still read it
+			r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+		}
+	}
+	
+	// Create captured request
+	capturedReq := &CapturedRequest{
+		ID:        id,
+		Method:    r.Method,
+		Path:      r.URL.Path,
+		Headers:   r.Header,
+		Body:      body,
+		Timestamp: time.Now(),
+		Response: &CapturedResponse{
+			Status:  statusCode,
+			Headers: responseHeaders,
+			Body:    responseBody,
+		},
+	}
+	
+	// Store in captures map
+	t.captures.Store(id, capturedReq)
+	
+	// Implement a simple LRU-like cleanup to prevent memory leaks
+	// Keep only the last 100 requests
+	count := 0
+	t.captures.Range(func(key, value interface{}) bool {
+		count++
+		return true
+	})
+	
+	if count > 100 {
+		// Remove oldest entries (this is a simple implementation)
+		toDelete := count - 100
+		deleted := 0
+		t.captures.Range(func(key, value interface{}) bool {
+			if deleted >= toDelete {
+				return false
+			}
+			t.captures.Delete(key)
+			deleted++
+			return true
+		})
+	}
+}
+
+// RequestCaptureMiddleware creates middleware that captures HTTP requests for debugging
+func RequestCaptureMiddleware(debuggerTool *RequestDebuggerTool) MiddlewareFunc {
+	return func(next http.Handler) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			// Skip capturing for the MCP endpoint itself to avoid recursion
+			if strings.HasPrefix(r.URL.Path, "/mcp") {
+				next.ServeHTTP(w, r)
+				return
+			}
+			
+			// Create a response writer that captures response data
+			crw := &captureResponseWriter{
+				ResponseWriter: w,
+				headers:        make(map[string][]string),
+				body:           &bytes.Buffer{},
+				statusCode:     200, // Default status code
+			}
+			
+			// Call the next handler
+			next.ServeHTTP(crw, r)
+			
+			// Capture the request after the response is complete
+			responseHeaders := make(map[string][]string)
+			for k, v := range crw.headers {
+				responseHeaders[k] = v
+			}
+			
+			// Also capture headers that were actually written
+			for k, v := range w.Header() {
+				responseHeaders[k] = v
+			}
+			
+			debuggerTool.CaptureRequest(r, responseHeaders, crw.statusCode, crw.body.String())
+		}
+	}
+}
+
+// captureResponseWriter wraps http.ResponseWriter to capture response data
+type captureResponseWriter struct {
+	http.ResponseWriter
+	headers    map[string][]string
+	body       *bytes.Buffer
+	statusCode int
+}
+
+func (crw *captureResponseWriter) WriteHeader(code int) {
+	crw.statusCode = code
+	crw.ResponseWriter.WriteHeader(code)
+}
+
+func (crw *captureResponseWriter) Write(b []byte) (int, error) {
+	// Capture response body (limit to reasonable size to prevent memory issues)
+	if crw.body.Len() < 64*1024 { // 64KB limit
+		crw.body.Write(b)
+	}
+	return crw.ResponseWriter.Write(b)
+}
+
+func (crw *captureResponseWriter) Header() http.Header {
+	return crw.ResponseWriter.Header()
 }
 
 // StreamingLogResource provides real-time log streaming
@@ -608,13 +733,20 @@ func (srv *Server) RegisterDeveloperMCPTools() {
 		"tools", []string{"server_control", "route_inspector", "request_debugger", "dev_guide"},
 	)
 
+	// Create and register the request debugger tool
+	requestDebuggerTool := &RequestDebuggerTool{server: srv}
+	
 	// Register tools
 	srv.mcpHandler.RegisterTool(&ServerControlTool{
 		server: srv,
 	})
 	srv.mcpHandler.RegisterTool(&RouteInspectorTool{server: srv})
-	srv.mcpHandler.RegisterTool(&RequestDebuggerTool{server: srv})
+	srv.mcpHandler.RegisterTool(requestDebuggerTool)
 	srv.mcpHandler.RegisterTool(&DevGuideTool{server: srv})
+
+	// Add request capture middleware to capture HTTP requests
+	srv.AddMiddleware("*", RequestCaptureMiddleware(requestDebuggerTool))
+	logger.Info("Request capture middleware registered for MCP dev mode")
 
 	// Register resources
 	srv.mcpHandler.RegisterResource(&StreamingLogResource{
