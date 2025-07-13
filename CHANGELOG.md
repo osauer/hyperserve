@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2025-07-13
+
+### Added
+- MCP configuration via command-line flags and environment variables
+  - `--mcp`, `--mcp-dev`, `--mcp-observability`, `--mcp-transport` flags
+  - `HS_MCP_*` environment variables for all MCP settings
+- Auto-configuration of MCP from ServerOptions during server initialization
+- Claude Code integration examples with HTTP transport
+- Comprehensive MCP flags example showing different configuration methods
+
+### Changed
+- MCP can now be configured without hardcoding in source code
+- Updated documentation to emphasize flag/environment configuration over code
+- Enhanced README with Claude Code HTTP integration examples
+
+### Security
+- Development mode (`MCPDev()`) no longer needs to be hardcoded in production builds
+
 ## [0.11.0] - 2025-07-13
 
 ### Added
@@ -59,5 +77,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Protection against frame injection attacks
 - Secure defaults for origin checking
 
+[0.12.0]: https://github.com/osauer/hyperserve/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/osauer/hyperserve/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/osauer/hyperserve/compare/v0.9.0...v0.10.0

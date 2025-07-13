@@ -12,13 +12,36 @@ HyperServe provides native MCP support through three main configurations:
 
 ## Development with Claude Code
 
-### Quick Start
+### Quick Start (Recommended)
 
-1. Add MCP support to your server:
-```go
-srv, _ := hyperserve.NewServer(
-    hyperserve.WithMCPSupport("MyApp", "1.0.0", hyperserve.MCPDev()),
-)
+Use flags or environment variables to avoid hardcoding development settings:
+
+```bash
+# Using flags
+./myapp --mcp --mcp-dev
+
+# Using environment variables
+HS_MCP_ENABLED=true HS_MCP_DEV=true ./myapp
+```
+
+### Claude Code Configuration (HTTP)
+
+```json
+{
+  "mcpServers": {
+    "myapp-local": {
+      "type": "http",
+      "url": "http://localhost:8080/mcp"
+    }
+  }
+}
+```
+
+### Claude Desktop Configuration (STDIO)
+
+1. Build your application:
+```bash
+go build -o myapp
 ```
 
 2. Configure Claude Desktop:
@@ -26,9 +49,9 @@ srv, _ := hyperserve.NewServer(
 {
   "mcpServers": {
     "myapp": {
-      "command": "go",
-      "args": ["run", "."],
-      "cwd": "/path/to/your/app"
+      "command": "/path/to/myapp",
+      "args": ["--mcp", "--mcp-dev", "--mcp-transport=stdio"],
+      "cwd": "/path/to/project"
     }
   }
 }
@@ -66,10 +89,12 @@ srv, _ := hyperserve.NewServer(
 
 ### Setup
 
-```go
-srv, _ := hyperserve.NewServer(
-    hyperserve.WithMCPSupport("MyApp", "1.0.0", hyperserve.MCPObservability()),
-)
+```bash
+# Using flags
+./myapp --mcp --mcp-observability
+
+# Using environment variables
+HS_MCP_ENABLED=true HS_MCP_OBSERVABILITY=true ./myapp
 ```
 
 ### Available Resources

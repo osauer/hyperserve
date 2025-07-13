@@ -41,22 +41,41 @@ HyperServe provides first-class support for the Model Context Protocol, enabling
 
 ### Development with Claude Code
 
-Enable AI-assisted development for rapid iteration:
+Enable AI-assisted development without hardcoding dev tools:
 
-```go
-srv, _ := hyperserve.NewServer(
-    hyperserve.WithMCPSupport("MyApp", "1.0.0", hyperserve.MCPDev()),
-)
+```bash
+# Using command-line flags
+./myapp --mcp --mcp-dev
+
+# Using environment variables
+HS_MCP_ENABLED=true HS_MCP_DEV=true ./myapp
+```
+
+#### Claude Code Integration (HTTP)
+```json
+{
+  "mcpServers": {
+    "myapp-local": {
+      "type": "http",
+      "url": "http://localhost:8080/mcp"
+    }
+  }
+}
+```
+
+#### Claude Desktop Integration (STDIO)
+```bash
+# Build your app with MCP support
+go build -o myapp
 ```
 
 Configure Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 ```json
 {
   "mcpServers": {
-    "myapp-dev": {
-      "command": "go",
-      "args": ["run", "."],
-      "cwd": "/path/to/your/app"
+    "myapp": {
+      "command": "/path/to/myapp",
+      "args": ["--mcp", "--mcp-dev", "--mcp-transport=stdio"]
     }
   }
 }
@@ -64,9 +83,9 @@ Configure Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_c
 
 Now Claude can help you:
 - "Set the log level to DEBUG to see what's happening"
-- "Restart the server after those changes"
 - "Show me all the registered routes"
 - "Capture the next request to /api/users for debugging"
+- "List recent error logs"
 
 ⚠️ **Development only!** You'll see this warning in logs:
 ```
@@ -77,13 +96,11 @@ Now Claude can help you:
 
 Monitor your production servers with safe, read-only access:
 
-```go
-srv, _ := hyperserve.NewServer(
-    hyperserve.WithMCPSupport("MyApp", "1.0.0", hyperserve.MCPObservability()),
-)
+```bash
+./myapp --mcp --mcp-observability
 ```
 
-Configure for production monitoring:
+Configure Claude for remote monitoring:
 ```json
 {
   "mcpServers": {
@@ -196,6 +213,13 @@ srv, _ := hyperserve.NewServer(
 export HS_PORT=3000
 export HS_LOG_LEVEL=DEBUG
 export HS_HARDENED_MODE=true
+
+# MCP Configuration
+export HS_MCP_ENABLED=true
+export HS_MCP_SERVER_NAME="MyApp"
+export HS_MCP_DEV=true              # Development tools
+export HS_MCP_OBSERVABILITY=true    # Production monitoring
+export HS_MCP_TRANSPORT=http        # or stdio for Claude Desktop
 ```
 
 ### Configuration File
@@ -213,6 +237,7 @@ export HS_HARDENED_MODE=true
 
 - [Hello World](examples/hello-world) - Minimal server
 - [JSON API](examples/json-api) - RESTful API with authentication
+- [MCP Flags](examples/mcp-flags) - Configure MCP via flags/environment
 - [MCP Development](examples/mcp-development) - AI-assisted development
 - [MCP Extensions](examples/mcp-extensions) - Custom tools and resources
 - [WebSocket Chat](examples/websocket-chat) - Real-time communication

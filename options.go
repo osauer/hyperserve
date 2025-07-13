@@ -13,6 +13,9 @@ Environment Variables:
   - HS_HARDENED_MODE: Enable security headers (default "false")
   - HS_MCP_ENABLED: Enable Model Context Protocol (default "false")
   - HS_MCP_ENDPOINT: MCP endpoint path (default "/mcp")
+  - HS_MCP_DEV: Enable MCP developer tools (default "false")
+  - HS_MCP_OBSERVABILITY: Enable MCP observability resources (default "false")
+  - HS_MCP_TRANSPORT: MCP transport type: "http" or "stdio" (default "http")
   - HS_CSP_WEB_WORKER_SUPPORT: Enable Web Worker CSP headers (default "false")
   - HS_LOG_LEVEL: Set log level (DEBUG, INFO, WARN, ERROR) (default "INFO")
   - HS_DEBUG: Enable debug mode and debug logging (default "false")
@@ -82,6 +85,8 @@ type ServerOptions struct {
 	MCPFileToolRoot        string   `json:"mcp_file_tool_root,omitempty"`
 	MCPLogResourceSize     int      `json:"mcp_log_resource_size,omitempty"`
 	MCPTransport           MCPTransportType `json:"mcp_transport,omitempty"`
+	MCPDev                 bool     `json:"mcp_dev,omitempty"`
+	MCPObservability       bool     `json:"mcp_observability,omitempty"`
 	mcpTransportOpts       mcpTransportOptions // Internal transport options
 	// CSP (Content Security Policy) configuration
 	CSPWebWorkerSupport    bool     `json:"csp_web_worker_support,omitempty"`
@@ -126,6 +131,8 @@ var defaultServerOptions = &ServerOptions{
 	MCPFileToolRoot:        "",
 	MCPLogResourceSize:     100,
 	MCPTransport:           HTTPTransport,
+	MCPDev:                 false,  // Disabled by default - security sensitive
+	MCPObservability:       false,  // Disabled by default - users must opt-in
 	// CSP defaults
 	CSPWebWorkerSupport:    false,  // Disabled by default - users must opt-in
 	// Logging defaults
@@ -222,6 +229,32 @@ func applyEnvVars(config *ServerOptions) *ServerOptions {
 	if mcpFileToolRoot := os.Getenv(paramMCPFileToolRoot); mcpFileToolRoot != "" {
 		config.MCPFileToolRoot = mcpFileToolRoot
 		logger.Debug("MCP file tool root set from environment variable", "variable", paramMCPFileToolRoot, "root", mcpFileToolRoot)
+	}
+	if mcpDev := os.Getenv(paramMCPDev); mcpDev != "" {
+		if mcpDev == "true" || mcpDev == "1" {
+			config.MCPDev = true
+			logger.Debug("MCP developer mode enabled from environment variable", "variable", paramMCPDev)
+		} else if mcpDev == "false" || mcpDev == "0" {
+			config.MCPDev = false
+			logger.Debug("MCP developer mode disabled from environment variable", "variable", paramMCPDev)
+		}
+	}
+	if mcpObservability := os.Getenv(paramMCPObservability); mcpObservability != "" {
+		if mcpObservability == "true" || mcpObservability == "1" {
+			config.MCPObservability = true
+			logger.Debug("MCP observability enabled from environment variable", "variable", paramMCPObservability)
+		} else if mcpObservability == "false" || mcpObservability == "0" {
+			config.MCPObservability = false
+			logger.Debug("MCP observability disabled from environment variable", "variable", paramMCPObservability)
+		}
+	}
+	if mcpTransport := os.Getenv(paramMCPTransport); mcpTransport != "" {
+		if mcpTransport == "stdio" {
+			config.MCPTransport = StdioTransport
+		} else if mcpTransport == "http" {
+			config.MCPTransport = HTTPTransport
+		}
+		logger.Debug("MCP transport set from environment variable", "variable", paramMCPTransport, "transport", mcpTransport)
 	}
 	
 	// CSP (Content Security Policy) environment variables

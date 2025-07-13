@@ -149,6 +149,9 @@ const (
 	paramMCPToolsEnabled    = "HS_MCP_TOOLS_ENABLED"
 	paramMCPResourcesEnabled = "HS_MCP_RESOURCES_ENABLED"
 	paramMCPFileToolRoot    = "HS_MCP_FILE_TOOL_ROOT"
+	paramMCPDev             = "HS_MCP_DEV"
+	paramMCPObservability   = "HS_MCP_OBSERVABILITY"
+	paramMCPTransport       = "HS_MCP_TRANSPORT"
 	paramCSPWebWorkerSupport = "HS_CSP_WEB_WORKER_SUPPORT"
 	paramLogLevel           = "HS_LOG_LEVEL"
 	paramDebugMode          = "HS_DEBUG"
@@ -257,6 +260,37 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 		if err := opt(srv); err != nil {
 			return nil, err
 		}
+	}
+	
+	// Auto-configure MCP if enabled via environment/flags
+	if srv.Options.MCPEnabled && srv.Options.MCPServerName != "" && srv.mcpHandler == nil {
+		var mcpConfigs []MCPTransportConfig
+		
+		// Set transport
+		if srv.Options.MCPTransport == StdioTransport {
+			mcpConfigs = append(mcpConfigs, MCPOverStdio())
+		}
+		// HTTP is the default, no need to explicitly add
+		
+		// Add developer mode if enabled
+		if srv.Options.MCPDev {
+			mcpConfigs = append(mcpConfigs, MCPDev())
+		}
+		
+		// Add observability if enabled
+		if srv.Options.MCPObservability {
+			mcpConfigs = append(mcpConfigs, MCPObservability())
+		}
+		
+		// Apply MCP configuration
+		if err := WithMCPSupport(srv.Options.MCPServerName, srv.Options.MCPServerVersion, mcpConfigs...)(srv); err != nil {
+			return nil, fmt.Errorf("failed to auto-configure MCP: %w", err)
+		}
+		logger.Info("MCP auto-configured from options", 
+			"name", srv.Options.MCPServerName,
+			"transport", srv.Options.MCPTransport,
+			"dev", srv.Options.MCPDev,
+			"observability", srv.Options.MCPObservability)
 	}
 
 	// Static root will be initialized lazily when HandleStatic is called
