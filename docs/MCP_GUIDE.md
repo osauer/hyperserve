@@ -10,6 +10,10 @@ HyperServe provides native MCP support through three main configurations:
 2. **Observability** (`MCPObservability()`) - Safe monitoring for production
 3. **Custom Extensions** - Your own tools and resources
 
+HyperServe supports two transport mechanisms for MCP:
+- **HTTP** - Traditional request/response over POST requests
+- **SSE (Server-Sent Events)** - Real-time bidirectional communication
+
 ## Development with Claude Code
 
 ### Quick Start (Recommended)
@@ -291,6 +295,66 @@ curl -X POST http://localhost:8080/mcp \
     "id": 3
   }'
 ```
+
+## Server-Sent Events (SSE) Support
+
+HyperServe includes built-in SSE support for real-time MCP communication. This enables:
+- Real-time server-to-client notifications
+- Lower latency for interactive tools
+- Better support for streaming responses
+
+### SSE Endpoints
+
+When MCP is enabled, HyperServe automatically provides:
+- `/mcp` - Standard HTTP endpoint
+- `/mcp/sse` - SSE endpoint for real-time communication
+
+### Using SSE from JavaScript
+
+```javascript
+// Connect to SSE endpoint
+const eventSource = new EventSource('/mcp/sse');
+let clientId = null;
+
+// Handle connection
+eventSource.addEventListener('connection', (e) => {
+    const data = JSON.parse(e.data);
+    clientId = data.clientId;
+    console.log('Connected:', clientId);
+});
+
+// Handle responses
+eventSource.addEventListener('message', (e) => {
+    const response = JSON.parse(e.data);
+    console.log('Response:', response);
+});
+
+// Send requests with SSE routing
+async function callMethod(method, params) {
+    const response = await fetch('/mcp', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-SSE-Client-ID': clientId
+        },
+        body: JSON.stringify({
+            jsonrpc: '2.0',
+            method: method,
+            params: params,
+            id: Date.now()
+        })
+    });
+    // Response comes via SSE, not HTTP body
+}
+```
+
+### SSE Features
+
+- Automatic reconnection on disconnect
+- Keepalive pings every 30 seconds
+- Buffered message delivery
+- Thread-safe connection management
+- Proper MCP lifecycle support
 
 ## Troubleshooting
 

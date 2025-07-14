@@ -130,14 +130,17 @@ func MCPOverStdio() MCPTransportConfig {
 
 // MCPHandler manages MCP protocol communication
 type MCPHandler struct {
-	tools      map[string]MCPTool
-	resources  map[string]MCPResource
-	rpcEngine  *JSONRPCEngine
-	serverInfo MCPServerInfo
-	logger     *slog.Logger
-	transport  MCPTransport
-	metrics    *MCPMetrics
-	cache      *resourceCache
+	tools       map[string]MCPTool
+	resources   map[string]MCPResource
+	rpcEngine   *JSONRPCEngine
+	serverInfo  MCPServerInfo
+	logger      *slog.Logger
+	transport   MCPTransport
+	metrics     *MCPMetrics
+	cache       *resourceCache
+	sseManager  *SSEManager
+	sseRequests map[string]chan *JSONRPCRequest // Maps SSE client IDs to request channels
+	sseMutex    sync.RWMutex
 }
 
 // httpTransport implements MCPTransport for HTTP-based communication
@@ -188,13 +191,15 @@ func (t *httpTransport) Close() error {
 // NewMCPHandler creates a new MCP handler instance
 func NewMCPHandler(serverInfo MCPServerInfo) *MCPHandler {
 	handler := &MCPHandler{
-		tools:      make(map[string]MCPTool),
-		resources:  make(map[string]MCPResource),
-		rpcEngine:  NewJSONRPCEngine(),
-		serverInfo: serverInfo,
-		logger:     logger,
-		metrics:    newMCPMetrics(),
-		cache:      newResourceCache(100), // Default cache size of 100 items
+		tools:       make(map[string]MCPTool),
+		resources:   make(map[string]MCPResource),
+		rpcEngine:   NewJSONRPCEngine(),
+		serverInfo:  serverInfo,
+		logger:      logger,
+		metrics:     newMCPMetrics(),
+		cache:       newResourceCache(100), // Default cache size of 100 items
+		sseManager:  NewSSEManager(),
+		sseRequests: make(map[string]chan *JSONRPCRequest),
 	}
 	
 	// Register MCP protocol methods
@@ -230,6 +235,17 @@ func (h *MCPHandler) ProcessRequest(requestData []byte) []byte {
 
 // ServeHTTP implements the http.Handler interface for MCP
 func (h *MCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Debug logging for tests
+	if h.logger.Enabled(context.Background(), slog.LevelDebug) {
+		h.logger.Debug("MCP ServeHTTP called", "path", r.URL.Path, "method", r.Method)
+	}
+	
+	// Handle SSE endpoint
+	if strings.HasSuffix(r.URL.Path, "/sse") {
+		h.sseManager.HandleSSE(w, r, h)
+		return
+	}
+	
 	// Handle GET requests with helpful information
 	if r.Method == http.MethodGet {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -300,10 +316,26 @@ func (h *MCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
         <li><code>resources/read</code> - Read a resource</li>
     </ul>
     
+    <h2>Server-Sent Events (SSE) Support</h2>
+    <p>This server also supports SSE for real-time communication:</p>
+    <ul>
+        <li>SSE endpoint: <code>%s/sse</code></li>
+        <li>Send requests to <code>%s</code> with header <code>X-SSE-Client-ID: {your-client-id}</code></li>
+        <li>Responses will be delivered via the SSE connection</li>
+    </ul>
+    
     <h2>More Information</h2>
     <p>For detailed documentation, see the <a href="https://github.com/osauer/hyperserve">HyperServe GitHub repository</a>.</p>
 </body>
-</html>`, r.URL.Path, r.URL.Path, r.URL.Path)
+</html>`, r.URL.Path, r.URL.Path, r.URL.Path, r.URL.Path, r.URL.Path)
+		return
+	}
+	
+	// Check if this is a request that should route responses through SSE
+	clientID := r.Header.Get("X-SSE-Client-ID")
+	if clientID != "" {
+		// This request wants responses via SSE
+		h.handleSSERoutedRequest(w, r, clientID)
 		return
 	}
 	
@@ -454,6 +486,7 @@ func (h *MCPHandler) handleInitialize(params interface{}) (interface{}, error) {
 			},
 		},
 		"serverInfo": h.serverInfo,
+		"instructions": "Follow the initialization protocol: after receiving this response, send an 'initialized' notification, then the server will send a 'ready' notification.",
 	}, nil
 }
 
@@ -729,6 +762,93 @@ func (h *MCPHandler) handlePing(params interface{}) (interface{}, error) {
 	return map[string]interface{}{
 		"message": "pong",
 	}, nil
+}
+
+// handleSSERoutedRequest handles HTTP requests that route responses through SSE
+func (h *MCPHandler) handleSSERoutedRequest(w http.ResponseWriter, r *http.Request, clientID string) {
+	// Validate the SSE client exists
+	h.sseMutex.RLock()
+	requestChan, exists := h.sseRequests[clientID]
+	h.sseMutex.RUnlock()
+	
+	if !exists {
+		http.Error(w, "Invalid SSE client ID", http.StatusBadRequest)
+		return
+	}
+	
+	// Parse the request
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	if !strings.Contains(r.Header.Get("Content-Type"), "application/json") {
+		http.Error(w, "Content-Type must be application/json", http.StatusBadRequest)
+		return
+	}
+	
+	var request JSONRPCRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "Invalid JSON-RPC request", http.StatusBadRequest)
+		return
+	}
+	
+	// Send request to SSE handler
+	select {
+	case requestChan <- &request:
+		// Request queued successfully
+		w.WriteHeader(http.StatusAccepted)
+		json.NewEncoder(w).Encode(map[string]string{
+			"status": "accepted",
+			"message": "Request queued for processing",
+		})
+	default:
+		// Channel full
+		http.Error(w, "Request queue full", http.StatusServiceUnavailable)
+	}
+}
+
+// RegisterSSEClient registers a new SSE client for request routing
+func (h *MCPHandler) RegisterSSEClient(clientID string) chan *JSONRPCRequest {
+	h.sseMutex.Lock()
+	defer h.sseMutex.Unlock()
+	
+	// Create a buffered channel for requests
+	requestChan := make(chan *JSONRPCRequest, 10)
+	h.sseRequests[clientID] = requestChan
+	
+	return requestChan
+}
+
+// UnregisterSSEClient removes an SSE client
+func (h *MCPHandler) UnregisterSSEClient(clientID string) {
+	h.sseMutex.Lock()
+	defer h.sseMutex.Unlock()
+	
+	if ch, exists := h.sseRequests[clientID]; exists {
+		close(ch)
+		delete(h.sseRequests, clientID)
+	}
+}
+
+// SendSSENotification sends a notification to a specific SSE client
+func (h *MCPHandler) SendSSENotification(clientID string, method string, params interface{}) error {
+	// Create a notification structure - this is not a standard JSONRPCResponse
+	// but a custom structure for SSE notifications
+	notification := map[string]interface{}{
+		"jsonrpc": JSONRPCVersion,
+		"method":  method,
+		"params":  params,
+	}
+	
+	// Wrap it in a JSONRPCResponse for the SSE transport
+	response := &JSONRPCResponse{
+		JSONRPC: JSONRPCVersion,
+		Result:  notification,
+		ID:      nil, // No ID for SSE messages
+	}
+	
+	return h.sseManager.SendToClient(clientID, response)
 }
 
 // resourceCache provides thread-safe caching for MCP resources
