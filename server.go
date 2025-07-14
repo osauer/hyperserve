@@ -1419,12 +1419,11 @@ func (srv *Server) printStartupBanner() {
 		fmt.Printf("MCP SSE:   %s/sse\n", srv.Options.MCPEndpoint)
 		if srv.Options.mcpTransportOpts.developerMode {
 			// Make MCP more discoverable for AI assistants
-			fmt.Printf("\n🤖 MCP ENABLED: AI assistants can connect via:\n")
-			fmt.Printf("   1. HTTP: POST %s://%s%s\n", protocol, addr, srv.Options.MCPEndpoint)
-			fmt.Printf("   2. SSE:  GET %s://%s%s/sse (real-time connection)\n", protocol, addr, srv.Options.MCPEndpoint)
-			fmt.Printf("\n   Example HTTP: curl -X POST %s://%s%s -d '{\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"id\":1}'\n",
+			fmt.Printf("\n🤖 MCP ENABLED: AI assistants must connect via SSE:\n")
+			fmt.Printf("   GET %s://%s%s/sse\n", protocol, addr, srv.Options.MCPEndpoint)
+			fmt.Printf("\n   Example: curl -N %s://%s%s/sse\n",
 				protocol, addr, srv.Options.MCPEndpoint)
-			fmt.Printf("   Example SSE:  curl -N %s://%s%s/sse\n",
+			fmt.Printf("\n   Then send requests to POST %s://%s%s with X-SSE-Client-ID header\n",
 				protocol, addr, srv.Options.MCPEndpoint)
 		}
 	}

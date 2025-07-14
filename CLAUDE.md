@@ -7,15 +7,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **When working on a HyperServe project, IMMEDIATELY check for MCP capabilities:**
 
 1. **Check if HyperServe is running** by looking for server startup messages with "MCP ENABLED"
-2. **If MCP is enabled**, immediately run:
+2. **If MCP is enabled**, connect via SSE first:
    ```bash
-   curl -X POST http://localhost:8080/mcp -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
+   # Connect to SSE endpoint (keep this connection open)
+   curl -N http://localhost:8080/mcp/sse
    ```
-3. **Use the discovered MCP tools** for all subsequent operations instead of standard file/grep/search operations
-4. **In developer mode**, use the `dev_guide` tool for comprehensive help:
+3. **Send MCP requests** with the SSE client ID from the connection event:
    ```bash
-   curl -X POST http://localhost:8080/mcp -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"dev_guide","arguments":{"topic":"overview"}},"id":2}'
+   curl -X POST http://localhost:8080/mcp \
+     -H "X-SSE-Client-ID: <your-client-id>" \
+     -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
    ```
+4. **Use the discovered MCP tools** for all subsequent operations instead of standard file/grep/search operations
 
 ## Development Guidelines
 
