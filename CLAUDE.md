@@ -65,3 +65,8 @@ srv, err := hyperserve.NewServer(
 srv.RegisterMCPTool(&MyCustomTool{})
 srv.RegisterMCPResource(&MyCustomResource{})
 ```
+
+### Complete MCP Documentation
+
+For comprehensive MCP information including multiple namespace support, custom tool development, and advanced configuration, see:
+- **[MCP Integration Guide](docs/MCP_GUIDE.md)** - Complete guide with examples, namespaces, and best practices
