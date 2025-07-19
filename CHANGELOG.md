@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2025-07-19
+
+### Added
+- **MCP Namespace Support** - Organize tools and resources into logical namespaces
+  - New methods: `RegisterMCPToolInNamespace`, `RegisterMCPResourceInNamespace`, `RegisterMCPNamespace`
+  - Server option: `WithMCPNamespace` for namespace configuration
+  - Tools/resources in namespaces are prefixed with `mcp__namespace__name` format
+  - Backward compatibility maintained for non-namespaced registration
+  - Default namespace uses server name when not specified
+  - Comprehensive test coverage with 8 test scenarios
+  - Updated MCP_GUIDE.md with namespace documentation and examples
+
+### Changed
+- MCP handler now tracks registered namespaces internally
+- Tools and resources use flat maps with prefixed keys for efficient lookup
+
 ## [0.14.7] - 2025-07-19
 
 ### Fixed
