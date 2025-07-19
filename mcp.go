@@ -128,10 +128,36 @@ func MCPOverStdio() MCPTransportConfig {
 	}
 }
 
-// MCPHandler manages MCP protocol communication
+// MCPNamespace represents a named collection of MCP tools and resources
+type MCPNamespace struct {
+	Name      string
+	Tools     []MCPTool
+	Resources []MCPResource
+}
+
+// MCPNamespaceConfig is a function that configures namespace options
+type MCPNamespaceConfig func(*MCPNamespace)
+
+// WithNamespaceTools adds tools to a namespace
+func WithNamespaceTools(tools ...MCPTool) MCPNamespaceConfig {
+	return func(ns *MCPNamespace) {
+		ns.Tools = append(ns.Tools, tools...)
+	}
+}
+
+// WithNamespaceResources adds resources to a namespace
+func WithNamespaceResources(resources ...MCPResource) MCPNamespaceConfig {
+	return func(ns *MCPNamespace) {
+		ns.Resources = append(ns.Resources, resources...)
+	}
+}
+
+// MCPHandler manages MCP protocol communication with multiple namespace support
 type MCPHandler struct {
-	tools       map[string]MCPTool
-	resources   map[string]MCPResource
+	tools       map[string]MCPTool    // Flat map with prefixed keys: mcp__namespace__toolname
+	resources   map[string]MCPResource // Flat map with prefixed keys: mcp__namespace__resourcename
+	namespaces  map[string]*MCPNamespace // Track registered namespaces
+	defaultNamespace string              // Default namespace for backward compatibility
 	rpcEngine   *JSONRPCEngine
 	serverInfo  MCPServerInfo
 	logger      *slog.Logger
@@ -191,15 +217,17 @@ func (t *httpTransport) Close() error {
 // NewMCPHandler creates a new MCP handler instance
 func NewMCPHandler(serverInfo MCPServerInfo) *MCPHandler {
 	handler := &MCPHandler{
-		tools:       make(map[string]MCPTool),
-		resources:   make(map[string]MCPResource),
-		rpcEngine:   NewJSONRPCEngine(),
-		serverInfo:  serverInfo,
-		logger:      logger,
-		metrics:     newMCPMetrics(),
-		cache:       newResourceCache(100), // Default cache size of 100 items
-		sseManager:  NewSSEManager(),
-		sseRequests: make(map[string]chan *JSONRPCRequest),
+		tools:            make(map[string]MCPTool),
+		resources:        make(map[string]MCPResource),
+		namespaces:       make(map[string]*MCPNamespace),
+		defaultNamespace: serverInfo.Name, // Use server name as default namespace
+		rpcEngine:        NewJSONRPCEngine(),
+		serverInfo:       serverInfo,
+		logger:           logger,
+		metrics:          newMCPMetrics(),
+		cache:            newResourceCache(100), // Default cache size of 100 items
+		sseManager:       NewSSEManager(),
+		sseRequests:      make(map[string]chan *JSONRPCRequest),
 	}
 	
 	// Register MCP protocol methods
@@ -208,16 +236,93 @@ func NewMCPHandler(serverInfo MCPServerInfo) *MCPHandler {
 	return handler
 }
 
-// RegisterTool registers an MCP tool
-func (h *MCPHandler) RegisterTool(tool MCPTool) {
-	h.tools[tool.Name()] = tool
-	h.logger.Debug("MCP tool registered", "tool", tool.Name())
+// formatToolName creates a namespaced tool name in the format mcp__namespace__toolname
+func (h *MCPHandler) formatToolName(namespace, toolName string) string {
+	if namespace == "" {
+		namespace = h.defaultNamespace
+	}
+	return fmt.Sprintf("mcp__%s__%s", namespace, toolName)
 }
 
-// RegisterResource registers an MCP resource
+// formatResourceName creates a namespaced resource name in the format mcp__namespace__resourcename  
+func (h *MCPHandler) formatResourceName(namespace, resourceName string) string {
+	if namespace == "" {
+		namespace = h.defaultNamespace
+	}
+	return fmt.Sprintf("mcp__%s__%s", namespace, resourceName)
+}
+
+// RegisterTool registers an MCP tool in the default namespace (backward compatible)
+// Tools registered this way maintain their original names for backward compatibility
+func (h *MCPHandler) RegisterTool(tool MCPTool) {
+	h.tools[tool.Name()] = tool
+	h.logger.Debug("MCP tool registered (backward compatible)", "tool", tool.Name())
+}
+
+// RegisterToolInNamespace registers an MCP tool in the specified namespace
+// This always applies namespace prefixing
+func (h *MCPHandler) RegisterToolInNamespace(tool MCPTool, namespace string) {
+	if namespace == "" {
+		namespace = h.defaultNamespace
+	}
+	
+	prefixedName := h.formatToolName(namespace, tool.Name())
+	h.tools[prefixedName] = tool
+	h.logger.Debug("MCP tool registered in namespace", "tool", tool.Name(), "namespace", namespace, "prefixedName", prefixedName)
+}
+
+// RegisterResource registers an MCP resource in the default namespace (backward compatible)
+// Resources registered this way maintain their original URIs for backward compatibility
 func (h *MCPHandler) RegisterResource(resource MCPResource) {
 	h.resources[resource.URI()] = resource
-	h.logger.Debug("MCP resource registered", "resource", resource.Name(), "uri", resource.URI())
+	h.logger.Debug("MCP resource registered (backward compatible)", "resource", resource.Name(), "uri", resource.URI())
+}
+
+// RegisterResourceInNamespace registers an MCP resource in the specified namespace
+// This always applies namespace prefixing
+func (h *MCPHandler) RegisterResourceInNamespace(resource MCPResource, namespace string) {
+	if namespace == "" {
+		namespace = h.defaultNamespace
+	}
+	
+	prefixedURI := h.formatResourceName(namespace, resource.URI())
+	h.resources[prefixedURI] = resource
+	h.logger.Debug("MCP resource registered in namespace", "resource", resource.Name(), "namespace", namespace, "uri", resource.URI(), "prefixedURI", prefixedURI)
+}
+
+// RegisterNamespace registers an entire namespace with its tools and resources
+func (h *MCPHandler) RegisterNamespace(name string, configs ...MCPNamespaceConfig) error {
+	if name == "" {
+		return fmt.Errorf("namespace name cannot be empty")
+	}
+	
+	// Create namespace
+	ns := &MCPNamespace{
+		Name:      name,
+		Tools:     make([]MCPTool, 0),
+		Resources: make([]MCPResource, 0),
+	}
+	
+	// Apply configurations
+	for _, config := range configs {
+		config(ns)
+	}
+	
+	// Register tools
+	for _, tool := range ns.Tools {
+		h.RegisterToolInNamespace(tool, name)
+	}
+	
+	// Register resources
+	for _, resource := range ns.Resources {
+		h.RegisterResourceInNamespace(resource, name)
+	}
+	
+	// Store namespace
+	h.namespaces[name] = ns
+	
+	h.logger.Debug("MCP namespace registered", "namespace", name, "tools", len(ns.Tools), "resources", len(ns.Resources))
+	return nil
 }
 
 // GetMetrics returns the current MCP metrics summary
@@ -499,9 +604,9 @@ func (h *MCPHandler) handleInitialized(params interface{}) (interface{}, error) 
 func (h *MCPHandler) handleResourcesList(params interface{}) (interface{}, error) {
 	resources := make([]map[string]interface{}, 0, len(h.resources))
 	
-	for _, resource := range h.resources {
+	for prefixedURI, resource := range h.resources {
 		resources = append(resources, map[string]interface{}{
-			"uri":         resource.URI(),
+			"uri":         prefixedURI, // Use the prefixed URI that clients will request
 			"name":        resource.Name(),
 			"description": resource.Description(),
 			"mimeType":    resource.MimeType(),
@@ -620,9 +725,9 @@ func (h *MCPHandler) handleResourcesRead(params interface{}) (interface{}, error
 func (h *MCPHandler) handleToolsList(params interface{}) (interface{}, error) {
 	tools := make([]map[string]interface{}, 0, len(h.tools))
 	
-	for _, tool := range h.tools {
+	for prefixedName, tool := range h.tools {
 		tools = append(tools, map[string]interface{}{
-			"name":        tool.Name(),
+			"name":        prefixedName, // Use the prefixed name that clients will call
 			"description": tool.Description(),
 			"inputSchema": tool.Schema(),
 		})

@@ -1228,6 +1228,30 @@ func WithMCPSupport(name, version string, configs ...MCPTransportConfig) ServerO
 	}
 }
 
+// WithMCPNamespace registers an additional MCP namespace with tools and resources.
+// This allows you to logically separate tools by domain within a single server instance.
+// Example: WithMCPNamespace("daw", WithNamespaceTools(playTool, stopTool))
+// This creates tools accessible as "mcp__daw__play" and "mcp__daw__stop"
+func WithMCPNamespace(name string, configs ...MCPNamespaceConfig) ServerOptionFunc {
+	return func(srv *Server) error {
+		if !srv.Options.MCPEnabled {
+			return fmt.Errorf("MCP support must be enabled before registering namespaces. Use WithMCPSupport() first")
+		}
+		
+		if srv.mcpHandler == nil {
+			return fmt.Errorf("MCP handler not initialized. This should not happen if MCP is enabled")
+		}
+		
+		// Register the namespace
+		if err := srv.mcpHandler.RegisterNamespace(name, configs...); err != nil {
+			return fmt.Errorf("failed to register MCP namespace %s: %w", name, err)
+		}
+		
+		logger.Debug("MCP namespace registered via server option", "namespace", name)
+		return nil
+	}
+}
+
 // WithMCPEndpoint configures the MCP endpoint path.
 // Default is "/mcp" if not specified.
 func WithMCPEndpoint(endpoint string) ServerOptionFunc {
@@ -1378,6 +1402,35 @@ func (srv *Server) RegisterMCPResource(resource MCPResource) error {
 	}
 	srv.mcpHandler.RegisterResource(resource)
 	return nil
+}
+
+// RegisterMCPToolInNamespace registers a custom MCP tool in the specified namespace
+// This must be called after server creation but before Run()
+func (srv *Server) RegisterMCPToolInNamespace(tool MCPTool, namespace string) error {
+	if !srv.MCPEnabled() {
+		return fmt.Errorf("MCP is not enabled on this server")
+	}
+	srv.mcpHandler.RegisterToolInNamespace(tool, namespace)
+	return nil
+}
+
+// RegisterMCPResourceInNamespace registers a custom MCP resource in the specified namespace
+// This must be called after server creation but before Run()
+func (srv *Server) RegisterMCPResourceInNamespace(resource MCPResource, namespace string) error {
+	if !srv.MCPEnabled() {
+		return fmt.Errorf("MCP is not enabled on this server")
+	}
+	srv.mcpHandler.RegisterResourceInNamespace(resource, namespace)
+	return nil
+}
+
+// RegisterMCPNamespace registers an entire MCP namespace with its tools and resources
+// This must be called after server creation but before Run()
+func (srv *Server) RegisterMCPNamespace(name string, configs ...MCPNamespaceConfig) error {
+	if !srv.MCPEnabled() {
+		return fmt.Errorf("MCP is not enabled on this server")
+	}
+	return srv.mcpHandler.RegisterNamespace(name, configs...)
 }
 
 // printStartupBanner prints the ASCII art and startup information

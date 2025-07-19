@@ -555,3 +555,162 @@ func TestMCPHandler_ServeHTTP_InvalidContentType(t *testing.T) {
 		t.Errorf("Expected status 400, got %d", w.Code)
 	}
 }
+
+func TestMCPHandler_MultipleNamespaces(t *testing.T) {
+	handler := NewMCPHandler(MCPServerInfo{Name: "testserver", Version: "1.0"})
+	
+	// Create test tools for different namespaces
+	calcTool := NewCalculatorTool()
+	httpTool := NewHTTPRequestTool()
+	
+	// Register tools in different namespaces
+	handler.RegisterToolInNamespace(calcTool, "math")
+	handler.RegisterToolInNamespace(httpTool, "web") 
+	
+	// Register a tool in the default namespace (backward compatibility)
+	defaultTool := NewCalculatorTool()
+	handler.RegisterTool(defaultTool)
+	
+	// Test that tools are registered with appropriate names
+	expectedTools := []string{
+		"mcp__math__calculator",     // namespace-specific tool
+		"mcp__web__http_request",    // namespace-specific tool
+		"calculator",                // backward compatible tool (no prefix)
+	}
+	
+	if len(handler.tools) != 3 {
+		t.Errorf("Expected 3 tools, got %d", len(handler.tools))
+	}
+	
+	for _, expectedTool := range expectedTools {
+		if _, exists := handler.tools[expectedTool]; !exists {
+			t.Errorf("Expected tool %s not found", expectedTool)
+		}
+	}
+	
+	// Test tools/list returns prefixed names
+	listRequest := &JSONRPCRequest{
+		JSONRPC: "2.0",
+		Method:  "tools/list",
+		ID:      1,
+	}
+	
+	response := handler.rpcEngine.ProcessRequestDirect(listRequest)
+	if response.Error != nil {
+		t.Fatalf("tools/list failed: %v", response.Error)
+	}
+	
+	result, ok := response.Result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("Expected result to be a map, got %T", response.Result)
+	}
+	
+	tools, ok := result["tools"].([]map[string]interface{})
+	if !ok {
+		t.Fatal("tools not found or not a slice")
+	}
+	
+	if len(tools) != 3 {
+		t.Errorf("Expected 3 tools in list, got %d", len(tools))
+	}
+	
+	// Verify all tools have prefixed names
+	toolNames := make([]string, len(tools))
+	for i, tool := range tools {
+		toolNames[i] = tool["name"].(string)
+	}
+	
+	for _, expectedTool := range expectedTools {
+		found := false
+		for _, toolName := range toolNames {
+			if toolName == expectedTool {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected tool %s not found in tools/list response", expectedTool)
+		}
+	}
+	
+	// Test that tools can be called with their registered names
+	callRequest := &JSONRPCRequest{
+		JSONRPC: "2.0",
+		Method:  "tools/call",
+		Params: map[string]interface{}{
+			"name": "mcp__math__calculator", // Use the namespace-prefixed tool
+			"arguments": map[string]interface{}{
+				"operation": "add",
+				"a":         5.0,
+				"b":         3.0,
+			},
+		},
+		ID: 2,
+	}
+	
+	response = handler.rpcEngine.ProcessRequestDirect(callRequest)
+	if response.Error != nil {
+		t.Errorf("tools/call failed: %v", response.Error)
+	}
+	
+	// The result should contain the calculation result
+	resultMap, ok := response.Result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("Expected result to be a map, got %T", response.Result)
+	}
+	
+	if resultMap["content"] == nil {
+		t.Error("Expected content field in tool call response")
+	}
+}
+
+func TestMCPNamespace_RegisterNamespace(t *testing.T) {
+	handler := NewMCPHandler(MCPServerInfo{Name: "testserver", Version: "1.0"})
+	
+	// Create test tools
+	calc1 := NewCalculatorTool()
+	calc2 := NewCalculatorTool()
+	
+	// Register a namespace with multiple tools
+	err := handler.RegisterNamespace("analytics", 
+		WithNamespaceTools(calc1, calc2),
+	)
+	if err != nil {
+		t.Fatalf("Failed to register namespace: %v", err)
+	}
+	
+	// Verify namespace was registered
+	if _, exists := handler.namespaces["analytics"]; !exists {
+		t.Error("Expected namespace 'analytics' to be registered")
+	}
+	
+	// Verify tools are registered with prefixed names
+	// Note: Both calc tools have the same name, so second overwrites first
+	
+	// Note: Since both calc tools have the same name, the second one overwrites the first
+	// This is expected behavior
+	toolCount := 0
+	for toolName := range handler.tools {
+		if strings.HasPrefix(toolName, "mcp__analytics__") {
+			toolCount++
+		}
+	}
+	
+	if toolCount != 1 { // Only one calculator should remain (second overwrites first)
+		t.Errorf("Expected 1 analytics tool, got %d", toolCount)
+	}
+}
+
+func TestMCPNamespace_EmptyNamespace(t *testing.T) {
+	handler := NewMCPHandler(MCPServerInfo{Name: "testserver", Version: "1.0"})
+	
+	// Try to register namespace with empty name
+	err := handler.RegisterNamespace("", WithNamespaceTools())
+	if err == nil {
+		t.Error("Expected error when registering namespace with empty name")
+	}
+	
+	if !strings.Contains(err.Error(), "namespace name cannot be empty") {
+		t.Errorf("Expected 'namespace name cannot be empty' error, got: %v", err)
+	}
+}
