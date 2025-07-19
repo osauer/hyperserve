@@ -186,39 +186,106 @@ func (t *RouteInspectorTool) Execute(params map[string]interface{}) (interface{}
 		includeMiddleware = true
 	}
 
-	// Get routes from mux (this is a simplified version)
-	// In reality, we'd need to introspect the ServeMux more deeply
 	routes := []map[string]interface{}{}
 
-	// Add known routes (this would be enhanced with actual route discovery)
-	baseRoutes := []string{"/", "/healthz", "/readyz", "/livez"}
-	if t.server.Options.MCPEnabled {
-		baseRoutes = append(baseRoutes, t.server.Options.MCPEndpoint)
+	// Get routes from middleware registry - this contains all routes with middleware
+	if t.server.middleware != nil {
+		for route, middlewareStack := range t.server.middleware.middleware {
+			if pattern != "" && !strings.Contains(route, pattern) {
+				continue
+			}
+
+			routeInfo := map[string]interface{}{
+				"pattern": route,
+				"methods": []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"}, // ServeMux doesn't track methods
+			}
+
+			if includeMiddleware {
+				// Get actual middleware names from the stack
+				middlewareNames := make([]string, 0, len(middlewareStack))
+				for _, middleware := range middlewareStack {
+					// Get the function name using reflection
+					middlewareName := fmt.Sprintf("%T", middleware)
+					// Clean up the function name for better display
+					if strings.Contains(middlewareName, ".") {
+						parts := strings.Split(middlewareName, ".")
+						middlewareName = parts[len(parts)-1]
+					}
+					middlewareNames = append(middlewareNames, middlewareName)
+				}
+				routeInfo["middleware"] = middlewareNames
+			}
+
+			routes = append(routes, routeInfo)
+		}
 	}
 
-	for _, route := range baseRoutes {
-		if pattern != "" && !strings.Contains(route, pattern) {
-			continue
-		}
+	// Add known health routes if they don't exist in middleware registry
+	healthRoutes := []string{"/healthz", "/readyz", "/livez"}
+	if t.server.Options.RunHealthServer {
+		for _, route := range healthRoutes {
+			if pattern != "" && !strings.Contains(route, pattern) {
+				continue
+			}
 
-		routeInfo := map[string]interface{}{
-			"pattern": route,
-			"methods": []string{"GET", "POST"}, // ServeMux doesn't track methods
-		}
+			// Check if this route already exists in our routes list
+			found := false
+			for _, existingRoute := range routes {
+				if existingRoute["pattern"] == route {
+					found = true
+					break
+				}
+			}
 
-		if includeMiddleware {
-			// Middleware information would require extending the middleware registry
-			// For now, we just indicate that middleware exists
-			routeInfo["middleware"] = []string{"DefaultMiddleware", "Route-specific middleware (if any)"}
-		}
+			if !found {
+				routeInfo := map[string]interface{}{
+					"pattern": route,
+					"methods": []string{"GET"},
+					"server":  "health",
+				}
 
-		routes = append(routes, routeInfo)
+				if includeMiddleware {
+					routeInfo["middleware"] = []string{"HealthCheckMiddleware"}
+				}
+
+				routes = append(routes, routeInfo)
+			}
+		}
+	}
+
+	// Add MCP endpoint if enabled
+	if t.server.Options.MCPEnabled {
+		mcpRoute := t.server.Options.MCPEndpoint
+		if pattern == "" || strings.Contains(mcpRoute, pattern) {
+			// Check if this route already exists in our routes list
+			found := false
+			for _, existingRoute := range routes {
+				if existingRoute["pattern"] == mcpRoute {
+					found = true
+					break
+				}
+			}
+
+			if !found {
+				routeInfo := map[string]interface{}{
+					"pattern": mcpRoute,
+					"methods": []string{"GET", "POST"},
+					"server":  "main",
+				}
+
+				if includeMiddleware {
+					routeInfo["middleware"] = []string{"MCPMiddleware"}
+				}
+
+				routes = append(routes, routeInfo)
+			}
+		}
 	}
 
 	return map[string]interface{}{
 		"routes": routes,
-		"total": len(routes),
-		"note": "Route discovery is limited in Go's ServeMux. Consider using a router with better introspection.",
+		"total":  len(routes),
+		"note":   "Routes discovered from middleware registry and known server endpoints",
 	}, nil
 }
 
