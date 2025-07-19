@@ -204,6 +204,66 @@ ext := hyperserve.NewMCPExtension("analytics").
 srv.RegisterMCPExtension(ext)
 ```
 
+## Namespace Support
+
+HyperServe supports organizing MCP tools and resources into namespaces for better organization and to avoid naming conflicts.
+
+### Registering Tools in Namespaces
+
+```go
+// Register a tool in a specific namespace
+srv.RegisterMCPToolInNamespace(tool, "daw")
+// This tool will be accessible as "mcp__daw__play"
+
+// Register a resource in a namespace
+srv.RegisterMCPResourceInNamespace(resource, "analytics")
+// This resource will be accessible as "mcp__analytics__dashboard"
+```
+
+### Registering Entire Namespaces
+
+```go
+// Register a complete namespace with tools and resources
+err := srv.RegisterMCPNamespace("daw",
+    WithNamespaceTools(
+        NewCalculatorTool(),
+        NewFileReadTool(),
+    ),
+    WithNamespaceResources(
+        NewStatusResource(),
+        NewMetricsResource(),
+    ),
+)
+```
+
+### Calling Namespaced Tools
+
+When calling tools that are in namespaces, use the full prefixed name:
+
+```bash
+# Call a namespaced tool
+curl -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "params": {
+      "name": "mcp__daw__calculator",
+      "arguments": {
+        "operation": "add",
+        "a": 5,
+        "b": 3
+      }
+    },
+    "id": 1
+  }'
+```
+
+### Default Namespace
+
+- Tools/resources registered without a namespace maintain their original names for backward compatibility
+- When using namespace methods with an empty namespace, the server name is used as the default namespace
+
 ## Best Practices
 
 ### 1. Security First
