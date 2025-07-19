@@ -62,6 +62,8 @@ coverage.html
 /dist/
 
 # Example binaries
+examples/*/main
+examples/*/*/main
 examples/hello-world/hello-world
 examples/static-files/static-files
 examples/json-api/json-api
@@ -73,4 +75,22 @@ examples/enterprise/enterprise
 examples/htmx-dynamic/htmx-dynamic
 examples/htmx-stream/htmx-stream
 examples/mcp/mcp
+examples/mcp-*/mcp-*
 examples/mcp/sandbox/
+examples/websocket/websocket
+examples/websocket-*/websocket-*
+examples/devops/devops
+
+# Exclude all compiled Go binaries in examples
+examples/**/*
+!examples/**/*.go
+!examples/**/*.md
+!examples/**/*.html
+!examples/**/*.css
+!examples/**/*.js
+!examples/**/*.json
+!examples/**/*.yaml
+!examples/**/*.yml
+!examples/**/go.mod
+!examples/**/go.sum
+!examples/**/.gitkeep

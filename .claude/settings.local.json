@@ -36,7 +36,18 @@
       "Bash(./test-hf-daw --mcp-dev)",
       "Bash(./mcp-flags --mcp-dev)",
       "Bash(go mod:*)",
-      "Bash(gh release list:*)"
+      "Bash(gh release list:*)",
+      "WebFetch(domain:docs.anthropic.com)",
+      "Bash(claude mcp list:*)",
+      "Bash(claude mcp add:*)",
+      "Bash(claude mcp remove:*)",
+      "mcp__hyperserveMCP__read_file",
+      "mcp__hyperserveMCP__server_control",
+      "mcp__hyperserveMCP__dev_guide",
+      "mcp__hyperserveMCP__request_debugger",
+      "mcp__hyperserveMCP__http_request",
+      "mcp__hyperserveMCP__route_inspector",
+      "Bash(cp:*)"
     ],
     "deny": []
   }
