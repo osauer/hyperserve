@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.6] - 2025-07-19
+
+### Fixed
+- **Route Inspector Tool** - Now shows all registered routes instead of limiting to 5
+  - Fixed iteration logic to properly display all routes in middleware registry
+  - Improved route discovery for better debugging capabilities
+
+### Changed
+- **Project Structure** - Major cleanup and reorganization for better maintainability
+  - Removed duplicate files (docs/CHANGELOG.md, README_NEW.md, outdated READMEs)
+  - Consolidated MCP examples from 6 to 4 focused examples:
+    - `mcp-basic` (merged mcp + mcp-sse) - Complete basic example with HTTP/SSE
+    - `mcp-cli` (merged mcp-flags + mcp-development) - CLI configuration with dev mode
+    - `mcp-extensions` - Advanced application integration patterns
+    - `mcp-stdio` - Claude Desktop integration
+  - Consolidated websocket examples into single `websocket-demo`
+  - Cleaned up compiled binaries from examples directory
+  - Updated .gitignore to comprehensively exclude all compiled binaries in examples
+  - Created `docs/guides/` directory for future guide documents
+
+### Improved
+- **Documentation** - Enhanced CLAUDE.md with reference to MCP_GUIDE.md for better AI assistant discovery
+- **Repository Hygiene** - Removed temporary test files and maintained single-package architecture for API stability
+
 ## [0.14.0] - 2025-07-13
 
 ### Added
