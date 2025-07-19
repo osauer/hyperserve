@@ -211,6 +211,7 @@ type Server struct {
 	staticRoot            *os.Root
 	templateRoot          *os.Root
 	mcpHandler            *MCPHandler
+	pendingMCPNamespaces  map[string]*MCPNamespace  // Namespaces queued for registration
 }
 
 // NewServer creates a new instance of the Server with the given options.
@@ -328,6 +329,13 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 			Version: srv.Options.MCPServerVersion,
 		}
 		srv.mcpHandler = NewMCPHandler(serverInfo)
+		
+		// Register any pending namespaces that were queued during server creation
+		for name, namespace := range srv.pendingMCPNamespaces {
+			srv.mcpHandler.RegisterNamespace(namespace)
+			logger.Debug("Registered pending MCP namespace", "namespace", name)
+		}
+		srv.pendingMCPNamespaces = nil // Clear the pending namespaces
 		
 		// Register built-in tools if enabled
 		if srv.Options.MCPToolsEnabled {
@@ -1308,6 +1316,29 @@ func WithMCPResourcesDisabled() ServerOptionFunc {
 	}
 }
 
+// WithMCPNamespace registers an MCP namespace during server creation.
+// This is a convenience function equivalent to calling srv.RegisterMCPNamespace()
+// after server creation but before Run().
+func WithMCPNamespace(name string, configs ...MCPNamespaceConfig) ServerOptionFunc {
+	return func(srv *Server) error {
+		if srv.mcpHandler == nil {
+			// Store namespace registration for later when MCP is initialized
+			if srv.pendingMCPNamespaces == nil {
+				srv.pendingMCPNamespaces = make(map[string]*MCPNamespace)
+			}
+			namespace := NewMCPNamespace(name, configs...)
+			srv.pendingMCPNamespaces[name] = namespace
+			logger.Debug("MCP namespace queued for registration", "namespace", name)
+		} else {
+			// MCP is already initialized, register immediately
+			namespace := NewMCPNamespace(name, configs...)
+			srv.mcpHandler.RegisterNamespace(namespace)
+			logger.Debug("MCP namespace registered", "namespace", name)
+		}
+		return nil
+	}
+}
+
 // WithCSPWebWorkerSupport enables Content Security Policy support for Web Workers using blob: URLs.
 // This is required for modern web applications that use libraries like Tone.js, PDF.js, or other
 // libraries that create Web Workers with blob: URLs for performance optimization.
@@ -1374,6 +1405,40 @@ func (srv *Server) RegisterMCPResource(resource MCPResource) error {
 		return fmt.Errorf("MCP is not enabled on this server")
 	}
 	srv.mcpHandler.RegisterResource(resource)
+	return nil
+}
+
+// RegisterMCPNamespace registers an MCP namespace with its tools and resources
+// This must be called after server creation but before Run()
+func (srv *Server) RegisterMCPNamespace(name string, configs ...MCPNamespaceConfig) error {
+	if !srv.MCPEnabled() {
+		return fmt.Errorf("MCP is not enabled on this server")
+	}
+	
+	namespace := NewMCPNamespace(name, configs...)
+	srv.mcpHandler.RegisterNamespace(namespace)
+	return nil
+}
+
+// RegisterMCPToolInNamespace registers a tool within a specific namespace
+// Tools registered this way get prefixed with mcp__{namespace}__{toolname}
+// This must be called after server creation but before Run()
+func (srv *Server) RegisterMCPToolInNamespace(tool MCPTool, namespaceName string) error {
+	if !srv.MCPEnabled() {
+		return fmt.Errorf("MCP is not enabled on this server")
+	}
+	srv.mcpHandler.RegisterToolInNamespace(tool, namespaceName)
+	return nil
+}
+
+// RegisterMCPResourceInNamespace registers a resource within a specific namespace
+// Resources registered this way get prefixed with mcp__{namespace}__{resourcename}
+// This must be called after server creation but before Run()
+func (srv *Server) RegisterMCPResourceInNamespace(resource MCPResource, namespaceName string) error {
+	if !srv.MCPEnabled() {
+		return fmt.Errorf("MCP is not enabled on this server")
+	}
+	srv.mcpHandler.RegisterResourceInNamespace(resource, namespaceName)
 	return nil
 }
 

@@ -204,6 +204,201 @@ ext := hyperserve.NewMCPExtension("analytics").
 srv.RegisterMCPExtension(ext)
 ```
 
+## Multiple Namespaces
+
+HyperServe supports organizing tools and resources into multiple namespaces within a single server instance. This enables logical separation of concerns and clearer organization for MCP clients.
+
+### Why Use Namespaces?
+
+When building applications with MCP support, you often have different categories of tools:
+- **Server operations**: `server_control`, `route_inspector`, `request_debugger`
+- **Application functionality**: `user_create`, `post_publish`, `data_export`
+- **Domain-specific tools**: `audio_analyze`, `image_process`, `daw_play`
+
+Without namespaces, all tools appear under the default namespace (e.g., `mcp__hyperserve__*`). With namespaces, they can be organized logically:
+- `mcp__hyperserve__server_control` (server operations)
+- `mcp__app__user_create` (application functionality)
+- `mcp__audio__analyze` (domain-specific features)
+
+### Creating Namespaces
+
+#### During Server Creation
+
+```go
+srv, err := hyperserve.NewServer(
+    hyperserve.WithMCPSupport("hyperserve", "1.0.0"),
+    
+    // Add DAW control namespace
+    hyperserve.WithMCPNamespace("daw",
+        hyperserve.WithNamespaceTools(
+            NewPlayTool(),
+            NewStopTool(),
+            NewBPMTool(),
+        ),
+        hyperserve.WithNamespaceResources(
+            NewTrackListResource(),
+        ),
+    ),
+    
+    // Add audio processing namespace
+    hyperserve.WithMCPNamespace("audio",
+        hyperserve.WithNamespaceTools(
+            NewAnalyzeTool(),
+            NewDecomposeTool(),
+        ),
+    ),
+)
+```
+
+#### After Server Creation
+
+```go
+// Register namespace with tools and resources
+err := srv.RegisterMCPNamespace("analytics",
+    hyperserve.WithNamespaceTools(queryTool, reportTool),
+    hyperserve.WithNamespaceResources(statsResource),
+)
+
+// Or register individual tools/resources in a namespace
+err = srv.RegisterMCPToolInNamespace(customTool, "utilities")
+err = srv.RegisterMCPResourceInNamespace(configResource, "system")
+```
+
+### Tool and Resource Naming
+
+When tools and resources are registered in a namespace, they get prefixed automatically:
+
+**Original Names → Namespaced Names**
+- `play` → `mcp__daw__play`
+- `analyze` → `mcp__audio__analyze`
+- `config://app` → `mcp__system__config://app`
+
+**Backward Compatibility**
+Tools registered with the original `RegisterMCPTool()` keep their original names (no prefix).
+
+### Complete Example
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "github.com/osauer/hyperserve"
+)
+
+func main() {
+    // Create tools for different domains
+    playTool := hyperserve.NewTool("play").
+        WithDescription("Play audio track").
+        WithParameter("track_id", "string", "Track ID", true).
+        WithExecute(func(params map[string]interface{}) (interface{}, error) {
+            trackID := params["track_id"].(string)
+            return map[string]interface{}{
+                "status": "playing",
+                "track": trackID,
+            }, nil
+        }).Build()
+    
+    analyzeTool := hyperserve.NewTool("analyze").
+        WithDescription("Analyze audio file").
+        WithParameter("file_path", "string", "Audio file path", true).
+        WithExecute(func(params map[string]interface{}) (interface{}, error) {
+            filePath := params["file_path"].(string)
+            return map[string]interface{}{
+                "duration": 240.5,
+                "tempo": 120,
+                "key": "C major",
+            }, nil
+        }).Build()
+    
+    trackResource := hyperserve.NewResource("tracks://active").
+        WithName("Active Tracks").
+        WithDescription("Currently loaded tracks").
+        WithRead(func() (interface{}, error) {
+            return []string{"track1.wav", "track2.mp3"}, nil
+        }).Build()
+    
+    // Create server with multiple namespaces
+    srv, err := hyperserve.NewServer(
+        hyperserve.WithAddr(":8080"),
+        hyperserve.WithMCPSupport("hyperserve", "1.0.0"),
+        
+        // DAW control namespace
+        hyperserve.WithMCPNamespace("daw",
+            hyperserve.WithNamespaceTools(playTool),
+            hyperserve.WithNamespaceResources(trackResource),
+        ),
+        
+        // Audio processing namespace
+        hyperserve.WithMCPNamespace("audio",
+            hyperserve.WithNamespaceTools(analyzeTool),
+        ),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // Tools are now available as:
+    // - mcp__daw__play
+    // - mcp__audio__analyze
+    // Resources are available as:
+    // - mcp__daw__tracks://active
+    
+    log.Println("Server starting with namespaced MCP tools...")
+    srv.Run(context.Background())
+}
+```
+
+### MCP Client Usage
+
+When connecting from MCP clients (Claude Desktop, etc.), namespaced tools appear with their full names:
+
+```bash
+# List all tools
+curl -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
+
+# Response includes:
+# {
+#   "result": {
+#     "tools": [
+#       {"name": "mcp__daw__play", "description": "Play audio track"},
+#       {"name": "mcp__audio__analyze", "description": "Analyze audio file"}
+#     ]
+#   }
+# }
+
+# Call a namespaced tool
+curl -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "params": {
+      "name": "mcp__daw__play",
+      "arguments": {"track_id": "track1.wav"}
+    },
+    "id": 2
+  }'
+```
+
+### Namespace Organization Tips
+
+1. **Server Operations** (`hyperserve`): Server control, debugging, monitoring
+2. **Application Logic** (`app`): Business logic, user management, data operations
+3. **Domain Features** (`audio`, `image`, `daw`, etc.): Specialized functionality
+4. **System Tools** (`system`): Configuration, file operations, environment
+
+```go
+// Recommended namespace structure
+WithMCPNamespace("hyperserve", ...) // Server operations (optional, this is default)
+WithMCPNamespace("app", ...)        // Core application features
+WithMCPNamespace("audio", ...)      // Audio processing tools
+WithMCPNamespace("system", ...)     // System administration
+```
+
 ## Best Practices
 
 ### 1. Security First

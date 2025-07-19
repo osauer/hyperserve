@@ -555,3 +555,123 @@ func TestMCPHandler_ServeHTTP_InvalidContentType(t *testing.T) {
 		t.Errorf("Expected status 400, got %d", w.Code)
 	}
 }
+
+func TestMCPNamespace_Creation(t *testing.T) {
+	tool := NewCalculatorTool()
+	resource := NewSystemResource()
+	
+	namespace := NewMCPNamespace("test", 
+		WithNamespaceTools(tool),
+		WithNamespaceResources(resource))
+	
+	if namespace.Name() != "test" {
+		t.Errorf("Expected namespace name 'test', got %s", namespace.Name())
+	}
+	
+	if len(namespace.Tools()) != 1 {
+		t.Errorf("Expected 1 tool, got %d", len(namespace.Tools()))
+	}
+	
+	if len(namespace.Resources()) != 1 {
+		t.Errorf("Expected 1 resource, got %d", len(namespace.Resources()))
+	}
+}
+
+func TestMCPHandler_RegisterNamespace(t *testing.T) {
+	handler := NewMCPHandler(MCPServerInfo{Name: "test", Version: "1.0"})
+	
+	tool := NewCalculatorTool()
+	resource := NewSystemResource()
+	
+	namespace := NewMCPNamespace("analytics", 
+		WithNamespaceTools(tool),
+		WithNamespaceResources(resource))
+	
+	// Register the namespace
+	handler.RegisterNamespace(namespace)
+	
+	// Check that tools are registered with prefixed names
+	prefixedToolName := "mcp__analytics__calculator"
+	if _, exists := handler.tools[prefixedToolName]; !exists {
+		t.Errorf("Expected tool %s to be registered", prefixedToolName)
+	}
+	
+	// Check that resources are registered with prefixed URIs
+	prefixedResourceURI := "mcp__analytics__system://runtime/info"
+	if _, exists := handler.resources[prefixedResourceURI]; !exists {
+		t.Errorf("Expected resource %s to be registered", prefixedResourceURI)
+	}
+	
+	// Check that namespace is stored
+	if _, exists := handler.namespaces["analytics"]; !exists {
+		t.Error("Expected namespace 'analytics' to be stored")
+	}
+}
+
+func TestMCPHandler_RegisterToolInNamespace(t *testing.T) {
+	handler := NewMCPHandler(MCPServerInfo{Name: "test", Version: "1.0"})
+	
+	tool := NewCalculatorTool()
+	handler.RegisterToolInNamespace(tool, "math")
+	
+	// Check that tool is registered with prefixed name
+	prefixedToolName := "mcp__math__calculator"
+	if _, exists := handler.tools[prefixedToolName]; !exists {
+		t.Errorf("Expected tool %s to be registered", prefixedToolName)
+	}
+}
+
+func TestMCPHandler_RegisterResourceInNamespace(t *testing.T) {
+	handler := NewMCPHandler(MCPServerInfo{Name: "test", Version: "1.0"})
+	
+	resource := NewSystemResource()
+	handler.RegisterResourceInNamespace(resource, "system")
+	
+	// Check that resource is registered with prefixed URI
+	prefixedResourceURI := "mcp__system__system://runtime/info"
+	if _, exists := handler.resources[prefixedResourceURI]; !exists {
+		t.Errorf("Expected resource %s to be registered", prefixedResourceURI)
+	}
+	
+	// Test that the wrapped resource works correctly
+	wrappedResource := handler.resources[prefixedResourceURI]
+	if wrappedResource.URI() != prefixedResourceURI {
+		t.Errorf("Expected wrapped resource URI %s, got %s", prefixedResourceURI, wrappedResource.URI())
+	}
+	
+	// Test that the original functionality is preserved
+	data, err := wrappedResource.Read()
+	if err != nil {
+		t.Errorf("Error reading wrapped resource: %v", err)
+	}
+	
+	// SystemResource returns a struct, not a string - just verify it's not nil
+	if data == nil {
+		t.Error("Expected wrapped resource data to not be nil")
+	}
+}
+
+func TestNamespacedTool_BackwardCompatibility(t *testing.T) {
+	handler := NewMCPHandler(MCPServerInfo{Name: "test", Version: "1.0"})
+	
+	// Register a tool the old way (no namespace)
+	tool := NewCalculatorTool()
+	handler.RegisterTool(tool)
+	
+	// Register a tool with namespace
+	handler.RegisterToolInNamespace(tool, "math")
+	
+	// Both should be available
+	if _, exists := handler.tools["calculator"]; !exists {
+		t.Error("Expected original tool name 'calculator' to be available")
+	}
+	
+	if _, exists := handler.tools["mcp__math__calculator"]; !exists {
+		t.Error("Expected namespaced tool name 'mcp__math__calculator' to be available")
+	}
+	
+	// Should have 2 tools total
+	if len(handler.tools) != 2 {
+		t.Errorf("Expected 2 tools, got %d", len(handler.tools))
+	}
+}

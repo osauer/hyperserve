@@ -113,6 +113,60 @@ type MCPClientInfo struct {
 	Version string `json:"version"`
 }
 
+// MCPNamespace represents a namespace for grouping tools and resources
+type MCPNamespace struct {
+	name      string
+	tools     []MCPTool
+	resources []MCPResource
+}
+
+// MCPNamespaceConfig is a function that configures namespace options
+type MCPNamespaceConfig func(*MCPNamespace)
+
+// WithNamespaceTools adds tools to a namespace
+func WithNamespaceTools(tools ...MCPTool) MCPNamespaceConfig {
+	return func(ns *MCPNamespace) {
+		ns.tools = append(ns.tools, tools...)
+	}
+}
+
+// WithNamespaceResources adds resources to a namespace
+func WithNamespaceResources(resources ...MCPResource) MCPNamespaceConfig {
+	return func(ns *MCPNamespace) {
+		ns.resources = append(ns.resources, resources...)
+	}
+}
+
+// NewMCPNamespace creates a new MCP namespace with the given configuration
+func NewMCPNamespace(name string, configs ...MCPNamespaceConfig) *MCPNamespace {
+	ns := &MCPNamespace{
+		name:      name,
+		tools:     make([]MCPTool, 0),
+		resources: make([]MCPResource, 0),
+	}
+	
+	for _, config := range configs {
+		config(ns)
+	}
+	
+	return ns
+}
+
+// Name returns the namespace name
+func (ns *MCPNamespace) Name() string {
+	return ns.name
+}
+
+// Tools returns the tools in this namespace
+func (ns *MCPNamespace) Tools() []MCPTool {
+	return ns.tools
+}
+
+// Resources returns the resources in this namespace
+func (ns *MCPNamespace) Resources() []MCPResource {
+	return ns.resources
+}
+
 // MCPOverHTTP configures MCP to use HTTP transport with the specified endpoint
 func MCPOverHTTP(endpoint string) MCPTransportConfig {
 	return func(o *mcpTransportOptions) {
@@ -132,6 +186,7 @@ func MCPOverStdio() MCPTransportConfig {
 type MCPHandler struct {
 	tools       map[string]MCPTool
 	resources   map[string]MCPResource
+	namespaces  map[string]*MCPNamespace  // Maps namespace names to their definitions
 	rpcEngine   *JSONRPCEngine
 	serverInfo  MCPServerInfo
 	logger      *slog.Logger
@@ -193,6 +248,7 @@ func NewMCPHandler(serverInfo MCPServerInfo) *MCPHandler {
 	handler := &MCPHandler{
 		tools:       make(map[string]MCPTool),
 		resources:   make(map[string]MCPResource),
+		namespaces:  make(map[string]*MCPNamespace),
 		rpcEngine:   NewJSONRPCEngine(),
 		serverInfo:  serverInfo,
 		logger:      logger,
@@ -218,6 +274,116 @@ func (h *MCPHandler) RegisterTool(tool MCPTool) {
 func (h *MCPHandler) RegisterResource(resource MCPResource) {
 	h.resources[resource.URI()] = resource
 	h.logger.Debug("MCP resource registered", "resource", resource.Name(), "uri", resource.URI())
+}
+
+// RegisterNamespace registers an MCP namespace with its tools and resources
+func (h *MCPHandler) RegisterNamespace(namespace *MCPNamespace) {
+	// Store the namespace
+	h.namespaces[namespace.Name()] = namespace
+	
+	// Register all tools in the namespace with the prefix
+	for _, tool := range namespace.Tools() {
+		prefixedName := fmt.Sprintf("mcp__%s__%s", namespace.Name(), tool.Name())
+		h.tools[prefixedName] = tool
+		h.logger.Debug("MCP namespaced tool registered", 
+			"namespace", namespace.Name(), 
+			"original", tool.Name(), 
+			"prefixed", prefixedName)
+	}
+	
+	// Register all resources in the namespace with the prefix
+	for _, resource := range namespace.Resources() {
+		// For resources, we need to prefix the URI scheme part
+		originalURI := resource.URI()
+		var prefixedURI string
+		if parts := strings.SplitN(originalURI, ":", 2); len(parts) >= 2 {
+			prefixedURI = fmt.Sprintf("mcp__%s__%s:%s", namespace.Name(), parts[0], parts[1])
+		} else {
+			prefixedURI = fmt.Sprintf("mcp__%s__%s", namespace.Name(), originalURI)
+		}
+		
+		// Create a wrapper resource that reports the prefixed URI
+		wrappedResource := &namespacedResource{
+			original:    resource,
+			prefixedURI: prefixedURI,
+			namespace:   namespace.Name(),
+		}
+		
+		h.resources[prefixedURI] = wrappedResource
+		h.logger.Debug("MCP namespaced resource registered", 
+			"namespace", namespace.Name(), 
+			"original", originalURI, 
+			"prefixed", prefixedURI)
+	}
+	
+	h.logger.Debug("MCP namespace registered", 
+		"namespace", namespace.Name(), 
+		"tools", len(namespace.Tools()), 
+		"resources", len(namespace.Resources()))
+}
+
+// RegisterToolInNamespace registers a tool within a specific namespace
+func (h *MCPHandler) RegisterToolInNamespace(tool MCPTool, namespaceName string) {
+	prefixedName := fmt.Sprintf("mcp__%s__%s", namespaceName, tool.Name())
+	h.tools[prefixedName] = tool
+	h.logger.Debug("MCP tool registered in namespace", 
+		"namespace", namespaceName, 
+		"original", tool.Name(), 
+		"prefixed", prefixedName)
+}
+
+// RegisterResourceInNamespace registers a resource within a specific namespace
+func (h *MCPHandler) RegisterResourceInNamespace(resource MCPResource, namespaceName string) {
+	originalURI := resource.URI()
+	var prefixedURI string
+	if parts := strings.SplitN(originalURI, ":", 2); len(parts) >= 2 {
+		prefixedURI = fmt.Sprintf("mcp__%s__%s:%s", namespaceName, parts[0], parts[1])
+	} else {
+		prefixedURI = fmt.Sprintf("mcp__%s__%s", namespaceName, originalURI)
+	}
+	
+	wrappedResource := &namespacedResource{
+		original:    resource,
+		prefixedURI: prefixedURI,
+		namespace:   namespaceName,
+	}
+	
+	h.resources[prefixedURI] = wrappedResource
+	h.logger.Debug("MCP resource registered in namespace", 
+		"namespace", namespaceName, 
+		"original", originalURI, 
+		"prefixed", prefixedURI)
+}
+
+// namespacedResource wraps an MCPResource to provide a prefixed URI
+type namespacedResource struct {
+	original    MCPResource
+	prefixedURI string
+	namespace   string
+}
+
+func (nr *namespacedResource) URI() string {
+	return nr.prefixedURI
+}
+
+func (nr *namespacedResource) Name() string {
+	return nr.original.Name()
+}
+
+func (nr *namespacedResource) Description() string {
+	return nr.original.Description()
+}
+
+func (nr *namespacedResource) MimeType() string {
+	return nr.original.MimeType()
+}
+
+func (nr *namespacedResource) Read() (interface{}, error) {
+	return nr.original.Read()
+}
+
+func (nr *namespacedResource) List() ([]string, error) {
+	return nr.original.List()
 }
 
 // GetMetrics returns the current MCP metrics summary

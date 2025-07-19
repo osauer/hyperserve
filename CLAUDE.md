@@ -65,3 +65,79 @@ srv, err := hyperserve.NewServer(
 srv.RegisterMCPTool(&MyCustomTool{})
 srv.RegisterMCPResource(&MyCustomResource{})
 ```
+
+### MCP Namespaces for AI Assistants
+
+HyperServe supports **multiple MCP namespaces** to organize tools and resources logically. This is crucial for AI assistants to understand tool organization and use the correct tools for specific tasks.
+
+#### Understanding Namespace Prefixes
+
+When MCP namespaces are configured, tools appear with prefixes:
+- `mcp__hyperserve__server_control` - Server operations
+- `mcp__app__user_create` - Application functionality  
+- `mcp__audio__analyze` - Domain-specific tools
+- `mcp__system__config_read` - System administration
+
+#### AI Assistant Best Practices
+
+1. **Tool Discovery**: Always list available tools first to understand the namespace structure:
+   ```bash
+   curl -X POST http://localhost:8080/mcp \
+     -H "Content-Type: application/json" \
+     -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
+   ```
+
+2. **Namespace Recognition**: Group tools by namespace when presenting options to users:
+   - **Server Operations** (`mcp__hyperserve__*`): Control server, debug requests
+   - **Application Features** (`mcp__app__*`): Business logic, user operations
+   - **Domain Tools** (`mcp__audio__*`, `mcp__daw__*`): Specialized functionality
+
+3. **Tool Selection Logic**: Choose tools based on the task domain:
+   ```bash
+   # For server debugging - use hyperserve namespace
+   {"method":"tools/call","params":{"name":"mcp__hyperserve__server_control","arguments":{"action":"get_status"}}}
+   
+   # For audio processing - use audio namespace
+   {"method":"tools/call","params":{"name":"mcp__audio__analyze","arguments":{"file_path":"/path/to/audio.wav"}}}
+   ```
+
+4. **User Communication**: When suggesting tools, explain the namespace organization:
+   ```
+   I found tools organized in these categories:
+   - Server operations (hyperserve): server_control, route_inspector
+   - Audio processing (audio): analyze, decompose  
+   - DAW controls (daw): play, stop, set_bpm
+   ```
+
+#### Implementing Namespaces for New Projects
+
+When building MCP-enabled applications, organize tools by logical domains:
+
+```go
+// Server with multiple organized namespaces
+srv, err := hyperserve.NewServer(
+    hyperserve.WithMCPSupport("hyperserve", "1.0.0"),
+    
+    // Application core functionality
+    hyperserve.WithMCPNamespace("app",
+        hyperserve.WithNamespaceTools(userTool, postTool, dataTool),
+    ),
+    
+    // Domain-specific tools
+    hyperserve.WithMCPNamespace("audio",
+        hyperserve.WithNamespaceTools(analyzeTool, processTool),
+        hyperserve.WithNamespaceResources(trackListResource),
+    ),
+    
+    // System administration
+    hyperserve.WithMCPNamespace("system",
+        hyperserve.WithNamespaceTools(configTool, logTool),
+    ),
+)
+```
+
+#### Backward Compatibility
+
+- Tools registered with `srv.RegisterMCPTool()` keep original names (no prefix)
+- Existing MCP clients continue to work unchanged
+- New namespaced tools coexist with legacy tools
