@@ -41,13 +41,15 @@
       "Bash(claude mcp list:*)",
       "Bash(claude mcp add:*)",
       "Bash(claude mcp remove:*)",
-      "mcp__hyperserveMCP__read_file",
-      "mcp__hyperserveMCP__server_control",
-      "mcp__hyperserveMCP__dev_guide",
-      "mcp__hyperserveMCP__request_debugger",
-      "mcp__hyperserveMCP__http_request",
-      "mcp__hyperserveMCP__route_inspector",
-      "Bash(cp:*)"
+      "mcp__hyperserve__read_file",
+      "mcp__hyperserve__server_control",
+      "mcp__hyperserve__dev_guide",
+      "mcp__hyperserve__request_debugger",
+      "mcp__hyperserve__http_request",
+      "mcp__hyperserve__route_inspector",
+      "Bash(cp:*)",
+      "Bash(git fetch:*)",
+      "Bash(git stash:*)"
     ],
     "deny": []
   }
