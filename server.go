@@ -371,13 +371,9 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 			}
 		}
 		
-		// Register MCP endpoints
+		// Register unified MCP endpoint
 		srv.mux.Handle(srv.Options.MCPEndpoint, srv.mcpHandler)
-		// Register SSE endpoint separately to ensure proper routing
-		srv.mux.HandleFunc(srv.Options.MCPEndpoint+"/sse", func(w http.ResponseWriter, r *http.Request) {
-			srv.mcpHandler.sseManager.HandleSSE(w, r, srv.mcpHandler)
-		})
-		logger.Debug("MCP handler initialized", "endpoint", srv.Options.MCPEndpoint, "sse", srv.Options.MCPEndpoint+"/sse")
+		logger.Debug("MCP handler initialized", "endpoint", srv.Options.MCPEndpoint)
 	}
 
 	// Start cleanup ticker for rate limiters (run every 5 minutes)
@@ -1471,16 +1467,12 @@ func (srv *Server) printStartupBanner() {
 	}
 	
 	if srv.Options.MCPEnabled {
-		fmt.Printf("MCP:       %s\n", srv.Options.MCPEndpoint)
-		fmt.Printf("MCP SSE:   %s/sse\n", srv.Options.MCPEndpoint)
+		fmt.Printf("MCP:       %s (unified HTTP/SSE endpoint)\n", srv.Options.MCPEndpoint)
 		if srv.Options.mcpTransportOpts.developerMode {
 			// Make MCP more discoverable for AI assistants
-			fmt.Printf("\n🤖 MCP ENABLED: AI assistants must connect via SSE:\n")
-			fmt.Printf("   GET %s://%s%s/sse\n", protocol, addr, srv.Options.MCPEndpoint)
-			fmt.Printf("\n   Example: curl -N %s://%s%s/sse\n",
-				protocol, addr, srv.Options.MCPEndpoint)
-			fmt.Printf("\n   Then send requests to POST %s://%s%s with X-SSE-Client-ID header\n",
-				protocol, addr, srv.Options.MCPEndpoint)
+			fmt.Printf("\n🤖 MCP ENABLED: AI assistants connect via unified endpoint:\n")
+			fmt.Printf("   SSE: GET %s://%s%s with Accept: text/event-stream\n", protocol, addr, srv.Options.MCPEndpoint)
+			fmt.Printf("   HTTP: POST %s://%s%s with Content-Type: application/json\n", protocol, addr, srv.Options.MCPEndpoint)
 		}
 	}
 	

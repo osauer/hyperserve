@@ -401,10 +401,7 @@ func testDefaultNamespaceBehavior(t *testing.T) {
 		t.Errorf("Expected tool %s not found", expectedName)
 	}
 
-	// Verify default namespace is set correctly
-	if handler.defaultNamespace != "myserver" {
-		t.Errorf("Expected default namespace 'myserver', got '%s'", handler.defaultNamespace)
-	}
+	// Note: Default namespace concept removed for simplified implementation
 }
 
 func testEmptyNamespaceHandling(t *testing.T) {
