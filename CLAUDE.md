@@ -133,3 +133,75 @@ srv.RegisterMCPResource(&MyCustomResource{})
 
 For comprehensive MCP information including multiple namespace support, custom tool development, and advanced configuration, see:
 - **[MCP Integration Guide](docs/MCP_GUIDE.md)** - Complete guide with examples, namespaces, and best practices
+
+## Authentication Implementation
+
+HyperServe includes a production-ready authentication system with comprehensive examples:
+
+### Built-in Authentication Middleware
+
+The `AuthMiddleware` in HyperServe provides:
+- Bearer token validation with timing-safe comparison
+- Session context injection after successful authentication
+- Integration with custom `AuthTokenValidatorFunc`
+- Proper HTTP status codes (401, 500)
+
+### Authentication Example
+
+The **[examples/auth](examples/auth/)** directory contains a complete authentication implementation featuring:
+
+1. **Multiple Authentication Methods**:
+   - JWT with RS256 signature verification
+   - API Keys with per-key rate limiting
+   - Basic Auth (development only)
+
+2. **Security Features**:
+   - Rate limiting per token to prevent brute force
+   - Timing-safe validation using `crypto/subtle`
+   - Comprehensive audit logging
+   - Environment-specific configurations
+
+3. **RBAC Support**:
+   - Role-based access control
+   - Fine-grained permissions
+   - Permission middleware for route protection
+
+### Quick Start
+
+```go
+// Create a token validator function
+validator := func(ctx context.Context, token string) (string, bool) {
+    // Your validation logic here
+    return sessionID, isValid
+}
+
+// Create server with authentication
+srv, err := hyperserve.NewServer(
+    hyperserve.WithAuthTokenValidator(validator),
+    hyperserve.WithSecurityHeaders(true),
+    hyperserve.WithRateLimiting(true),
+)
+
+// Apply auth middleware to protected routes
+api := srv.Group("/api")
+api.Use(srv.AuthMiddleware)
+```
+
+### Integration with MCP Discovery
+
+The authentication system integrates seamlessly with MCP discovery policies:
+
+```go
+// Use JWT claims for MCP tool filtering
+srv, err := hyperserve.NewServer(
+    hyperserve.WithMCPDiscoveryFilter(func(toolName string, r *http.Request) bool {
+        token := r.Header.Get("Authorization")
+        if claims, err := validateJWT(token); err == nil {
+            return claims.HasPermission(toolName)
+        }
+        return false
+    }),
+)
+```
+
+For a complete implementation guide, see the [auth example README](examples/auth/README.md).

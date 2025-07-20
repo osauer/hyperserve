@@ -55,11 +55,13 @@ Master HyperServe's configuration system.
 - **Run:** `go run examples/configuration/main.go`
 
 #### [auth](auth/) ⭐⭐⭐
-Token-based authentication (Coming Soon).
-- Bearer token validation
-- Protected vs public routes
-- Custom validators
-- **Status:** TODO
+Production-ready authentication with multiple methods.
+- JWT (RS256), API Keys, and Basic Auth
+- Rate limiting per token
+- RBAC with roles and permissions
+- Environment-specific configurations
+- Comprehensive audit logging
+- **Run:** `go run examples/auth/main.go`
 
 #### [chaos](chaos/) ⭐⭐⭐
 Test your application's resilience with chaos engineering.

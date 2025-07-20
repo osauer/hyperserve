@@ -341,7 +341,8 @@ export HS_MCP_TRANSPORT=http        # or stdio for Claude Desktop
 ## Examples
 
 - [Hello World](examples/hello-world) - Minimal server
-- [JSON API](examples/json-api) - RESTful API with authentication
+- [JSON API](examples/json-api) - RESTful API with JSON handling
+- [Auth](examples/auth) - Production-ready authentication (JWT, API Keys, RBAC)
 - [MCP Flags](examples/mcp-flags) - Configure MCP via flags/environment
 - [MCP Development](examples/mcp-development) - AI-assisted development
 - [MCP Extensions](examples/mcp-extensions) - Custom tools and resources
