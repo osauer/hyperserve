@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] - 2025-07-20
+
+### Added
+- **MCP Discovery Endpoints** - Implemented Claude Code discovery mechanisms
+  - Added `/.well-known/mcp.json` endpoint for standard MCP discovery
+  - Added `/mcp/discover` endpoint as alternative discovery mechanism
+  - Both endpoints return transport information, capabilities, and connection details
+  - Enables automatic MCP server discovery without manual configuration
+  - Updated CLAUDE.md and README.md with discovery endpoint documentation
+
 ## [0.16.0] - 2025-07-20
 
 ### Added
