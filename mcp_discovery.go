@@ -6,6 +6,20 @@ import (
 	"strings"
 )
 
+// DiscoveryPolicy defines how MCP tools and resources are exposed in discovery endpoints
+type DiscoveryPolicy int
+
+const (
+	// DiscoveryPublic shows all discoverable tools/resources (default)
+	DiscoveryPublic DiscoveryPolicy = iota
+	// DiscoveryCount only shows counts, not names
+	DiscoveryCount
+	// DiscoveryAuthenticated shows all if request has valid auth
+	DiscoveryAuthenticated
+	// DiscoveryNone hides all tool/resource information
+	DiscoveryNone
+)
+
 // MCPDiscoveryInfo represents the discovery information for MCP endpoints
 type MCPDiscoveryInfo struct {
 	Version     string                 `json:"version"`
@@ -109,15 +123,45 @@ func (srv *Server) buildDiscoveryInfo(r *http.Request) MCPDiscoveryInfo {
 		},
 	}
 
-	// Add capabilities if available
+	// Add capabilities with dynamic tool/resource information
 	if srv.mcpHandler != nil {
+		// Get registered tools and resources
+		tools := srv.mcpHandler.GetRegisteredTools()
+		resources := srv.mcpHandler.GetRegisteredResources()
+		
+		// Build tool capability info based on policy
+		toolCapability := map[string]interface{}{
+			"supported": true,
+			"count":     len(tools),
+		}
+		
+		// Apply discovery policy for tools
+		if srv.shouldIncludeToolList(r) {
+			filteredTools := make([]string, 0, len(tools))
+			for _, toolName := range tools {
+				if srv.shouldExposeToolInDiscovery(toolName, r) {
+					filteredTools = append(filteredTools, toolName)
+				}
+			}
+			if len(filteredTools) > 0 {
+				toolCapability["available"] = filteredTools
+			}
+		}
+		
+		// Build resource capability info
+		resourceCapability := map[string]interface{}{
+			"supported": true,
+			"count":     len(resources),
+		}
+		
+		// Resources follow the same policy as tools
+		if srv.shouldIncludeToolList(r) {
+			resourceCapability["available"] = resources
+		}
+		
 		info.Capabilities = map[string]interface{}{
-			"tools": map[string]interface{}{
-				"supported": true,
-			},
-			"resources": map[string]interface{}{
-				"supported": true,
-			},
+			"tools":     toolCapability,
+			"resources": resourceCapability,
 			"sse": map[string]interface{}{
 				"enabled":       true,
 				"endpoint":      "same",
@@ -134,6 +178,75 @@ func (srv *Server) buildDiscoveryInfo(r *http.Request) MCPDiscoveryInfo {
 	}
 
 	return info
+}
+
+// shouldIncludeToolList determines if tool/resource lists should be included based on policy
+func (srv *Server) shouldIncludeToolList(r *http.Request) bool {
+	switch srv.Options.MCPDiscoveryPolicy {
+	case DiscoveryNone, DiscoveryCount:
+		return false
+	case DiscoveryAuthenticated:
+		// Check for Authorization header
+		return r.Header.Get("Authorization") != ""
+	case DiscoveryPublic:
+		return true
+	default:
+		return true // Default to public
+	}
+}
+
+// shouldExposeToolInDiscovery determines if a specific tool should be exposed
+func (srv *Server) shouldExposeToolInDiscovery(toolName string, r *http.Request) bool {
+	// Use custom filter if provided
+	if srv.Options.MCPDiscoveryFilter != nil {
+		return srv.Options.MCPDiscoveryFilter(toolName, r)
+	}
+	
+	// Default filtering logic
+	switch srv.Options.MCPDiscoveryPolicy {
+	case DiscoveryNone:
+		return false
+		
+	case DiscoveryCount:
+		return false // Only counts, no names
+		
+	case DiscoveryAuthenticated:
+		// Must have auth to see any tools
+		if r.Header.Get("Authorization") == "" {
+			return false
+		}
+		// Fall through to default filtering
+		
+	case DiscoveryPublic:
+		// Apply default filtering rules
+	}
+	
+	// Default rules for all policies except None/Count
+	
+	// Hide internal tools
+	if strings.HasPrefix(toolName, "internal_") || strings.HasPrefix(toolName, "_") {
+		return false
+	}
+	
+	// Hide sensitive tools unless in dev mode
+	if !srv.Options.MCPDev {
+		if strings.Contains(toolName, "debug") || strings.Contains(toolName, "admin") {
+			return false
+		}
+		// Hide dev tools like server_control
+		if toolName == "server_control" || toolName == "request_debugger" {
+			return false
+		}
+	}
+	
+	// Check if tool implements IsDiscoverable
+	if tool, exists := srv.mcpHandler.GetToolByName(toolName); exists {
+		if discoverable, ok := tool.(interface{ IsDiscoverable() bool }); ok {
+			return discoverable.IsDiscoverable()
+		}
+	}
+	
+	return true // Default to discoverable
 }
 
 // getMCPBaseURL returns the base URL for MCP endpoints, handling various host configurations

@@ -335,6 +335,30 @@ func (h *MCPHandler) GetMetrics() map[string]interface{} {
 	return h.metrics.GetMetricsSummary()
 }
 
+// GetRegisteredTools returns a list of all registered tool names
+func (h *MCPHandler) GetRegisteredTools() []string {
+	tools := make([]string, 0, len(h.tools))
+	for name := range h.tools {
+		tools = append(tools, name)
+	}
+	return tools
+}
+
+// GetRegisteredResources returns a list of all registered resource URIs
+func (h *MCPHandler) GetRegisteredResources() []string {
+	resources := make([]string, 0, len(h.resources))
+	for uri := range h.resources {
+		resources = append(resources, uri)
+	}
+	return resources
+}
+
+// GetToolByName returns a tool by its name (for discovery filtering)
+func (h *MCPHandler) GetToolByName(name string) (MCPTool, bool) {
+	tool, exists := h.tools[name]
+	return tool, exists
+}
+
 // ProcessRequest processes an MCP request
 func (h *MCPHandler) ProcessRequest(requestData []byte) []byte {
 	return h.rpcEngine.ProcessRequest(requestData)

@@ -75,7 +75,29 @@ curl http://localhost:8080/.well-known/mcp.json
 curl http://localhost:8080/mcp/discover
 ```
 
-These endpoints return information about available transports, capabilities, and connection details.
+These endpoints return:
+- Available transports (HTTP, SSE)
+- Server capabilities
+- Dynamic tool/resource lists (based on policy)
+
+##### Discovery Security
+
+Control what tools are exposed through discovery:
+
+```go
+// Production: Only show counts
+srv, _ := hyperserve.NewServer(
+    hyperserve.WithMCPDiscoveryPolicy(hyperserve.DiscoveryCount),
+)
+
+// With RBAC: Custom filter
+srv, _ := hyperserve.NewServer(
+    hyperserve.WithMCPDiscoveryFilter(func(toolName string, r *http.Request) bool {
+        token := r.Header.Get("Authorization")
+        return isAuthorized(token, toolName)
+    }),
+)
+```
 
 #### Server-Sent Events (SSE) Support
 

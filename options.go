@@ -38,6 +38,7 @@ package hyperserve
 import (
 	"encoding/json"
 	"log/slog"
+	"net/http"
 	"os"
 	"reflect"
 	"time"
@@ -88,6 +89,8 @@ type ServerOptions struct {
 	MCPTransport           MCPTransportType `json:"mcp_transport,omitempty"`
 	MCPDev                 bool     `json:"mcp_dev,omitempty"`
 	MCPObservability       bool     `json:"mcp_observability,omitempty"`
+	MCPDiscoveryPolicy     DiscoveryPolicy `json:"mcp_discovery_policy,omitempty"`
+	MCPDiscoveryFilter     func(toolName string, r *http.Request) bool `json:"-"` // Custom filter function
 	mcpTransportOpts       mcpTransportOptions // Internal transport options
 	// CSP (Content Security Policy) configuration
 	CSPWebWorkerSupport    bool     `json:"csp_web_worker_support,omitempty"`

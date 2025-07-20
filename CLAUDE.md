@@ -63,6 +63,40 @@ These endpoints help AI assistants like Claude Code automatically discover:
 - Endpoint URLs
 - Server capabilities
 - Required headers for each transport type
+- **Dynamic tool and resource lists** (based on discovery policy)
+
+### Discovery Policies
+
+HyperServe supports configurable discovery policies to control what information is exposed:
+
+```go
+// Only show tool/resource counts (most secure)
+srv, _ := hyperserve.NewServer(
+    hyperserve.WithMCPDiscoveryPolicy(hyperserve.DiscoveryCount),
+)
+
+// Show full list only with Authorization header
+srv, _ := hyperserve.NewServer(
+    hyperserve.WithMCPDiscoveryPolicy(hyperserve.DiscoveryAuthenticated),
+)
+
+// Custom filter for RBAC integration
+srv, _ := hyperserve.NewServer(
+    hyperserve.WithMCPDiscoveryFilter(func(toolName string, r *http.Request) bool {
+        // Decode JWT from Authorization header
+        token := r.Header.Get("Authorization")
+        if claims, err := validateJWT(token); err == nil {
+            return claims.HasPermission(toolName)
+        }
+        return false
+    }),
+)
+```
+
+**Security Notes:**
+- Dev tools (server_control, request_debugger) are hidden in production
+- Tools can opt out by implementing `IsDiscoverable() bool`
+- Custom filters enable RBAC integration with existing auth systems
 
 ### Enabling MCP
 
