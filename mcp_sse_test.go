@@ -285,3 +285,107 @@ func TestSSEClientLifecycle(t *testing.T) {
 		}
 	})
 }
+
+func TestMCPSSE_DirectJSONRPCPost(t *testing.T) {
+	// Create a server with MCP enabled
+	srv, err := NewServer(
+		WithMCPSupport("test-server", "1.0.0"),
+		WithMCPBuiltinTools(true),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create test server
+	ts := httptest.NewServer(srv.mux)
+	defer ts.Close()
+
+	t.Run("Direct POST to SSE endpoint", func(t *testing.T) {
+		// Send JSON-RPC request directly to SSE endpoint
+		reqBody := bytes.NewBufferString(`{"jsonrpc":"2.0","method":"ping","id":1}`)
+		resp, err := http.Post(ts.URL+"/mcp/sse", "application/json", reqBody)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+
+		// Should get 200 OK with JSON response
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			t.Errorf("Expected status 200, got %d: %s", resp.StatusCode, body)
+		}
+
+		// Check Content-Type is JSON
+		contentType := resp.Header.Get("Content-Type")
+		if !strings.Contains(contentType, "application/json") {
+			t.Errorf("Expected JSON content type, got: %s", contentType)
+		}
+
+		// Parse response
+		var response JSONRPCResponse
+		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+			t.Fatalf("Failed to decode JSON response: %v", err)
+		}
+
+		
+		// Verify response structure
+		if response.JSONRPC != "2.0" {
+			t.Errorf("Expected JSONRPC 2.0, got %s", response.JSONRPC)
+		}
+		
+		// Check ID (could be int or float64 from JSON)
+		switch id := response.ID.(type) {
+		case int:
+			if id != 1 {
+				t.Errorf("Expected ID 1, got %v", id)
+			}
+		case float64:
+			if id != 1.0 {
+				t.Errorf("Expected ID 1, got %v", id)
+			}
+		default:
+			t.Errorf("Expected numeric ID, got %T: %v", id, id)
+		}
+
+		if response.Error != nil {
+			t.Errorf("Unexpected error: %v", response.Error)
+		}
+
+		// Ping should return {"message": "pong"}
+		if result, ok := response.Result.(map[string]interface{}); !ok {
+			t.Errorf("Expected map result, got %v", response.Result)
+		} else if msg, exists := result["message"]; !exists || msg != "pong" {
+			t.Errorf("Expected 'pong' message, got %v", result)
+		}
+	})
+
+	t.Run("Invalid JSON to SSE endpoint", func(t *testing.T) {
+		// Send invalid JSON
+		reqBody := bytes.NewBufferString(`{"invalid":json}`)
+		resp, err := http.Post(ts.URL+"/mcp/sse", "application/json", reqBody)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+
+		// Should get 400 Bad Request
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("Expected status 400, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("Wrong Content-Type to SSE endpoint", func(t *testing.T) {
+		// Send with wrong content type
+		reqBody := bytes.NewBufferString(`{"jsonrpc":"2.0","method":"ping","id":1}`)
+		resp, err := http.Post(ts.URL+"/mcp/sse", "text/plain", reqBody)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+
+		// Should get 400 Bad Request
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("Expected status 400, got %d", resp.StatusCode)
+		}
+	})
+}

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"math/rand"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -129,6 +130,18 @@ func (c *SSEClient) writeSSEMessage(eventType string, data []byte) error {
 
 // HandleSSE handles SSE connections for MCP
 func (m *SSEManager) HandleSSE(w http.ResponseWriter, r *http.Request, mcpHandler *MCPHandler) {
+	// Handle POST requests for JSON-RPC over SSE
+	if r.Method == http.MethodPost {
+		m.handleJSONRPCOverSSE(w, r, mcpHandler)
+		return
+	}
+	
+	// Handle GET requests for SSE connection establishment
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed. Use GET for SSE connection or POST for JSON-RPC requests.", http.StatusMethodNotAllowed)
+		return
+	}
+	
 	// Check if SSE is supported
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -254,6 +267,39 @@ func (m *SSEManager) HandleSSE(w http.ResponseWriter, r *http.Request, mcpHandle
 			}
 		}
 	}
+}
+
+// handleJSONRPCOverSSE handles JSON-RPC requests sent directly to the SSE endpoint
+func (m *SSEManager) handleJSONRPCOverSSE(w http.ResponseWriter, r *http.Request, mcpHandler *MCPHandler) {
+	// Validate Content-Type
+	if !strings.Contains(r.Header.Get("Content-Type"), "application/json") {
+		http.Error(w, "Content-Type must be application/json", http.StatusBadRequest)
+		return
+	}
+	
+	// Parse JSON-RPC request
+	var request JSONRPCRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "Invalid JSON-RPC request: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	
+	m.logger.Debug("Received JSON-RPC request on SSE endpoint", "method", request.Method, "id", request.ID)
+	
+	// Process the request directly using the MCP handler's RPC engine
+	response := mcpHandler.rpcEngine.ProcessRequestDirect(&request)
+	
+	// Send JSON response back to the client
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		m.logger.Error("Failed to send JSON-RPC response", "error", err)
+		http.Error(w, "Failed to send response", http.StatusInternalServerError)
+		return
+	}
+	
+	m.logger.Debug("JSON-RPC response sent via SSE endpoint", "method", request.Method, "id", request.ID)
 }
 
 // SendToClient sends a response to a specific SSE client
