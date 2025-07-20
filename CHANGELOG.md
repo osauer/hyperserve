@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0] - 2025-07-20
+
+### Added
+- **Dynamic Discovery with Security Policies** - Enhanced MCP discovery with configurable security
+  - Tools/resources can implement `IsDiscoverable()` to opt out of discovery
+  - Added `DiscoveryPolicy` enum: Public, Count, Authenticated, None
+  - Added `WithMCPDiscoveryPolicy()` and `WithMCPDiscoveryFilter()` server options
+  - Discovery endpoints now return dynamic tool/resource lists based on policy
+  - Default filtering hides dev tools (server_control, etc) in production
+  - Custom filters enable RBAC integration via Authorization headers
+  - Created examples/mcp-discovery demonstrating different policies
+
+### Changed
+- Discovery endpoints now show actual registered tools/resources instead of static capabilities
+- Tool counts and lists respect discovery policies and custom filters
+
 ## [0.17.0] - 2025-07-20
 
 ### Added
