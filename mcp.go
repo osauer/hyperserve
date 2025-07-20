@@ -79,6 +79,7 @@ type MCPCapabilities struct {
 	Resources      *ResourcesCapability   `json:"resources,omitempty"`
 	Tools          *ToolsCapability       `json:"tools,omitempty"`
 	Sampling       *SamplingCapability    `json:"sampling,omitempty"`
+	SSE            *SSECapability         `json:"sse,omitempty"`
 }
 
 // LoggingCapability represents the server's logging capability.
@@ -100,6 +101,13 @@ type ToolsCapability struct {
 
 // SamplingCapability represents the server's sampling capability.
 type SamplingCapability struct{}
+
+// SSECapability represents the server's Server-Sent Events capability.
+type SSECapability struct {
+	Enabled        bool   `json:"enabled"`
+	Endpoint       string `json:"endpoint"`
+	HeaderRouting  bool   `json:"headerRouting"`
+}
 
 // MCPServerInfo represents MCP server information
 type MCPServerInfo struct {
@@ -583,9 +591,14 @@ func (h *MCPHandler) handleInitialize(params interface{}) (interface{}, error) {
 			Tools: &ToolsCapability{
 				ListChanged: false,
 			},
+			SSE: &SSECapability{
+				Enabled:       true,
+				Endpoint:      "same",
+				HeaderRouting: true,
+			},
 		},
 		"serverInfo": h.serverInfo,
-		"instructions": "Follow the initialization protocol: after receiving this response, send an 'initialized' notification, then the server will send a 'ready' notification.",
+		"instructions": "Follow the initialization protocol: after receiving this response, send an 'initialized' notification, then the server will send a 'ready' notification. For SSE support, connect to the SAME endpoint with 'Accept: text/event-stream' header.",
 	}, nil
 }
 

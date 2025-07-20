@@ -63,6 +63,22 @@ HS_MCP_ENABLED=true HS_MCP_DEV=true ./myapp
 }
 ```
 
+#### Server-Sent Events (SSE) Support
+
+HyperServe's MCP endpoint supports both regular HTTP and SSE connections using the **same endpoint**:
+
+```bash
+# Regular HTTP requests
+curl -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
+
+# SSE connection (same endpoint, different header)
+curl -N -H "Accept: text/event-stream" http://localhost:8080/mcp
+```
+
+SSE enables real-time bidirectional communication for advanced use cases like live debugging and monitoring.
+
 #### Claude Desktop Integration (STDIO)
 ```bash
 # Build your app with MCP support

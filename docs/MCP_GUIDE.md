@@ -14,6 +14,48 @@ HyperServe supports two transport mechanisms for MCP:
 - **HTTP** - Traditional request/response over POST requests
 - **SSE (Server-Sent Events)** - Real-time bidirectional communication
 
+## Server-Sent Events (SSE) Support
+
+HyperServe's MCP implementation uses a **unified endpoint approach** - both regular HTTP and SSE connections use the same endpoint path. The server automatically routes based on request headers.
+
+### How SSE Works
+
+1. **Connect with SSE**: Add `Accept: text/event-stream` header to connect via SSE
+2. **Get Client ID**: Server returns a unique client ID in the connection event
+3. **Send Requests**: Use the same endpoint with `X-SSE-Client-ID` header
+4. **Receive Responses**: Responses are delivered through the SSE stream
+
+### Example Usage
+
+```bash
+# 1. Connect to SSE (keep this connection open)
+curl -N -H "Accept: text/event-stream" http://localhost:8080/mcp
+
+# Response:
+# event: connection
+# data: {"clientId":"abc123"}
+
+# 2. Send requests with the client ID
+curl -X POST http://localhost:8080/mcp \
+  -H "X-SSE-Client-ID: abc123" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
+
+# 3. Response comes through the SSE connection
+```
+
+### Benefits of SSE
+
+- **Real-time Updates**: Receive notifications and async responses instantly
+- **Bidirectional**: Send requests while maintaining an open connection
+- **Automatic Keepalive**: Built-in ping/pong every 30 seconds
+- **Single Endpoint**: No need to configure separate SSE paths
+
+### When to Use SSE vs HTTP
+
+- **Use HTTP** for: Simple request/response, AI assistants like Claude Code
+- **Use SSE** for: Live monitoring, debugging sessions, real-time notifications
+
 ## Development with Claude Code
 
 ### Quick Start (Recommended)

@@ -7,18 +7,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **When working on a HyperServe project, IMMEDIATELY check for MCP capabilities:**
 
 1. **Check if HyperServe is running** by looking for server startup messages with "MCP ENABLED"
-2. **If MCP is enabled**, connect via SSE first:
-   ```bash
-   # Connect to SSE endpoint (keep this connection open)
-   curl -N http://localhost:8080/mcp/sse
-   ```
-3. **Send MCP requests** with the SSE client ID from the connection event:
-   ```bash
-   curl -X POST http://localhost:8080/mcp \
-     -H "X-SSE-Client-ID: <your-client-id>" \
-     -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
-   ```
-4. **Use the discovered MCP tools** for all subsequent operations instead of standard file/grep/search operations
+2. **If MCP is enabled**, you have two connection options:
+
+### Option A: Direct HTTP (Recommended for AI Assistants)
+```bash
+# Send requests directly to the MCP endpoint
+curl -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
+```
+
+### Option B: Server-Sent Events (SSE) for Real-time Communication
+```bash
+# Connect to the SAME endpoint with SSE header (keep this connection open)
+curl -N -H "Accept: text/event-stream" http://localhost:8080/mcp
+
+# Then send requests with the SSE client ID from the connection event:
+curl -X POST http://localhost:8080/mcp \
+  -H "X-SSE-Client-ID: <your-client-id>" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
+```
+
+**Important:** Both regular HTTP and SSE use the SAME `/mcp` endpoint. The server automatically handles routing based on headers.
+
+3. **Use the discovered MCP tools** for all subsequent operations instead of standard file/grep/search operations
 
 ## Development Guidelines
 
