@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2025-07-20
+
+### Added
+- **Enhanced SSE Documentation** - Improved discoverability of the unified MCP endpoint approach
+  - Updated CLAUDE.md with clear SSE connection instructions for AI assistants
+  - Added SSE capability to MCP initialize response for automatic discovery
+  - Enhanced README.md with SSE support section explaining unified endpoint
+  - Expanded MCP_GUIDE.md with detailed SSE documentation and examples
+  - Created examples/mcp-sse directory with complete SSE client/server examples
+
+### Changed
+- **Simplified MCP Implementation** - Removed backward compatibility for cleaner code
+  - `RegisterTool()` and `RegisterResource()` now register without namespace prefixing
+  - `RegisterToolInNamespace()` and `RegisterResourceInNamespace()` always apply prefixes
+  - Removed complex dual-mode logic, making the API more predictable
+  - Net reduction of 17 lines while improving clarity
+
+### Fixed
+- **SSE Capability Reporting** - SSE support is now properly advertised in MCP capabilities
+  - Added `SSECapability` struct to `MCPCapabilities`
+  - Initialize response now includes SSE configuration details
+  - Instructions updated to mention SSE support alongside regular HTTP
+
 ## [0.15.0] - 2025-07-19
 
 ### Added
