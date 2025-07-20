@@ -60,7 +60,7 @@ func TestMCPSecurity_PathTraversalAttacks(t *testing.T) {
 				"jsonrpc": "2.0",
 				"method":  "tools/call",
 				"params": map[string]interface{}{
-					"name": "read_file",
+					"name": "mcp__hyperserve__read_file",
 					"arguments": map[string]interface{}{
 						"path": maliciousPath,
 					},
@@ -135,7 +135,7 @@ func TestMCPSecurity_SymlinkAttacks(t *testing.T) {
 		"jsonrpc": "2.0",
 		"method":  "tools/call",
 		"params": map[string]interface{}{
-			"name": "read_file",
+			"name": "mcp__hyperserve__read_file",
 			"arguments": map[string]interface{}{
 				"path": "malicious_link",
 			},
@@ -173,7 +173,7 @@ func TestMCPSecurity_InputValidation(t *testing.T) {
 				"jsonrpc": "2.0",
 				"method":  "tools/call",
 				"params": map[string]interface{}{
-					"name": "read_file",
+					"name": "mcp__hyperserve__read_file",
 					"arguments": map[string]interface{}{
 						"path": "test.txt\x00../../etc/passwd",
 					},
@@ -188,7 +188,7 @@ func TestMCPSecurity_InputValidation(t *testing.T) {
 				"jsonrpc": "2.0",
 				"method":  "tools/call",
 				"params": map[string]interface{}{
-					"name": "read_file",
+					"name": "mcp__hyperserve__read_file",
 					"arguments": map[string]interface{}{
 						"path": strings.Repeat("a", 10000),
 					},
@@ -231,7 +231,7 @@ func TestMCPSecurity_InputValidation(t *testing.T) {
 				"jsonrpc": "2.0",
 				"method":  "tools/call",
 				"params": map[string]interface{}{
-					"name": "calculator",
+					"name": "mcp__hyperserve__calculator",
 					"arguments": map[string]interface{}{
 						"operation": "exploit",
 						"a":         "' OR 1=1 --",
@@ -248,7 +248,7 @@ func TestMCPSecurity_InputValidation(t *testing.T) {
 				"jsonrpc": "2.0",
 				"method":  "tools/call",
 				"params": map[string]interface{}{
-					"name": "calculator",
+					"name": "mcp__hyperserve__calculator",
 					"arguments": map[string]interface{}{
 						"operation": "multiply",
 						"a":         1e308,  // Near float64 max
@@ -391,7 +391,7 @@ func TestMCPSecurity_FilePermissions(t *testing.T) {
 		"jsonrpc": "2.0",
 		"method":  "tools/call",
 		"params": map[string]interface{}{
-			"name": "read_file",
+			"name": "mcp__hyperserve__read_file",
 			"arguments": map[string]interface{}{
 				"path": "restricted.txt",
 			},
@@ -504,7 +504,7 @@ func TestMCPSecurity_DenialOfService(t *testing.T) {
 			"jsonrpc": "2.0",
 			"method":  "tools/call",
 			"params": map[string]interface{}{
-				"name": "calculator",
+				"name": "mcp__hyperserve__calculator",
 				"arguments": map[string]interface{}{
 					"operation": "add",
 					"a":         largeData, // This should cause type conversion to fail
@@ -538,7 +538,7 @@ func TestMCPSecurity_DenialOfService(t *testing.T) {
 			"jsonrpc": "2.0",
 			"method":  "tools/call",
 			"params": map[string]interface{}{
-				"name": "calculator",
+				"name": "mcp__hyperserve__calculator",
 				"arguments": nested, // Deeply nested arguments
 			},
 			"id": 1,

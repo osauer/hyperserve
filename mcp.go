@@ -262,9 +262,9 @@ func (h *MCPHandler) RegisterTool(tool MCPTool) {
 // RegisterToolInNamespace registers an MCP tool in the specified namespace
 // This always applies namespace prefixing
 func (h *MCPHandler) RegisterToolInNamespace(tool MCPTool, namespace string) {
+	// Use server name as default namespace if empty
 	if namespace == "" {
-		h.logger.Error("Cannot register tool without namespace", "tool", tool.Name())
-		return
+		namespace = h.serverInfo.Name
 	}
 	
 	prefixedName := h.formatToolName(namespace, tool.Name())

@@ -96,7 +96,7 @@ func TestMCPHandler_ConcurrentRequests(t *testing.T) {
 					"jsonrpc": "2.0",
 					"method":  "tools/call",
 					"params": map[string]interface{}{
-						"name": "calculator",
+						"name": "mcp__hyperserve__calculator",
 						"arguments": map[string]interface{}{
 							"operation": "add",
 							"a":         10.0,
@@ -109,7 +109,7 @@ func TestMCPHandler_ConcurrentRequests(t *testing.T) {
 					"jsonrpc": "2.0",
 					"method":  "tools/call",
 					"params": map[string]interface{}{
-						"name": "calculator",
+						"name": "mcp__hyperserve__calculator",
 						"arguments": map[string]interface{}{
 							"operation": "multiply",
 							"a":         5.0,
@@ -122,7 +122,7 @@ func TestMCPHandler_ConcurrentRequests(t *testing.T) {
 					"jsonrpc": "2.0",
 					"method":  "tools/call",
 					"params": map[string]interface{}{
-						"name": "calculator",
+						"name": "mcp__hyperserve__calculator",
 						"arguments": map[string]interface{}{
 							"operation": "divide",
 							"a":         100.0,
@@ -140,7 +140,7 @@ func TestMCPHandler_ConcurrentRequests(t *testing.T) {
 					"jsonrpc": "2.0",
 					"method":  "tools/call",
 					"params": map[string]interface{}{
-						"name": "read_file",
+						"name": "mcp__hyperserve__read_file",
 						"arguments": map[string]interface{}{
 							"path": "test_0.txt",
 						},
@@ -151,7 +151,7 @@ func TestMCPHandler_ConcurrentRequests(t *testing.T) {
 					"jsonrpc": "2.0",
 					"method":  "tools/call",
 					"params": map[string]interface{}{
-						"name": "read_file",
+						"name": "mcp__hyperserve__read_file",
 						"arguments": map[string]interface{}{
 							"path": "test_1.txt",
 						},
@@ -162,7 +162,7 @@ func TestMCPHandler_ConcurrentRequests(t *testing.T) {
 					"jsonrpc": "2.0",
 					"method":  "tools/call",
 					"params": map[string]interface{}{
-						"name": "read_file",
+						"name": "mcp__hyperserve__read_file",
 						"arguments": map[string]interface{}{
 							"path": "test_2.txt",
 						},
@@ -193,7 +193,7 @@ func TestMCPHandler_ConcurrentRequests(t *testing.T) {
 					"jsonrpc": "2.0",
 					"method":  "tools/call",
 					"params": map[string]interface{}{
-						"name": "calculator",
+						"name": "mcp__hyperserve__calculator",
 						"arguments": map[string]interface{}{
 							"operation": "add",
 							"a":         1.0,

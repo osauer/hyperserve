@@ -111,18 +111,18 @@ go build -o myapp
 
 ### Available Tools
 
-**server_control**
+**mcp__hyperserve__server_control**
 - `restart` - Restart the server process
 - `reload` - Reload configuration without restart
 - `set_log_level` - Change log level (DEBUG, INFO, WARN, ERROR)
 - `get_status` - Get server status
 
-**route_inspector**
+**mcp__hyperserve__route_inspector**
 - List all registered routes
 - View middleware chains
 - Filter routes by pattern
 
-**request_debugger**
+**mcp__hyperserve__request_debugger**
 - Capture HTTP requests
 - List captured requests
 - Replay requests with modifications
@@ -377,7 +377,7 @@ curl -X POST http://localhost:8080/mcp \
     "jsonrpc": "2.0",
     "method": "tools/call",
     "params": {
-      "name": "server_control",
+      "name": "mcp__hyperserve__server_control",
       "arguments": {
         "action": "get_status"
       }

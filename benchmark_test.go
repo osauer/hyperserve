@@ -258,7 +258,7 @@ func BenchmarkMCPToolExecution(b *testing.B) {
 				"jsonrpc": "2.0",
 				"method":  "tools/call",
 				"params": map[string]interface{}{
-					"name": "calculator",
+					"name": "mcp__hyperserve__calculator",
 					"arguments": map[string]interface{}{
 						"operation": "multiply",
 						"a":         123.456,
@@ -274,7 +274,7 @@ func BenchmarkMCPToolExecution(b *testing.B) {
 				"jsonrpc": "2.0",
 				"method":  "tools/call",  
 				"params": map[string]interface{}{
-					"name": "read_file",
+					"name": "mcp__hyperserve__read_file",
 					"arguments": map[string]interface{}{
 						"path": "benchmark.txt",
 					},
@@ -288,7 +288,7 @@ func BenchmarkMCPToolExecution(b *testing.B) {
 				"jsonrpc": "2.0",
 				"method":  "tools/call",
 				"params": map[string]interface{}{
-					"name": "list_directory",
+					"name": "mcp__hyperserve__list_directory",
 					"arguments": map[string]interface{}{
 						"path": ".",
 					},
@@ -302,7 +302,7 @@ func BenchmarkMCPToolExecution(b *testing.B) {
 				"jsonrpc": "2.0",
 				"method":  "tools/call",
 				"params": map[string]interface{}{
-					"name": "http_request",
+					"name": "mcp__hyperserve__http_request",
 					"arguments": map[string]interface{}{
 						"url":    "https://httpbin.org/json",
 						"method": "GET",

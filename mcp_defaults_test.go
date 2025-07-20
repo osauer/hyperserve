@@ -142,11 +142,11 @@ func TestMCPBuiltinDefaults(t *testing.T) {
 		}
 
 		// Verify calculator and http_request are present
-		if !toolNames["calculator"] {
-			t.Error("Expected calculator tool to be present")
+		if !toolNames["mcp__hyperserve__calculator"] {
+			t.Error("Expected mcp__hyperserve__calculator tool to be present")
 		}
-		if !toolNames["http_request"] {
-			t.Error("Expected http_request tool to be present")
+		if !toolNames["mcp__hyperserve__http_request"] {
+			t.Error("Expected mcp__hyperserve__http_request tool to be present")
 		}
 	})
 

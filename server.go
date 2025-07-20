@@ -336,21 +336,21 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 			if err != nil {
 				logger.Warn("Failed to create file read tool", "error", err)
 			} else {
-				srv.mcpHandler.RegisterTool(fileReadTool)
+				srv.mcpHandler.RegisterToolInNamespace(fileReadTool, "hyperserve")
 			}
 			
 			listDirTool, err := NewListDirectoryTool(srv.Options.MCPFileToolRoot)
 			if err != nil {
 				logger.Warn("Failed to create list directory tool", "error", err)
 			} else {
-				srv.mcpHandler.RegisterTool(listDirTool)
+				srv.mcpHandler.RegisterToolInNamespace(listDirTool, "hyperserve")
 			}
 			
 			// HTTP request tool
-			srv.mcpHandler.RegisterTool(NewHTTPRequestTool())
+			srv.mcpHandler.RegisterToolInNamespace(NewHTTPRequestTool(), "hyperserve")
 			
 			// Calculator tool
-			srv.mcpHandler.RegisterTool(NewCalculatorTool())
+			srv.mcpHandler.RegisterToolInNamespace(NewCalculatorTool(), "hyperserve")
 		}
 		
 		// Register built-in resources if enabled

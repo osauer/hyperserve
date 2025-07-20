@@ -81,7 +81,7 @@ func main() {
 	)
 	srv3.RegisterMCPTool(&PublicTool{})
 	srv3.RegisterMCPTool(&SecretTool{})
-	srv3.RegisterMCPTool(&CustomTool{Name: "admin_tool"})
+	srv3.RegisterMCPTool(&CustomTool{name: "admin_tool"})
 	log.Println("Server 3 on :8083 - Custom filter (localhost sees all, others see public only)")
 
 	// Start servers
@@ -114,10 +114,10 @@ func main() {
 
 // CustomTool with configurable name
 type CustomTool struct {
-	Name string
+	name string
 }
 
-func (t *CustomTool) Name() string        { return t.Name }
+func (t *CustomTool) Name() string        { return t.name }
 func (t *CustomTool) Description() string { return "Admin tool" }
 func (t *CustomTool) Schema() map[string]interface{} {
 	return map[string]interface{}{"type": "object"}

@@ -27,9 +27,9 @@ import (
 // Enables powerful tools that can restart your server and modify its behavior.
 //
 // Tools provided:
-//   - server_control: Restart server, reload config, change log levels, get status
-//   - route_inspector: List all registered routes and their middleware
-//   - request_debugger: Capture and replay HTTP requests for debugging
+//   - mcp__hyperserve__server_control: Restart server, reload config, change log levels, get status
+//   - mcp__hyperserve__route_inspector: List all registered routes and their middleware
+//   - mcp__hyperserve__request_debugger: Capture and replay HTTP requests for debugging
 //
 // Resources provided:
 //   - logs://server/stream: Real-time log streaming
@@ -797,19 +797,19 @@ func (srv *Server) RegisterDeveloperMCPTools() {
 	logger.Warn("⚠️  MCP DEVELOPER MODE ENABLED ⚠️",
 		"warning", "This mode allows server restart and configuration changes",
 		"security", "Only use in development environments",
-		"tools", []string{"server_control", "route_inspector", "request_debugger", "dev_guide"},
+		"tools", []string{"mcp__hyperserve__server_control", "mcp__hyperserve__route_inspector", "mcp__hyperserve__request_debugger", "mcp__hyperserve__dev_guide"},
 	)
 
 	// Create and register the request debugger tool
 	requestDebuggerTool := &RequestDebuggerTool{server: srv}
 	
 	// Register tools
-	srv.mcpHandler.RegisterTool(&ServerControlTool{
+	srv.mcpHandler.RegisterToolInNamespace(&ServerControlTool{
 		server: srv,
-	})
-	srv.mcpHandler.RegisterTool(&RouteInspectorTool{server: srv})
-	srv.mcpHandler.RegisterTool(requestDebuggerTool)
-	srv.mcpHandler.RegisterTool(&DevGuideTool{server: srv})
+	}, "hyperserve")
+	srv.mcpHandler.RegisterToolInNamespace(&RouteInspectorTool{server: srv}, "hyperserve")
+	srv.mcpHandler.RegisterToolInNamespace(requestDebuggerTool, "hyperserve")
+	srv.mcpHandler.RegisterToolInNamespace(&DevGuideTool{server: srv}, "hyperserve")
 
 	// Add request capture middleware to capture HTTP requests
 	srv.AddMiddleware("*", RequestCaptureMiddleware(requestDebuggerTool))
@@ -822,7 +822,7 @@ func (srv *Server) RegisterDeveloperMCPTools() {
 	srv.mcpHandler.RegisterResource(&RouteListResource{server: srv})
 
 	logger.Info("Developer MCP tools registered", 
-		"tools", []string{"server_control", "route_inspector", "request_debugger", "dev_guide"},
+		"tools", []string{"mcp__hyperserve__server_control", "mcp__hyperserve__route_inspector", "mcp__hyperserve__request_debugger", "mcp__hyperserve__dev_guide"},
 		"resources", []string{"logs://server/stream", "routes://server/all"},
 	)
 }
