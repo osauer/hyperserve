@@ -63,6 +63,20 @@ HS_MCP_ENABLED=true HS_MCP_DEV=true ./myapp
 }
 ```
 
+#### Discovery Endpoints
+
+HyperServe implements MCP discovery endpoints for automatic configuration:
+
+```bash
+# Standard discovery endpoint
+curl http://localhost:8080/.well-known/mcp.json
+
+# Alternative discovery endpoint
+curl http://localhost:8080/mcp/discover
+```
+
+These endpoints return information about available transports, capabilities, and connection details.
+
 #### Server-Sent Events (SSE) Support
 
 HyperServe's MCP endpoint supports both regular HTTP and SSE connections using the **same endpoint**:

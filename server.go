@@ -374,6 +374,9 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 		// Register unified MCP endpoint
 		srv.mux.Handle(srv.Options.MCPEndpoint, srv.mcpHandler)
 		logger.Debug("MCP handler initialized", "endpoint", srv.Options.MCPEndpoint)
+		
+		// Setup discovery endpoints for Claude Code
+		srv.setupDiscoveryEndpoints()
 	}
 
 	// Start cleanup ticker for rate limiters (run every 5 minutes)

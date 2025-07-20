@@ -7,7 +7,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **When working on a HyperServe project, IMMEDIATELY check for MCP capabilities:**
 
 1. **Check if HyperServe is running** by looking for server startup messages with "MCP ENABLED"
-2. **If MCP is enabled**, you have two connection options:
+2. **Discover MCP endpoints** (if available):
+   - Try `/.well-known/mcp.json` for server discovery
+   - Try `/mcp/discover` for transport and capability information
+3. **If MCP is enabled**, you have two connection options:
 
 ### Option A: Direct HTTP (Recommended for AI Assistants)
 ```bash
@@ -47,6 +50,19 @@ curl -X POST http://localhost:8080/mcp \
 ## Model Context Protocol (MCP) Support
 
 HyperServe provides native support for the Model Context Protocol (MCP), enabling AI assistants to connect and interact with the server through standardized tools and resources.
+
+### Discovery Endpoints
+
+HyperServe implements MCP discovery endpoints for automatic configuration:
+
+- **`/.well-known/mcp.json`** - Standard discovery endpoint that returns server capabilities and transport information
+- **`/mcp/discover`** - Alternative discovery endpoint with the same information
+
+These endpoints help AI assistants like Claude Code automatically discover:
+- Available transports (HTTP, SSE)
+- Endpoint URLs
+- Server capabilities
+- Required headers for each transport type
 
 ### Enabling MCP
 
