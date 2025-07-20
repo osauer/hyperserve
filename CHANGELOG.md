@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2025-07-20
+
+### Changed
+- **Standardized MCP Tool Naming** - All tools now use consistent namespace prefixes
+  - Built-in tools now use `mcp__hyperserve__` prefix (e.g., `mcp__hyperserve__calculator`)
+  - Developer tools now use `mcp__hyperserve__` prefix (e.g., `mcp__hyperserve__server_control`)
+  - External/custom tools maintain their existing namespace pattern (e.g., `mcp__daw__play`)
+  - Empty namespace in `RegisterToolInNamespace()` now defaults to server name
+  - Updated all tests and documentation to reflect new naming convention
+  - This change improves API consistency and prevents naming conflicts
+
 ## [0.18.0] - 2025-07-20
 
 ### Added
