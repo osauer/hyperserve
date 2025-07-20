@@ -210,7 +210,8 @@ type Server struct {
 	cleanupDone           chan bool
 	staticRoot            *os.Root
 	templateRoot          *os.Root
-	mcpHandler            *MCPHandler
+	mcpHandler            *MCPHandler        // Legacy handler for backward compatibility
+	mcpUnifiedHandler     *MCPUnifiedHandler // New unified handler for auto-discovery
 }
 
 // NewServer creates a new instance of the Server with the given options.
@@ -327,7 +328,15 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 			Name:    srv.Options.MCPServerName,
 			Version: srv.Options.MCPServerVersion,
 		}
-		srv.mcpHandler = NewMCPHandler(serverInfo)
+		
+		// Use unified handler if auto-discovery is enabled, otherwise use legacy handler
+		if srv.Options.MCPAutoDiscovery {
+			srv.mcpUnifiedHandler = NewMCPUnifiedHandler(serverInfo)
+			// For backward compatibility, also initialize the legacy handler from the unified one
+			srv.mcpHandler = srv.mcpUnifiedHandler.MCPHandler
+		} else {
+			srv.mcpHandler = NewMCPHandler(serverInfo)
+		}
 		
 		// Register built-in tools if enabled
 		if srv.Options.MCPToolsEnabled {
@@ -372,12 +381,22 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 		}
 		
 		// Register MCP endpoints
-		srv.mux.Handle(srv.Options.MCPEndpoint, srv.mcpHandler)
-		// Register SSE endpoint separately to ensure proper routing
-		srv.mux.HandleFunc(srv.Options.MCPEndpoint+"/sse", func(w http.ResponseWriter, r *http.Request) {
-			srv.mcpHandler.sseManager.HandleSSE(w, r, srv.mcpHandler)
-		})
-		logger.Debug("MCP handler initialized", "endpoint", srv.Options.MCPEndpoint, "sse", srv.Options.MCPEndpoint+"/sse")
+		if srv.Options.MCPAutoDiscovery && srv.mcpUnifiedHandler != nil {
+			// Use unified handler for protocol-compliant endpoint with auto-discovery
+			srv.mux.Handle(srv.Options.MCPEndpoint, srv.mcpUnifiedHandler)
+			logger.Debug("MCP unified handler initialized with auto-discovery", 
+				"endpoint", srv.Options.MCPEndpoint,
+				"features", "unified_endpoint,session_management,claude_code_discovery",
+			)
+		} else {
+			// Use legacy separate endpoints for backward compatibility
+			srv.mux.Handle(srv.Options.MCPEndpoint, srv.mcpHandler)
+			// Register SSE endpoint separately to ensure proper routing
+			srv.mux.HandleFunc(srv.Options.MCPEndpoint+"/sse", func(w http.ResponseWriter, r *http.Request) {
+				srv.mcpHandler.sseManager.HandleSSE(w, r, srv.mcpHandler)
+			})
+			logger.Debug("MCP legacy handler initialized", "endpoint", srv.Options.MCPEndpoint, "sse", srv.Options.MCPEndpoint+"/sse")
+		}
 	}
 
 	// Start cleanup ticker for rate limiters (run every 5 minutes)
@@ -655,6 +674,13 @@ func (srv *Server) shutdown(ctx context.Context) error {
 
 	// Clean up resources
 	srv.stopCleanup()
+
+	// Close MCP unified handler if it exists
+	if srv.mcpUnifiedHandler != nil {
+		if err := srv.mcpUnifiedHandler.Close(); err != nil {
+			logger.Error("Failed to close MCP unified handler", "error", err)
+		}
+	}
 
 	// Close os.Root handles if they exist
 	if srv.staticRoot != nil {
@@ -1204,10 +1230,17 @@ func WithMCPSupport(name, version string, configs ...MCPTransportConfig) ServerO
 		// Handle presets
 		if srv.Options.mcpTransportOpts.observabilityMode {
 			// Observability: minimal resources only for production monitoring
+			srv.Options.MCPObservability = true
 			srv.Options.MCPResourcesEnabled = true
 			srv.Options.MCPToolsEnabled = false
 		} else if srv.Options.mcpTransportOpts.developerMode {
 			// Developer mode: enable everything needed for development
+			srv.Options.MCPDev = true
+			srv.Options.MCPResourcesEnabled = true
+			srv.Options.MCPToolsEnabled = true
+		} else if srv.Options.mcpTransportOpts.discoveryMode {
+			// Auto-discovery mode: enable features for Claude Code integration
+			srv.Options.MCPAutoDiscovery = true
 			srv.Options.MCPResourcesEnabled = true
 			srv.Options.MCPToolsEnabled = true
 		}
@@ -1223,6 +1256,7 @@ func WithMCPSupport(name, version string, configs ...MCPTransportConfig) ServerO
 			"endpoint", srv.Options.MCPEndpoint,
 			"observabilityMode", srv.Options.mcpTransportOpts.observabilityMode,
 			"developerMode", srv.Options.mcpTransportOpts.developerMode,
+			"discoveryMode", srv.Options.mcpTransportOpts.discoveryMode,
 		)
 		return nil
 	}
@@ -1381,7 +1415,7 @@ func (srv *Server) stopCleanup() {
 
 // MCPEnabled returns true if MCP support is enabled
 func (srv *Server) MCPEnabled() bool {
-	return srv.Options.MCPEnabled && srv.mcpHandler != nil
+	return srv.Options.MCPEnabled && (srv.mcpHandler != nil || srv.mcpUnifiedHandler != nil)
 }
 
 // RegisterMCPTool registers a custom MCP tool

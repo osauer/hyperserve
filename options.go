@@ -88,6 +88,7 @@ type ServerOptions struct {
 	MCPTransport           MCPTransportType `json:"mcp_transport,omitempty"`
 	MCPDev                 bool     `json:"mcp_dev,omitempty"`
 	MCPObservability       bool     `json:"mcp_observability,omitempty"`
+	MCPAutoDiscovery       bool     `json:"mcp_auto_discovery,omitempty"`
 	mcpTransportOpts       mcpTransportOptions // Internal transport options
 	// CSP (Content Security Policy) configuration
 	CSPWebWorkerSupport    bool     `json:"csp_web_worker_support,omitempty"`

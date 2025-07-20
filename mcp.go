@@ -45,6 +45,7 @@ type mcpTransportOptions struct {
 	endpoint           string
 	observabilityMode  bool   // If true, only register observability resources
 	developerMode      bool   // If true, enable developer tools (NEVER in production!)
+	discoveryMode      bool   // If true, enable Claude Code auto-discovery features
 }
 
 // MCPTool defines the interface for Model Context Protocol tools.
