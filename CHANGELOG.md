@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.1] - 2025-07-22
+
+### Added
+- **JSON Response for MCP GET Requests** - Enhanced MCP handler for better tool integration (#78)
+  - Added robust Accept header parsing with `isJSONAccepted()` function
+  - MCP GET endpoint now returns JSON when Accept header contains `application/json` or `*/*`
+  - JSON response includes server status, capabilities, endpoint, and transport information
+  - Handles quality factors, case sensitivity, and complex Accept headers
+  - Added error handling for JSON encoding with proper logging
+  - Refactored capabilities into reusable `getCapabilities()` method
+  - Added comprehensive test coverage for all Accept header scenarios
+  - Improves compatibility with automated tools like Claude Code
+
 ## [0.19.0] - 2025-07-20
 
 ### Changed
