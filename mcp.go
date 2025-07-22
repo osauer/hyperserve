@@ -359,6 +359,24 @@ func (h *MCPHandler) GetToolByName(name string) (MCPTool, bool) {
 	return tool, exists
 }
 
+// getCapabilities returns the server's MCP capabilities
+func (h *MCPHandler) getCapabilities() MCPCapabilities {
+	return MCPCapabilities{
+		Resources: &ResourcesCapability{
+			Subscribe:   false,
+			ListChanged: false,
+		},
+		Tools: &ToolsCapability{
+			ListChanged: false,
+		},
+		SSE: &SSECapability{
+			Enabled:       true,
+			Endpoint:      "same",
+			HeaderRouting: true,
+		},
+	}
+}
+
 // ProcessRequest processes an MCP request
 func (h *MCPHandler) ProcessRequest(requestData []byte) []byte {
 	return h.rpcEngine.ProcessRequest(requestData)
@@ -379,6 +397,22 @@ func (h *MCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	
 	// Handle GET requests with helpful information
 	if r.Method == http.MethodGet {
+		accept := r.Header.Get("Accept")
+		if strings.Contains(accept, "application/json") || strings.Contains(accept, "*/*") {
+			// Return JSON status for tools like Claude Code
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			status := map[string]interface{}{
+				"status": "ready",
+				"server": h.serverInfo,
+				"capabilities": h.getCapabilities(),
+				"endpoint": r.URL.Path,
+				"transport": "http",
+			}
+			json.NewEncoder(w).Encode(status)
+			return
+		}
+		
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintf(w, `<!DOCTYPE html>
@@ -607,20 +641,7 @@ func (h *MCPHandler) handleInitialize(params interface{}) (interface{}, error) {
 	// Return server capabilities
 	return map[string]interface{}{
 		"protocolVersion": MCPVersion,
-		"capabilities": MCPCapabilities{
-			Resources: &ResourcesCapability{
-				Subscribe:   false,
-				ListChanged: false,
-			},
-			Tools: &ToolsCapability{
-				ListChanged: false,
-			},
-			SSE: &SSECapability{
-				Enabled:       true,
-				Endpoint:      "same",
-				HeaderRouting: true,
-			},
-		},
+		"capabilities": h.getCapabilities(),
 		"serverInfo": h.serverInfo,
 		"instructions": "Follow the initialization protocol: after receiving this response, send an 'initialized' notification, then the server will send a 'ready' notification. For SSE support, connect to the SAME endpoint with 'Accept: text/event-stream' header.",
 	}, nil
