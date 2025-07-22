@@ -382,6 +382,36 @@ func (h *MCPHandler) ProcessRequest(requestData []byte) []byte {
 	return h.rpcEngine.ProcessRequest(requestData)
 }
 
+// isJSONAccepted checks if the Accept header indicates JSON is acceptable
+func isJSONAccepted(accept string) bool {
+	if accept == "" {
+		return false
+	}
+	
+	// Convert to lowercase for case-insensitive matching
+	accept = strings.ToLower(accept)
+	
+	// Handle */* (accept anything)
+	if accept == "*/*" {
+		return true
+	}
+	
+	// Parse Accept header by splitting on commas
+	for _, part := range strings.Split(accept, ",") {
+		// Extract media type (before semicolon for quality factors)
+		mediaType := strings.TrimSpace(strings.Split(part, ";")[0])
+		
+		// Check for JSON-compatible media types
+		if mediaType == "application/json" || 
+		   mediaType == "*/*" || 
+		   mediaType == "application/*" {
+			return true
+		}
+	}
+	
+	return false
+}
+
 // ServeHTTP implements the http.Handler interface for MCP
 func (h *MCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Debug logging for tests
@@ -398,7 +428,7 @@ func (h *MCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Handle GET requests with helpful information
 	if r.Method == http.MethodGet {
 		accept := r.Header.Get("Accept")
-		if strings.Contains(accept, "application/json") || strings.Contains(accept, "*/*") {
+		if isJSONAccepted(accept) {
 			// Return JSON status for tools like Claude Code
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
@@ -409,7 +439,10 @@ func (h *MCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				"endpoint": r.URL.Path,
 				"transport": "http",
 			}
-			json.NewEncoder(w).Encode(status)
+			if err := json.NewEncoder(w).Encode(status); err != nil {
+				h.logger.Error("Failed to encode JSON status", "error", err)
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+			}
 			return
 		}
 		

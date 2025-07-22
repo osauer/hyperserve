@@ -714,3 +714,234 @@ func TestMCPNamespace_EmptyNamespace(t *testing.T) {
 		t.Errorf("Expected 'namespace name cannot be empty' error, got: %v", err)
 	}
 }
+
+func TestMCPHandler_ServeHTTP_AcceptJSON(t *testing.T) {
+	handler := NewMCPHandler(MCPServerInfo{Name: "test", Version: "1.0"})
+	
+	tests := []struct {
+		name   string
+		accept string
+	}{
+		{"application/json", "application/json"},
+		{"wildcard", "*/*"},
+		{"with quality", "application/json;q=0.8"},
+		{"multiple types", "text/html,application/json"},
+		{"wildcard with quality", "*/*;q=0.8"},
+		{"application wildcard", "application/*"},
+		{"json with charset", "application/json; charset=utf-8"},
+		{"case insensitive", "Application/JSON"},
+		{"with spaces", " application/json "},
+	}
+	
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+			req.Header.Set("Accept", tt.accept)
+			w := httptest.NewRecorder()
+			
+			handler.ServeHTTP(w, req)
+			
+			if w.Code != http.StatusOK {
+				t.Errorf("Expected status 200, got %d", w.Code)
+			}
+			
+			contentType := w.Header().Get("Content-Type")
+			if contentType != "application/json" {
+				t.Errorf("Expected Content-Type application/json, got %s", contentType)
+			}
+			
+			// Verify JSON structure
+			var response map[string]interface{}
+			if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+				t.Errorf("Failed to unmarshal JSON response: %v", err)
+			}
+			
+			// Verify required fields
+			if status := response["status"]; status != "ready" {
+				t.Errorf("Expected status 'ready', got %v", status)
+			}
+			
+			if _, ok := response["capabilities"]; !ok {
+				t.Error("Expected capabilities in response")
+			}
+			
+			if _, ok := response["server"]; !ok {
+				t.Error("Expected server in response")
+			}
+			
+			if endpoint := response["endpoint"]; endpoint != "/mcp" {
+				t.Errorf("Expected endpoint '/mcp', got %v", endpoint)
+			}
+			
+			if transport := response["transport"]; transport != "http" {
+				t.Errorf("Expected transport 'http', got %v", transport)
+			}
+		})
+	}
+}
+
+func TestMCPHandler_ServeHTTP_AcceptHTML(t *testing.T) {
+	handler := NewMCPHandler(MCPServerInfo{Name: "test", Version: "1.0"})
+	
+	tests := []struct {
+		name   string
+		accept string
+	}{
+		{"text/html", "text/html"},
+		{"empty accept", ""},
+		{"text plain", "text/plain"},
+		{"no json preference", "text/html,text/plain"},
+	}
+	
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+			if tt.accept != "" {
+				req.Header.Set("Accept", tt.accept)
+			}
+			w := httptest.NewRecorder()
+			
+			handler.ServeHTTP(w, req)
+			
+			if w.Code != http.StatusOK {
+				t.Errorf("Expected status 200, got %d", w.Code)
+			}
+			
+			contentType := w.Header().Get("Content-Type")
+			if contentType != "text/html; charset=utf-8" {
+				t.Errorf("Expected Content-Type text/html; charset=utf-8, got %s", contentType)
+			}
+			
+			// Verify HTML content
+			body := w.Body.String()
+			if !strings.Contains(body, "<!DOCTYPE html>") {
+				t.Error("Expected HTML DOCTYPE in response")
+			}
+			
+			if !strings.Contains(body, "Model Context Protocol") {
+				t.Error("Expected MCP title in HTML response")
+			}
+		})
+	}
+}
+
+func TestMCPHandler_GetCapabilities_Consistency(t *testing.T) {
+	handler := NewMCPHandler(MCPServerInfo{Name: "test", Version: "1.0"})
+	
+	// Get capabilities from GET request
+	req := httptest.NewRequest(http.MethodGet, "/mcp", nil) 
+	req.Header.Set("Accept", "application/json")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	
+	var getResponse map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &getResponse)
+	getCaps := getResponse["capabilities"]
+	
+	// Get capabilities from initialize
+	initResult, _ := handler.handleInitialize(map[string]interface{}{
+		"protocolVersion": "2024-11-05",
+		"clientInfo": map[string]interface{}{"name": "test", "version": "1.0"},
+	})
+	initResponse := initResult.(map[string]interface{})
+	initCaps := initResponse["capabilities"]
+	
+	// Both should be the same when marshaled to JSON
+	// This handles the fact that the types might be different (struct vs map)
+	// but the JSON representation should be identical
+	getCapsJSON, err1 := json.Marshal(getCaps)
+	initCapsJSON, err2 := json.Marshal(initCaps)
+	
+	if err1 != nil || err2 != nil {
+		t.Fatalf("Failed to marshal capabilities: GET error=%v, INIT error=%v", err1, err2)
+	}
+	
+	// Parse both JSON back to maps for comparison (to normalize field order)
+	var getCapsParsed, initCapsParsed map[string]interface{}
+	json.Unmarshal(getCapsJSON, &getCapsParsed)
+	json.Unmarshal(initCapsJSON, &initCapsParsed)
+	
+	// Now marshal again to get consistent field order
+	getCapsNormalized, _ := json.Marshal(getCapsParsed)
+	initCapsNormalized, _ := json.Marshal(initCapsParsed)
+	
+	if string(getCapsNormalized) != string(initCapsNormalized) {
+		t.Errorf("Capabilities should be identical between GET and initialize responses")
+		t.Errorf("GET capabilities: %s", string(getCapsNormalized))
+		t.Errorf("INIT capabilities: %s", string(initCapsNormalized))
+	}
+}
+
+func TestMCPHandler_AcceptHeader_EdgeCases(t *testing.T) {
+	handler := NewMCPHandler(MCPServerInfo{Name: "test", Version: "1.0"})
+	
+	tests := []struct {
+		name         string
+		accept       string
+		expectJSON   bool
+		description  string
+	}{
+		{
+			"json with complex parameters",
+			"application/json; charset=utf-8; boundary=something",
+			true,
+			"Should handle JSON with multiple parameters",
+		},
+		{
+			"wildcard with parameters", 
+			"*/*; q=0.8, text/html; q=0.9",
+			true,
+			"Should handle wildcard with quality values",
+		},
+		{
+			"json in complex accept header",
+			"text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.8,*/*;q=0.7",
+			true,
+			"Should find JSON in complex Accept header",
+		},
+		{
+			"no json types",
+			"text/html,text/plain,image/png",
+			false,
+			"Should default to HTML when no JSON types present",
+		},
+		{
+			"application wildcard",
+			"application/*,text/html;q=0.9",
+			true,
+			"Should match application/* for JSON",
+		},
+		{
+			"case variations",
+			"APPLICATION/JSON",
+			true,
+			"Should handle case variations",
+		},
+	}
+	
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+			req.Header.Set("Accept", tt.accept)
+			w := httptest.NewRecorder()
+			
+			handler.ServeHTTP(w, req)
+			
+			if w.Code != http.StatusOK {
+				t.Errorf("Expected status 200, got %d", w.Code)
+			}
+			
+			contentType := w.Header().Get("Content-Type")
+			
+			if tt.expectJSON {
+				if contentType != "application/json" {
+					t.Errorf("%s: Expected JSON response, got %s", tt.description, contentType)
+				}
+			} else {
+				if contentType != "text/html; charset=utf-8" {
+					t.Errorf("%s: Expected HTML response, got %s", tt.description, contentType)
+				}
+			}
+		})
+	}
+}
