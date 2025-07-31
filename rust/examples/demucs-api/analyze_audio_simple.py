@@ -172,58 +172,107 @@ def estimate_bpm_simple(audio, sample_rate):
     return 120.0  # Default BPM
 
 def detect_stems_simple(audio, sample_rate):
-    """Mock stem detection based on simple frequency analysis."""
-    # Count zero crossings in different parts of the signal
-    # This is a very rough approximation
-    
+    """Enhanced stem detection for 6 stems based on frequency analysis."""
     # Analyze first 10 seconds or whole file
     samples_to_analyze = min(len(audio), int(sample_rate * 10))
     audio_segment = audio[:samples_to_analyze]
     
-    # Simple frequency content estimation
-    low_energy = 0
-    mid_energy = 0
-    high_energy = 0
+    # Calculate various audio features for 6-stem detection
     
-    # Use simple filters (moving average)
-    window = 100
-    for i in range(window, len(audio_segment) - window):
-        # Low freq: more averaging
-        low = sum(audio_segment[i-window:i+window]) / (2 * window)
+    # 1. Zero crossing rate (indicates pitch content)
+    zero_crossings = sum(1 for i in range(1, len(audio_segment)) 
+                        if audio_segment[i-1] * audio_segment[i] < 0)
+    zcr = zero_crossings / len(audio_segment) * sample_rate
+    
+    # 2. Energy in multiple frequency bands
+    low_energy = 0       # < 200 Hz (bass)
+    mid_low_energy = 0   # 200-500 Hz (low mids, guitar fundamentals)
+    mid_energy = 0       # 500-2000 Hz (vocals, guitar harmonics)
+    mid_high_energy = 0  # 2000-4000 Hz (piano brightness, vocal presence)
+    high_energy = 0      # > 4000 Hz (drums, cymbals)
+    
+    # Simple frequency band separation using different window sizes
+    for i in range(100, len(audio_segment) - 100):
+        # Low freq: heavy smoothing
+        low = sum(audio_segment[i-100:i+100]) / 200
         low_energy += low * low
         
-        # Mid freq: less averaging
+        # Mid-low freq: moderate smoothing
+        mid_low = sum(audio_segment[i-50:i+50]) / 100
+        mid_low_energy += mid_low * mid_low
+        
+        # Mid freq: light smoothing
         mid = sum(audio_segment[i-10:i+10]) / 20
         mid_energy += mid * mid
+        
+        # Mid-high freq: minimal smoothing
+        mid_high = sum(audio_segment[i-5:i+5]) / 10
+        mid_high_energy += mid_high * mid_high
         
         # High freq: difference between samples
         high = abs(audio_segment[i] - audio_segment[i-1])
         high_energy += high
     
-    total_energy = low_energy + mid_energy + high_energy
+    # 3. Transient detection (for drums and piano attacks)
+    transients = 0
+    for i in range(2, len(audio_segment)):
+        energy_change = abs(audio_segment[i]**2 - audio_segment[i-1]**2)
+        if energy_change > 0.3:
+            transients += 1
+    transient_density = transients / len(audio_segment) * sample_rate
+    
+    # 4. Harmonic content detection (for guitar/piano)
+    # Simple autocorrelation for pitch detection
+    harmonics_score = 0
+    window_size = min(512, len(audio_segment) // 4)
+    for i in range(0, len(audio_segment) - window_size * 2, window_size // 2):
+        window = audio_segment[i:i + window_size]
+        # Check for periodic patterns
+        auto_corr = 0
+        for lag in range(window_size // 8, window_size // 2):
+            corr = sum(window[j] * window[j + lag] 
+                      for j in range(window_size - lag))
+            auto_corr = max(auto_corr, abs(corr))
+        harmonics_score += auto_corr
+    harmonics_score /= max(1, (len(audio_segment) / window_size))
+    harmonics_score = min(1.0, harmonics_score)  # Normalize
+    
+    # 5. Calculate energy ratios
+    total_energy = low_energy + mid_low_energy + mid_energy + mid_high_energy + high_energy
     if total_energy > 0:
         low_ratio = low_energy / total_energy
+        mid_low_ratio = mid_low_energy / total_energy
         mid_ratio = mid_energy / total_energy
+        mid_high_ratio = mid_high_energy / total_energy
         high_ratio = high_energy / total_energy
     else:
-        low_ratio = mid_ratio = high_ratio = 0.33
+        low_ratio = mid_low_ratio = mid_ratio = mid_high_ratio = high_ratio = 0.2
     
+    # 6-stem detection logic with refined heuristics
     return {
         "vocals": {
-            "present": mid_ratio > 0.3,
-            "confidence": min(0.9, mid_ratio * 2)
+            "present": mid_ratio > 0.2 and 100 < zcr < 3000,
+            "confidence": min(0.95, mid_ratio * 2.5 * (1 if 100 < zcr < 3000 else 0.5))
         },
         "drums": {
-            "present": high_ratio > 0.2 and low_ratio > 0.2,
-            "confidence": min(0.9, (high_ratio + low_ratio))
+            "present": high_ratio > 0.15 and transient_density > 5,
+            "confidence": min(0.95, high_ratio * 2 + min(0.5, transient_density / 20))
         },
         "bass": {
-            "present": low_ratio > 0.3,
-            "confidence": min(0.9, low_ratio * 2)
+            "present": low_ratio > 0.2,
+            "confidence": min(0.95, low_ratio * 3)
+        },
+        "guitar": {
+            "present": mid_low_ratio > 0.15 and harmonics_score > 0.1,
+            "confidence": min(0.9, (mid_low_ratio + mid_ratio) * 1.5 * harmonics_score)
+        },
+        "piano": {
+            "present": mid_high_ratio > 0.1 and transient_density > 2 and harmonics_score > 0.05,
+            "confidence": min(0.85, mid_high_ratio * 2 + harmonics_score * 2)
         },
         "other": {
             "present": True,
-            "confidence": 0.7
+            "confidence": max(0.5, 1.0 - max(low_ratio, mid_ratio, high_ratio))
         }
     }
 

@@ -262,6 +262,8 @@ print(response.json())</pre>
       "vocals": {"present": true, "confidence": 0.85},
       "drums": {"present": true, "confidence": 0.92},
       "bass": {"present": true, "confidence": 0.88},
+      "guitar": {"present": true, "confidence": 0.75},
+      "piano": {"present": false, "confidence": 0.25},
       "other": {"present": true, "confidence": 0.70}
     }
   },

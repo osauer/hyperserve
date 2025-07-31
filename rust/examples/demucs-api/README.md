@@ -52,6 +52,8 @@ JSON response with audio analysis:
       "vocals": {"present": true, "confidence": 0.9},
       "drums": {"present": false, "confidence": 0.08},
       "bass": {"present": false, "confidence": 0.00001},
+      "guitar": {"present": false, "confidence": 0.15},
+      "piano": {"present": false, "confidence": 0.12},
       "other": {"present": true, "confidence": 0.7}
     }
   },
