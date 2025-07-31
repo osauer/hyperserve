@@ -1,0 +1,2 @@
+This file is in a subdirectory.
+It demonstrates directory traversal capabilities.

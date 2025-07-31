@@ -1,0 +1,51 @@
+[package]
+name = "hyperserve"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+authors = ["Oliver Sauer"]
+description = "Zero-dependency HTTP server framework with MCP support"
+license = "MIT"
+repository = "https://github.com/osauer/hyperserve"
+keywords = ["http", "server", "mcp", "websocket", "zero-dependency"]
+categories = ["web-programming::http-server", "network-programming"]
+
+[dependencies]
+# ZERO dependencies! Everything built from scratch
+
+[dev-dependencies]
+# Only for tests and benchmarks
+criterion = "0.5"
+
+[features]
+default = ["std"]
+std = []
+mcp = []
+websocket = []
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+opt-level = 3
+
+[[example]]
+name = "echo"
+path = "examples/echo.rs"
+
+[[bin]]
+name = "hyperserve-server"
+path = "src/bin/server.rs"
+
+[[example]]
+name = "mcp"
+path = "examples/mcp.rs"
+required-features = ["mcp"]
+
+[[example]]
+name = "demucs-api"
+path = "examples/demucs-api/main.rs"
+
+[[example]]
+name = "audio-api"
+path = "examples/demucs-api/simple_json_api.rs"

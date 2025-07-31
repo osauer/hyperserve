@@ -49,7 +49,21 @@
       "mcp__hyperserve__route_inspector",
       "Bash(cp:*)",
       "Bash(git fetch:*)",
-      "Bash(git stash:*)"
+      "Bash(git stash:*)",
+      "Bash(cargo init:*)",
+      "Bash(cargo:*)",
+      "Bash(npm install:*)",
+      "Bash(/dev/null)",
+      "Bash(node:*)",
+      "Bash(open /tmp/test_websocket.html)",
+      "Bash(cat:*)",
+      "Bash(python3:*)",
+      "Bash(./test.sh:*)",
+      "Bash(kill:*)",
+      "Bash(open http://127.0.0.1:8082/)",
+      "Bash(./target/debug/examples/demucs-api)",
+      "Bash(rustc:*)",
+      "Bash(true sleep:*)"
     ],
     "deny": []
   }

@@ -2,6 +2,14 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Repository Structure
+
+HyperServe has two implementations:
+- `/go` - Go implementation (1 dependency)
+- `/rust` - Rust implementation (zero dependencies)
+
+Both implementations provide the same API and features. See `/spec` for shared specifications.
+
 ## 🤖 IMMEDIATE ACTION FOR AI ASSISTANTS
 
 **When working on a HyperServe project, IMMEDIATELY check for MCP capabilities:**
