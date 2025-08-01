@@ -48,7 +48,7 @@ fn handle_analyze(req: &Request) -> Response {
     let start_time = Instant::now();
     
     // Check content type
-    let content_type = req.headers.get("content-type")
+    let content_type = req.get_header("content-type")
         .map(|v| v.split(';').next().unwrap_or(""))
         .unwrap_or("");
     
@@ -102,8 +102,7 @@ fn handle_analyze(req: &Request) -> Response {
 /// Simple multipart parser (extracts first file found)
 fn parse_multipart(req: &Request) -> Result<Vec<u8>, String> {
     // Get boundary from Content-Type
-    let content_type = req.headers.get("content-type")
-        .copied()
+    let content_type = req.get_header("content-type")
         .ok_or("Missing Content-Type")?;
     
     let boundary = content_type
@@ -112,30 +111,57 @@ fn parse_multipart(req: &Request) -> Result<Vec<u8>, String> {
         .ok_or("Missing boundary")?
         .trim();
     
-    let body = std::str::from_utf8(req.body)
-        .map_err(|_| "Invalid UTF-8 in body")?;
+    let body = req.body;
     
-    // Find file data between boundaries
-    let boundary_marker = format!("--{}", boundary);
-    let parts: Vec<&str> = body.split(&boundary_marker).collect();
+    // Find file data between boundaries using byte operations
+    let boundary_bytes = format!("--{}", boundary).into_bytes();
+    let crlf_crlf = b"\r\n\r\n";
     
-    for part in parts {
-        if part.contains("Content-Disposition: form-data") && part.contains("filename=") {
-            // Find the double CRLF that separates headers from data
-            if let Some(data_start) = part.find("\r\n\r\n") {
-                let file_data = &part[data_start + 4..];
-                // Remove trailing boundary markers
-                let file_data = file_data.trim_end_matches(&format!("--{}--", boundary))
-                    .trim_end_matches("\r\n");
-                
-                // Check file size
-                if file_data.len() > MAX_FILE_SIZE {
-                    return Err("File too large".to_string());
+    // Find the first boundary
+    let mut pos = 0;
+    while pos + boundary_bytes.len() <= body.len() {
+        if &body[pos..pos + boundary_bytes.len()] == boundary_bytes.as_slice() {
+            // Found boundary, skip to next line
+            pos += boundary_bytes.len();
+            if pos + 2 <= body.len() && &body[pos..pos + 2] == b"\r\n" {
+                pos += 2;
+            }
+            
+            // Look for filename in headers
+            let header_end = body[pos..].windows(4)
+                .position(|w| w == crlf_crlf)
+                .map(|p| pos + p);
+            
+            if let Some(header_end) = header_end {
+                // Parse headers (these should be ASCII/UTF-8)
+                if let Ok(headers) = std::str::from_utf8(&body[pos..header_end]) {
+                    if headers.contains("Content-Disposition: form-data") && headers.contains("filename=") {
+                        // Start of file data
+                        let data_start = header_end + 4;
+                        
+                        // Find end boundary
+                        let end_boundary = format!("\r\n--{}--", boundary).into_bytes();
+                        let end_boundary_alt = format!("\r\n--{}\r\n", boundary).into_bytes();
+                        
+                        let data_end = body[data_start..].windows(end_boundary.len())
+                            .position(|w| w == end_boundary.as_slice())
+                            .or_else(|| body[data_start..].windows(end_boundary_alt.len())
+                                .position(|w| w == end_boundary_alt.as_slice()))
+                            .unwrap_or(body.len() - data_start);
+                        
+                        let file_data = &body[data_start..data_start + data_end];
+                        
+                        // Check file size
+                        if file_data.len() > MAX_FILE_SIZE {
+                            return Err("File too large".to_string());
+                        }
+                        
+                        return Ok(file_data.to_vec());
+                    }
                 }
-                
-                return Ok(file_data.as_bytes().to_vec());
             }
         }
+        pos += 1;
     }
     
     Err("No file found in multipart data".to_string())

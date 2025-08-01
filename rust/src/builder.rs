@@ -9,6 +9,7 @@ pub struct ServerBuilder {
     addr: String,
     router: Router,
     middleware_chain: Chain,
+    use_optimized_pool: bool,
 }
 
 impl ServerBuilder {
@@ -18,6 +19,7 @@ impl ServerBuilder {
             addr: addr.into(),
             router: Router::new(),
             middleware_chain: Chain::new(),
+            use_optimized_pool: false,
         }
     }
     
@@ -33,6 +35,14 @@ impl ServerBuilder {
         self
     }
     
+    /// Enable experimental optimized thread pool (default: false)
+    /// 
+    /// WARNING: This is experimental and may cause instability.
+    pub fn with_optimized_pool(mut self, enabled: bool) -> Self {
+        self.use_optimized_pool = enabled;
+        self
+    }
+    
     /// Build the server
     pub fn build(mut self) -> std::io::Result<Server> {
         // Apply middleware to router
@@ -42,6 +52,7 @@ impl ServerBuilder {
             listener: TcpListener::bind(&self.addr)?,
             router: Arc::new(self.router),
             middleware_chain: None,
+            use_optimized_pool: self.use_optimized_pool,
         })
     }
 }

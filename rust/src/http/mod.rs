@@ -10,11 +10,20 @@ mod parser;
 mod response;
 mod router;
 mod thread_pool;
+mod concurrent_queue;
+mod optimized_pool;
+mod server_config;
+mod fast_buffer;
+mod fast_parser;
+mod fast_response;
 
 pub use parser::{Request, ParseError};
 pub use response::{Response, Status};
 pub use router::Router;
 pub use thread_pool::ThreadPool;
+pub use optimized_pool::OptimizedPool;
+pub use server_config::{ThreadPoolConfig, SystemInfo};
+pub use fast_response::FastResponse;
 
 /// HTTP methods
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

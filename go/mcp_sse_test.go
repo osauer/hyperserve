@@ -47,7 +47,13 @@ func TestMCPSSEEndpoint(t *testing.T) {
 		baseResp.Body.Close()
 		
 		// Connect to SSE endpoint
-		resp, err := http.Get(ts.URL + "/mcp/sse")
+		req, err := http.NewRequest("GET", ts.URL+"/mcp", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Accept", "text/event-stream")
+		
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -100,7 +106,13 @@ func TestMCPSSEEndpoint(t *testing.T) {
 
 	t.Run("HTTP Request with SSE Client ID", func(t *testing.T) {
 		// First connect to get a client ID
-		resp, err := http.Get(ts.URL + "/mcp/sse")
+		req, err := http.NewRequest("GET", ts.URL+"/mcp", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Accept", "text/event-stream")
+		
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -132,15 +144,15 @@ func TestMCPSSEEndpoint(t *testing.T) {
 
 		// Now send a request with the SSE client ID
 		reqBody := bytes.NewBufferString(`{"jsonrpc":"2.0","method":"ping","id":1}`)
-		req, err := http.NewRequest("POST", ts.URL+"/mcp", reqBody)
+		req2, err := http.NewRequest("POST", ts.URL+"/mcp", reqBody)
 		if err != nil {
 			t.Fatal(err)
 		}
 		
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-SSE-Client-ID", clientID)
+		req2.Header.Set("Content-Type", "application/json")
+		req2.Header.Set("X-SSE-Client-ID", clientID)
 		
-		resp2, err := http.DefaultClient.Do(req)
+		resp2, err := http.DefaultClient.Do(req2)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -25,6 +25,14 @@ pub enum ParseError {
 }
 
 impl<'a> Request<'a> {
+    /// Get header value (case-insensitive)
+    pub fn get_header(&self, name: &str) -> Option<&str> {
+        let lower_name = name.to_lowercase();
+        self.headers.iter()
+            .find(|(k, _)| k.to_lowercase() == lower_name)
+            .map(|(_, v)| *v)
+    }
+    
     /// Parse HTTP request from bytes
     /// Returns the request and number of bytes consumed
     pub fn parse(buffer: &'a [u8]) -> Result<(Self, usize), ParseError> {

@@ -37,10 +37,11 @@ func TestMCPWithSSEIntegration(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		
-		req, err := http.NewRequestWithContext(ctx, "GET", server.URL+"/mcp/sse", nil)
+		req, err := http.NewRequestWithContext(ctx, "GET", server.URL+"/mcp", nil)
 		if err != nil {
 			t.Fatalf("Failed to create SSE request: %v", err)
 		}
+		req.Header.Set("Accept", "text/event-stream")
 		
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -199,7 +200,13 @@ func TestMCPWithSSEIntegration(t *testing.T) {
 		clients := make([]string, 2)
 		
 		for i := 0; i < 2; i++ {
-			resp, err := http.Get(server.URL + "/mcp/sse")
+			req, err := http.NewRequest("GET", server.URL+"/mcp", nil)
+			if err != nil {
+				t.Fatalf("Failed to create request for client %d: %v", i, err)
+			}
+			req.Header.Set("Accept", "text/event-stream")
+			
+			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
 				t.Fatalf("Failed to connect SSE client %d: %v", i, err)
 			}

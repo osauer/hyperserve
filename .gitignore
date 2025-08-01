@@ -41,6 +41,9 @@ Thumbs.db
 test_static_*
 test_templates_*
 test_integration_*
+*.log
+*.tmp
+*.test
 
 # Certificates (for examples)
 *.pem
@@ -52,6 +55,9 @@ test_integration_*
 *.prof
 cpu.prof
 mem.prof
+benchmarks/results/
+benchmarks/hyperserve-*
+benchmarks/*.txt
 
 # Coverage reports
 coverage.txt
@@ -94,3 +100,18 @@ examples/**/*
 !examples/**/go.mod
 !examples/**/go.sum
 !examples/**/.gitkeep
+
+# Rust build artifacts
+/rust/target/
+/rust/Cargo.lock
+**/*.rs.bk
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv

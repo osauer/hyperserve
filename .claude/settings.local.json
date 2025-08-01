@@ -63,7 +63,17 @@
       "Bash(open http://127.0.0.1:8082/)",
       "Bash(./target/debug/examples/demucs-api)",
       "Bash(rustc:*)",
-      "Bash(true sleep:*)"
+      "Bash(true sleep:*)",
+      "Bash(./run_benchmarks.sh)",
+      "Bash(ab:*)",
+      "Bash(./detailed_benchmarks.sh:*)",
+      "Bash(./quick_benchmark.sh:*)",
+      "Bash(./target/release/examples/basic)",
+      "Bash(echo:*)",
+      "Bash(./hyperserve-rust-new:*)",
+      "Bash(./final_benchmark.sh:*)",
+      "Bash(./simple_bench.sh:*)",
+      "Bash(ffmpeg:*)"
     ],
     "deny": []
   }

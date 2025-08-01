@@ -26,6 +26,8 @@ pub struct Server {
     listener: TcpListener,
     router: Arc<Router>,
     middleware_chain: Option<Chain>,
+    /// Use optimized thread pool (experimental)
+    use_optimized_pool: bool,
 }
 
 impl Server {
@@ -42,6 +44,7 @@ impl Server {
             listener: TcpListener::bind(addr)?,
             router: Arc::new(Router::new()),
             middleware_chain: None,
+            use_optimized_pool: false,
         })
     }
     
@@ -69,14 +72,40 @@ impl Server {
         self
     }
     
+    /// Enable experimental optimized thread pool (default: false)
+    /// 
+    /// WARNING: This is experimental and may cause instability.
+    /// Only enable if you need maximum performance and can tolerate potential issues.
+    pub fn with_optimized_pool(mut self, enabled: bool) -> Self {
+        self.use_optimized_pool = enabled;
+        self
+    }
+    
     /// Run the server - blocks until shutdown
     pub fn run(mut self) -> std::io::Result<()> {
         self.print_banner();
         
         println!("Server listening on {}", self.listener.local_addr()?);
         
-        // Create thread pool
-        let pool = http::ThreadPool::new(4);
+        // Create thread pool based on configuration
+        let pool = if self.use_optimized_pool {
+            println!("WARNING: Using experimental optimized thread pool");
+            let config = http::ThreadPoolConfig::optimal();
+            println!("Thread pool: {} min, {} target, {} max threads", 
+                     config.min_threads, config.target_threads, config.max_threads);
+            
+            // Create optimized pool (experimental)
+            // Note: This may cause segmentation faults under certain conditions
+            // let pool = http::OptimizedPool::new(config.min_threads, config.max_threads);
+            
+            // For now, still use stable pool even when optimized is requested
+            // This prevents crashes while we debug the lock-free implementation
+            println!("Note: Optimized pool is temporarily disabled due to stability issues");
+            http::ThreadPool::new(config.target_threads)
+        } else {
+            // Use stable thread pool (default)
+            http::ThreadPool::new(4)
+        };
         
         // Apply middleware chain to router if configured
         if let Some(chain) = self.middleware_chain {
