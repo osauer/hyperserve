@@ -58,6 +58,9 @@ mem.prof
 benchmarks/results/
 benchmarks/hyperserve-*
 benchmarks/*.txt
+benchmarks/go-server
+benchmarks/rust-server
+benchmarks/performance_test.sh
 
 # Coverage reports
 coverage.txt
@@ -87,7 +90,7 @@ examples/websocket/websocket
 examples/websocket-*/websocket-*
 examples/devops/devops
 
-# Exclude all compiled Go binaries in examples
+# Exclude all compiled Go binaries in examples and go directory
 examples/**/*
 !examples/**/*.go
 !examples/**/*.md
@@ -100,6 +103,8 @@ examples/**/*
 !examples/**/go.mod
 !examples/**/go.sum
 !examples/**/.gitkeep
+go/go-server
+go/hyperserve-go
 
 # Rust build artifacts
 /rust/target/
