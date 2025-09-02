@@ -15,7 +15,7 @@ import (
 	"net/http"
 	"time"
 
-	hs "github.com/osauer/hyperserve"
+	hs "github.com/osauer/hyperserve/go"
 )
 
 func numbersStreamHandler(w http.ResponseWriter, r *http.Request) {

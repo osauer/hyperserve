@@ -101,13 +101,13 @@ func init() {
 	if Version == "dev" {
 		if info, ok := debug.ReadBuildInfo(); ok {
 			for _, dep := range info.Deps {
-				if dep.Path == "github.com/osauer/hyperserve" {
+				if dep.Path == "github.com/osauer/hyperserve/go" {
 					Version = dep.Version
 					break
 				}
 			}
 			// If we're the main module, use the Go version as a fallback
-			if Version == "dev" && info.Main.Path == "github.com/osauer/hyperserve" {
+			if Version == "dev" && info.Main.Path == "github.com/osauer/hyperserve/go" {
 				if info.Main.Version != "" && info.Main.Version != "(devel)" {
 					Version = info.Main.Version
 				}

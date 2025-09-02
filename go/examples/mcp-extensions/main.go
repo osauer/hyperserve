@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/hyperserve"
+	"github.com/osauer/hyperserve/go"
 )
 
 // BlogPost represents a blog post

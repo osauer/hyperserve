@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/osauer/hyperserve"
+	"github.com/osauer/hyperserve/go"
 )
 
 // AppData represents our application's template data

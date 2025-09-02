@@ -2,7 +2,7 @@ package main
 
 import (
 	"testing"
-	"github.com/osauer/hyperserve"
+	"github.com/osauer/hyperserve/go"
 )
 
 func TestMCPDevOpsPreset(t *testing.T) {

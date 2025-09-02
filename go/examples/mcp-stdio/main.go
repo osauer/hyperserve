@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/osauer/hyperserve"
+	"github.com/osauer/hyperserve/go"
 )
 
 func main() {

@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/osauer/hyperserve"
+	"github.com/osauer/hyperserve/go"
 )
 
 func main() {

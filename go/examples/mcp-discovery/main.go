@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/osauer/hyperserve"
+	"github.com/osauer/hyperserve/go"
 )
 
 // CustomTool that opts out of discovery

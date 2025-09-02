@@ -9,7 +9,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/osauer/hyperserve"
+	"github.com/osauer/hyperserve/go"
 )
 
 func main() {

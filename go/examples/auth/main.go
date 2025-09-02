@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/osauer/hyperserve"
+	"github.com/osauer/hyperserve/go"
 	"golang.org/x/time/rate"
 )
 

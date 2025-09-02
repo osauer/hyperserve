@@ -5,7 +5,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/osauer/hyperserve"
+	"github.com/osauer/hyperserve/go"
 )
 
 func main() {

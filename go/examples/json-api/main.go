@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/hyperserve"
+	"github.com/osauer/hyperserve/go"
 )
 
 // Todo represents a task in our TODO list

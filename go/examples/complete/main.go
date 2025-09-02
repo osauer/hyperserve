@@ -13,7 +13,7 @@ import (
 	"net/http"
 	"time"
 
-	hs "github.com/osauer/hyperserve"
+	hs "github.com/osauer/hyperserve/go"
 )
 
 // Mock user store for authentication demo

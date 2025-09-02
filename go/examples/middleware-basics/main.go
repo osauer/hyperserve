@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/osauer/hyperserve"
+	"github.com/osauer/hyperserve/go"
 )
 
 // Step represents a middleware demonstration step

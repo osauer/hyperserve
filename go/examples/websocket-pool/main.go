@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/osauer/hyperserve"
+	"github.com/osauer/hyperserve/go"
 )
 
 // Message represents a WebSocket message

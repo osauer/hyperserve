@@ -1,4 +1,4 @@
-module github.com/osauer/hyperserve
+module github.com/osauer/hyperserve/go
 
 go 1.24
 

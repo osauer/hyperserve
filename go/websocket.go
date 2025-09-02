@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/hyperserve/internal/ws"
+	"github.com/osauer/hyperserve/go/internal/ws"
 )
 
 // WebSocket message types
