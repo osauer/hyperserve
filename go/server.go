@@ -163,6 +163,7 @@ const (
 	paramCSPWebWorkerSupport = "HS_CSP_WEB_WORKER_SUPPORT"
 	paramLogLevel           = "HS_LOG_LEVEL"
 	paramDebugMode          = "HS_DEBUG"
+	paramSuppressBanner     = "HS_SUPPRESS_BANNER"
 )
 
 // rateLimit limits requests per second that can be requested from the httpServer. Requires to add [RateLimitMiddleware]
@@ -404,8 +405,8 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 //	    log.Fatal("Server failed:", err)
 //	}
 func (srv *Server) Run() error {
-	// Print ASCII art on startup (skip in stdio mode)
-	if srv.Options.MCPTransport != StdioTransport {
+	// Print ASCII art on startup (skip in stdio mode or if suppressed)
+	if srv.Options.MCPTransport != StdioTransport && !srv.Options.SuppressBanner {
 		srv.printStartupBanner()
 	}
 	
@@ -1020,6 +1021,15 @@ func WithDebugMode() ServerOptionFunc {
 		srv.Options.LogLevel = "DEBUG"
 		slog.SetLogLoggerLevel(slog.LevelDebug)
 		logger.Debug("Debug mode enabled")
+		return nil
+	}
+}
+
+// WithSuppressBanner suppresses the HyperServe ASCII banner at startup.
+// Useful when building white-label products on top of HyperServe.
+func WithSuppressBanner(suppress bool) ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.SuppressBanner = suppress
 		return nil
 	}
 }

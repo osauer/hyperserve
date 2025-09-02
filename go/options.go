@@ -19,6 +19,7 @@ Environment Variables:
   - HS_CSP_WEB_WORKER_SUPPORT: Enable Web Worker CSP headers (default "false")
   - HS_LOG_LEVEL: Set log level (DEBUG, INFO, WARN, ERROR) (default "INFO")
   - HS_DEBUG: Enable debug mode and debug logging (default "false")
+  - HS_SUPPRESS_BANNER: Suppress the HyperServe ASCII banner at startup (default "false")
 
 Example configuration file (options.json):
 
@@ -97,6 +98,8 @@ type ServerOptions struct {
 	// Logging configuration
 	LogLevel               string   `json:"log_level,omitempty"`
 	DebugMode              bool     `json:"debug_mode,omitempty"`
+	// Banner configuration
+	SuppressBanner         bool     `json:"suppress_banner,omitempty"`
 }
 
 var defaultServerOptions = &ServerOptions{
@@ -286,6 +289,17 @@ func applyEnvVars(config *ServerOptions) *ServerOptions {
 		} else if debugMode == "false" || debugMode == "0" {
 			config.DebugMode = false
 			logger.Debug("Debug mode disabled from environment variable", "variable", paramDebugMode)
+		}
+	}
+	
+	// Banner configuration
+	if suppressBanner := os.Getenv(paramSuppressBanner); suppressBanner != "" {
+		if suppressBanner == "true" || suppressBanner == "1" {
+			config.SuppressBanner = true
+			logger.Debug("Banner suppression enabled from environment variable", "variable", paramSuppressBanner)
+		} else if suppressBanner == "false" || suppressBanner == "0" {
+			config.SuppressBanner = false
+			logger.Debug("Banner suppression disabled from environment variable", "variable", paramSuppressBanner)
 		}
 	}
 	
