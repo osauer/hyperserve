@@ -9,6 +9,8 @@ A secure, high-performance HTTP server framework for Go with native Model Contex
 
 - **Zero Dependencies** - Uses only `golang.org/x/time/rate` for rate limiting
 - **MCP Native** - Built-in support for AI assistant integration via Model Context Protocol
+- **WebSocket Pool** - Efficient connection pooling and reuse for WebSocket applications
+- **Request Interceptors** - Powerful middleware system for cross-cutting concerns
 - **Secure by Default** - FIPS 140-3 mode, TLS 1.3, security headers, origin validation
 - **Production Ready** - Graceful shutdown, health checks, structured logging, metrics
 - **Developer Friendly** - Hot reload, route inspection, request debugging with MCP tools
@@ -298,6 +300,98 @@ srv.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 })
 ```
 
+### WebSocket Connection Pool
+
+Efficient connection pooling and reuse for high-performance WebSocket applications:
+
+```go
+// Configure the pool
+poolConfig := hyperserve.PoolConfig{
+    MaxConnectionsPerEndpoint: 100,    // Max connections per endpoint
+    MaxIdleConnections:        20,     // Max idle connections to keep
+    IdleTimeout:              30 * time.Second,
+    HealthCheckInterval:      10 * time.Second,
+    EnableCompression:        true,
+}
+
+pool := hyperserve.NewWebSocketPool(poolConfig)
+
+// Use the pool in handlers
+srv.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+    conn, err := pool.Get(r.Context(), "/ws", upgrader, w, r)
+    if err != nil {
+        return
+    }
+    
+    // Handle WebSocket communication
+    // ...
+    
+    // Return to pool when done (instead of Close)
+    defer pool.Put(conn)
+})
+
+// Get pool statistics
+stats := pool.GetStats()
+fmt.Printf("Active connections: %d\n", stats.ActiveConnections.Load())
+```
+
+**Benefits:**
+- Reduces connection establishment overhead
+- Automatic health monitoring via ping/pong
+- Configurable idle timeout and cleanup
+- Real-time pool statistics
+- Perfect for high-traffic applications
+
+### Request/Response Interceptors
+
+Powerful middleware system for implementing cross-cutting concerns:
+
+```go
+// Create interceptor chain
+chain := hyperserve.NewInterceptorChain()
+
+// Add built-in interceptors
+chain.Add(hyperserve.NewRequestLogger(log.Printf))
+chain.Add(hyperserve.NewAuthTokenInjector(tokenProvider))
+chain.Add(corsInterceptor)
+
+// Custom interceptor
+type ValidatorInterceptor struct{}
+
+func (v *ValidatorInterceptor) Name() string { return "Validator" }
+
+func (v *ValidatorInterceptor) InterceptRequest(ctx context.Context, req *hyperserve.InterceptableRequest) (*hyperserve.InterceptorResponse, error) {
+    // Validate request
+    if req.Header.Get("X-API-Key") == "" {
+        return &hyperserve.InterceptorResponse{
+            StatusCode: 401,
+            Body:       []byte("API key required"),
+        }, nil
+    }
+    return nil, nil
+}
+
+func (v *ValidatorInterceptor) InterceptResponse(ctx context.Context, req *hyperserve.InterceptableRequest, resp *hyperserve.InterceptableResponse) error {
+    // Transform response
+    resp.Headers.Set("X-Custom-Header", "processed")
+    return nil
+}
+
+chain.Add(&ValidatorInterceptor{})
+
+// Wrap handlers
+srv.HandleFunc("/api/data", chain.WrapHandler(apiHandler).ServeHTTP)
+```
+
+**Use Cases:**
+- Authentication and authorization
+- Request/response logging and auditing
+- Rate limiting per client or endpoint
+- Response transformation and enrichment
+- CORS handling
+- Input validation
+- A/B testing and feature flags
+
 ## Configuration
 
 ### Options
@@ -360,6 +454,8 @@ export HS_MCP_TRANSPORT=http        # or stdio for Claude Desktop
 - [Hello World](examples/hello-world) - Minimal server
 - [JSON API](examples/json-api) - RESTful API with JSON handling
 - [Auth](examples/auth) - Production-ready authentication (JWT, API Keys, RBAC)
+- [WebSocket Pool](examples/websocket-pool) - Connection pooling and reuse
+- [Interceptors](examples/interceptors) - Request/response middleware system
 - [MCP Flags](examples/mcp-flags) - Configure MCP via flags/environment
 - [MCP Development](examples/mcp-development) - AI-assisted development
 - [MCP Extensions](examples/mcp-extensions) - Custom tools and resources
