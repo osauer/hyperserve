@@ -1,36 +1,33 @@
 # HyperServe Specification
 
-This directory contains the shared specifications and conformance tests for both the Go and Rust implementations of HyperServe.
+This directory contains the specifications and conformance tests for HyperServe.
 
 ## Structure
 
-- `conformance/` - Conformance test suite to verify implementation compatibility
-- `protocols/` - Protocol specifications (HTTP, WebSocket, MCP)
-- `api/` - API specifications and expected behaviors
+- `conformance/` - Conformance test suite to verify implementation
+- `api.md` - API specifications and expected behaviors
 
 ## Running Conformance Tests
 
-The conformance tests can be run against either implementation:
-
 ```bash
-# Test Go implementation
+# Run conformance tests
 cd conformance
-./test.sh go
-
-# Test Rust implementation  
-cd conformance
-./test.sh rust
-
-# Test both and compare
-cd conformance
-./test.sh both
+./test.sh
 ```
 
 ## Protocol Compliance
 
-Both implementations must:
-- Handle identical HTTP requests/responses
-- Support the same middleware chain behavior
+The implementation must:
+- Handle HTTP requests/responses according to RFC standards
+- Support middleware chain behavior as specified
 - Implement WebSocket protocol correctly
 - Provide feature-complete MCP support
-- Return identical JSON responses
+- Return properly formatted JSON responses
+
+## API Specification
+
+See [api.md](./api.md) for the complete API specification including:
+- Endpoint definitions
+- Request/response formats
+- Status codes
+- Error handling

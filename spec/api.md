@@ -1,6 +1,6 @@
 # HyperServe API Specification
 
-This document defines the common API that both Go and Rust implementations must support.
+This document defines the API specification that HyperServe implements.
 
 ## Core Endpoints
 

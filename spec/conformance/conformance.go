@@ -1,5 +1,5 @@
 // HyperServe Conformance Test Suite
-// Tests both Go and Rust implementations for feature parity
+// Tests the HyperServe implementation for compliance
 
 package main
 
@@ -12,22 +12,18 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"reflect"
 	"strings"
 	"syscall"
 	"time"
 )
 
 const (
-	defaultGoPort   = 8080
-	defaultRustPort = 8081
-	timeout         = 10 * time.Second
+	defaultPort = 8080
+	timeout     = 10 * time.Second
 )
 
 var (
-	goPort   int
-	rustPort int
-	mode     string
+	port int
 )
 
 type testResult struct {
@@ -37,107 +33,38 @@ type testResult struct {
 }
 
 func init() {
-	flag.IntVar(&goPort, "go-port", defaultGoPort, "Port for Go server")
-	flag.IntVar(&rustPort, "rust-port", defaultRustPort, "Port for Rust server")
-	flag.StringVar(&mode, "mode", "both", "Test mode: go, rust, or both")
+	flag.IntVar(&port, "port", defaultPort, "Port for server")
 }
 
 func main() {
 	flag.Parse()
-
-	switch mode {
-	case "go":
-		testSingleImplementation("go", goPort)
-	case "rust":
-		testSingleImplementation("rust", rustPort)
-	case "both":
-		testBothImplementations()
-	default:
-		fmt.Fprintf(os.Stderr, "Invalid mode: %s\n", mode)
-		os.Exit(1)
-	}
-}
-
-func testSingleImplementation(impl string, port int) {
-	server := startServer(impl, port)
+	
+	server := startServer(port)
 	defer stopServer(server)
-
+	
 	result := &testResult{}
 	
-	fmt.Printf("Testing %s implementation on port %d\n", impl, port)
-	testBasicHTTP(impl, port, result)
-	testMCPProtocol(impl, port, result)
+	fmt.Printf("Testing HyperServe implementation on port %d\n", port)
+	testBasicHTTP(port, result)
+	testMCPProtocol(port, result)
 	
 	printSummary(result)
 }
 
-func testBothImplementations() {
-	// Start both servers
-	goServer := startServer("go", goPort)
-	defer stopServer(goServer)
+func startServer(port int) *exec.Cmd {
+	fmt.Printf("[INFO] Starting server on port %d...\n", port)
 	
-	rustServer := startServer("rust", rustPort)
-	defer stopServer(rustServer)
-	
-	result := &testResult{}
-	
-	fmt.Println("Running conformance tests...")
-	
-	// Test basic HTTP
-	compareEndpoint("GET /health", "/health", "GET", nil, result)
-	compareEndpoint("GET /", "/", "GET", nil, result)
-	
-	// Test MCP if available
-	if checkMCPAvailable(goPort) && checkMCPAvailable(rustPort) {
-		// Initialize
-		initRequest := map[string]interface{}{
-			"jsonrpc": "2.0",
-			"method":  "initialize",
-			"params": map[string]interface{}{
-				"protocolVersion": "2024-11-05",
-				"capabilities":    map[string]interface{}{},
-				"clientInfo": map[string]interface{}{
-					"name":    "conformance",
-					"version": "1.0",
-				},
-			},
-			"id": 1,
-		}
-		compareEndpoint("MCP Initialize", "/mcp", "POST", initRequest, result)
-		
-		// List tools
-		listRequest := map[string]interface{}{
-			"jsonrpc": "2.0",
-			"method":  "tools/list",
-			"id":      2,
-		}
-		compareEndpoint("MCP List Tools", "/mcp", "POST", listRequest, result)
-	}
-	
-	printSummary(result)
-}
-
-func startServer(impl string, port int) *exec.Cmd {
-	fmt.Printf("[INFO] Starting %s server on port %d...\n", impl, port)
-	
-	var cmd *exec.Cmd
 	rootDir := "../.."
-	
-	if impl == "go" {
-		cmd = exec.Command("go", "run", "./cmd/server", fmt.Sprintf("-port=%d", port))
-		cmd.Dir = rootDir + "/go"
-	} else {
-		cmd = exec.Command("cargo", "run", "--release", "--features", "mcp", "--bin", "hyperserve-server", "--", "--port", fmt.Sprintf("%d", port))
-		cmd.Dir = rootDir + "/rust"
-	}
+	cmd := exec.Command("go", "run", "./cmd/hyperserve", fmt.Sprintf("-port=%d", port))
+	cmd.Dir = rootDir
 	
 	// Start server
-	logFile, _ := os.Create(fmt.Sprintf("/tmp/hyperserve_%s.log", impl))
+	logFile, _ := os.Create("/tmp/hyperserve.log")
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	
 	if err := cmd.Start(); err != nil {
-		fmt.Printf("[FAIL] Failed to start %s server: %v\n", impl, err)
+		fmt.Printf("[FAIL] Failed to start server: %v\n", err)
 		os.Exit(1)
 	}
 	
@@ -146,13 +73,13 @@ func startServer(impl string, port int) *exec.Cmd {
 		resp, err := http.Get(fmt.Sprintf("http://localhost:%d/health", port))
 		if err == nil && resp.StatusCode == 200 {
 			resp.Body.Close()
-			fmt.Printf("[PASS] %s server started successfully\n", impl)
+			fmt.Println("[PASS] Server started successfully")
 			return cmd
 		}
 		time.Sleep(time.Second)
 	}
 	
-	fmt.Printf("[FAIL] %s server failed to start\n", impl)
+	fmt.Println("[FAIL] Server failed to start")
 	cmd.Process.Kill()
 	os.Exit(1)
 	return nil
@@ -165,8 +92,8 @@ func stopServer(cmd *exec.Cmd) {
 	}
 }
 
-func testBasicHTTP(impl string, port int, result *testResult) {
-	fmt.Printf("[INFO] Testing basic HTTP endpoints for %s...\n", impl)
+func testBasicHTTP(port int, result *testResult) {
+	fmt.Println("[INFO] Testing basic HTTP endpoints...")
 	
 	// Test health
 	if testEndpoint(port, "/health", "GET", nil, 200) {
@@ -200,8 +127,8 @@ func testBasicHTTP(impl string, port int, result *testResult) {
 	}
 }
 
-func testMCPProtocol(impl string, port int, result *testResult) {
-	fmt.Printf("[INFO] Testing MCP protocol for %s...\n", impl)
+func testMCPProtocol(port int, result *testResult) {
+	fmt.Println("[INFO] Testing MCP protocol...")
 	
 	if !checkMCPAvailable(port) {
 		fmt.Println("[WARN] MCP not available, skipping...")
@@ -229,6 +156,36 @@ func testMCPProtocol(impl string, port int, result *testResult) {
 		result.passed++
 	} else {
 		fmt.Println("[FAIL] MCP Initialize")
+		result.failed++
+	}
+	
+	// Test list tools
+	listRequest := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"method":  "tools/list",
+		"id":      2,
+	}
+	
+	if testEndpoint(port, "/mcp", "POST", listRequest, 200) {
+		fmt.Println("[PASS] MCP List Tools")
+		result.passed++
+	} else {
+		fmt.Println("[FAIL] MCP List Tools")
+		result.failed++
+	}
+	
+	// Test list resources
+	resourcesRequest := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"method":  "resources/list",
+		"id":      3,
+	}
+	
+	if testEndpoint(port, "/mcp", "POST", resourcesRequest, 200) {
+		fmt.Println("[PASS] MCP List Resources")
+		result.passed++
+	} else {
+		fmt.Println("[FAIL] MCP List Resources")
 		result.failed++
 	}
 }
@@ -264,29 +221,6 @@ func testEndpointStatus(port int, path string, method string, body interface{}) 
 	defer resp.Body.Close()
 	
 	return resp.StatusCode
-}
-
-func compareEndpoint(testName string, path string, method string, body interface{}, result *testResult) {
-	goResp := fetchResponse(goPort, path, method, body)
-	rustResp := fetchResponse(rustPort, path, method, body)
-	
-	// Normalize responses
-	normalizeResponse(goResp)
-	normalizeResponse(rustResp)
-	
-	if reflect.DeepEqual(goResp, rustResp) {
-		fmt.Printf("[PASS] %s: Responses match\n", testName)
-		result.passed++
-	} else {
-		fmt.Printf("[FAIL] %s: Responses differ\n", testName)
-		result.failed++
-		
-		// Show diff
-		goJSON, _ := json.MarshalIndent(goResp, "", "  ")
-		rustJSON, _ := json.MarshalIndent(rustResp, "", "  ")
-		fmt.Printf("Go response:\n%s\n", goJSON)
-		fmt.Printf("Rust response:\n%s\n", rustJSON)
-	}
 }
 
 func fetchResponse(port int, path string, method string, body interface{}) map[string]interface{} {
@@ -328,16 +262,6 @@ func fetchResponse(port int, path string, method string, body interface{}) map[s
 	return result
 }
 
-func normalizeResponse(resp map[string]interface{}) {
-	// Remove server-specific fields that are expected to differ
-	if result, ok := resp["result"].(map[string]interface{}); ok {
-		if serverInfo, ok := result["serverInfo"].(map[string]interface{}); ok {
-			// Normalize version
-			serverInfo["version"] = "X.X.X"
-		}
-	}
-}
-
 func checkMCPAvailable(port int) bool {
 	resp, err := http.Post(
 		fmt.Sprintf("http://localhost:%d/mcp", port),
@@ -365,7 +289,7 @@ func printSummary(result *testResult) {
 	}
 	
 	if result.failed == 0 {
-		fmt.Println("[PASS] All tests passed! Implementations are conformant.")
+		fmt.Println("[PASS] All tests passed! Implementation is conformant.")
 		os.Exit(0)
 	} else {
 		os.Exit(1)

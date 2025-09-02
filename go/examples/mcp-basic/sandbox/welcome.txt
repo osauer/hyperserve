@@ -1,4 +1,0 @@
-Welcome to Hyperserve MCP!
-
-This file demonstrates the file reading capabilities.
-Try using the 'read_file' tool to read this content.

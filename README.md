@@ -1,35 +1,19 @@
 # HyperServe
 
-A lightweight, high-performance HTTP server framework with built-in Model Context Protocol (MCP) support. Available in both Go and Rust implementations with feature parity.
+A lightweight, high-performance HTTP server framework with built-in Model Context Protocol (MCP) support, written in Go.
 
 ## Features
 
-- 🚀 **Minimal Dependencies** - Go version has only 1 dependency, Rust version is zero-dependency
+- 🚀 **Minimal Dependencies** - Only 1 dependency (`golang.org/x/time`)
 - 🤖 **MCP Support** - Built-in Model Context Protocol for AI assistants
 - 🔌 **WebSocket Support** - Real-time bidirectional communication
 - 🛡️ **Secure by Default** - Built-in security headers and rate limiting
 - 📊 **Observable** - Metrics, health checks, and structured logging
 - ⚡ **High Performance** - Optimized for throughput and low latency
-
-## Choose Your Implementation
-
-### [Go Implementation](./go/)
-- Single dependency (`golang.org/x/time`)
-- Leverages Go's excellent standard library
-- Simple concurrency with goroutines
-- Battle-tested HTTP/2 support
-
-### [Rust Implementation](./rust/)
-- Zero dependencies - everything built from scratch
-- Memory safe without garbage collection
-- Ideal for embedded and resource-constrained environments
-- Rust 2024 Edition with latest language features
-
-Both implementations provide the same API and features. Choose based on your ecosystem and requirements.
+- 🔧 **Battle-tested HTTP/2** - Leverages Go's excellent standard library
 
 ## Quick Start
 
-### Go
 ```go
 srv, _ := hyperserve.NewServer()
 srv.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -38,18 +22,15 @@ srv.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 srv.Run()
 ```
 
-### Rust
-```rust
-HyperServe::new("127.0.0.1:8080")?
-    .handle_func("/", |_req| {
-        Response::new(Status::Ok).body("Hello, World!")
-    })
-    .run()
+## Installation
+
+```bash
+go get github.com/osauer/hyperserve
 ```
 
 ## MCP (Model Context Protocol)
 
-Both implementations support MCP, enabling AI assistants to:
+HyperServe includes native MCP support, enabling AI assistants to:
 - Execute tools and access resources
 - Connect via HTTP or Server-Sent Events (SSE)
 - Discover capabilities automatically
@@ -61,22 +42,36 @@ HS_MCP_SERVER_NAME=MyServer
 HS_MCP_SERVER_VERSION=1.0.0
 ```
 
-## Architecture
+Or programmatically:
+```go
+srv, _ := hyperserve.NewServer(
+    hyperserve.WithMCPSupport(),
+    hyperserve.WithMCPBuiltinTools(true),
+    hyperserve.WithMCPBuiltinResources(true),
+)
+```
 
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for design decisions and rationale behind maintaining two implementations.
+## Examples
 
-## API Specification
+See the [examples](./examples) directory for comprehensive examples including:
+- Basic HTTP server
+- WebSocket implementation
+- MCP integration
+- Authentication and RBAC
+- Enterprise features
+- Best practices
 
-Both implementations conform to the same [API specification](./spec/api.md) ensuring feature parity and compatibility.
+## Documentation
+
+- [Architecture](./ARCHITECTURE.md) - Design decisions and system architecture
+- [API Specification](./spec/api.md) - Complete API documentation
+- [MCP Guide](./docs/MCP_GUIDE.md) - Model Context Protocol integration
+- [WebSocket Guide](./docs/WEBSOCKET_GUIDE.md) - WebSocket implementation details
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines on contributing to either implementation.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines on contributing.
 
 ## License
 
 MIT License - see [LICENSE](./LICENSE) for details.
-
-## Benchmarks
-
-See [benchmarks documentation](./docs/benchmarks.md) for performance comparisons between implementations.

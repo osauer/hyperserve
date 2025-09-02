@@ -1,84 +1,166 @@
 # HyperServe Architecture
 
-## Why Two Implementations?
+## Design Philosophy
 
-HyperServe maintains both Go and Rust implementations to leverage the unique strengths of each language while maintaining feature parity. This approach provides:
+HyperServe is built with a focus on simplicity, performance, and maintainability. By leveraging Go's excellent standard library and minimal external dependencies, we achieve a robust HTTP server framework that is both powerful and easy to understand.
 
-1. **Choice** - Users can select based on their ecosystem
-2. **Learning** - Compare idiomatic approaches in both languages
-3. **Innovation** - Features can be prototyped in either language
-4. **Validation** - Cross-implementation testing ensures correctness
-
-## Design Principles
+## Core Principles
 
 ### 1. Minimal Dependencies
-- **Go**: Single dependency (`golang.org/x/time` for rate limiting)
-- **Rust**: Zero dependencies - everything built from scratch
+- Single external dependency: `golang.org/x/time` for rate limiting
+- Maximizes use of Go's standard library
+- Reduces security surface area and maintenance burden
 
-### 2. API Compatibility
-Both implementations expose the same HTTP API and configuration options, allowing them to be used interchangeably.
+### 2. Performance First
+- Leverages Go's efficient goroutine model for concurrency
+- Zero-allocation patterns where possible
+- Optimized for both throughput and latency
 
-### 3. Feature Parity
-Core features are implemented in both:
-- HTTP/1.1 server
-- WebSocket support
-- Model Context Protocol (MCP)
-- Security middleware
-- Health checks
-- Static file serving
+### 3. Security by Default
+- Built-in security headers
+- Rate limiting out of the box
+- Secure defaults for all configurations
 
-## Architectural Decisions
+### 4. Developer Experience
+- Simple, intuitive API
+- Comprehensive examples
+- Clear error messages and logging
 
-### Go Implementation
-- Leverages Go's excellent standard library
-- Uses goroutines for concurrency
-- Simple, readable code that follows Go idioms
-- Ideal for cloud-native deployments
+## Architecture Overview
 
-### Rust Implementation
-- Built from first principles with zero dependencies
-- Memory safe without garbage collection
-- Uses thread pool for concurrency
-- Ideal for embedded systems and edge computing
+### Core Components
 
-## Shared Components
+#### Server
+The main server struct (`Server`) handles:
+- HTTP request routing and handling
+- WebSocket connections
+- Middleware chain execution
+- Configuration management
 
-### Specifications (`/spec`)
-Language-agnostic API and protocol specifications ensure both implementations behave identically.
+#### Middleware System
+Flexible middleware architecture supporting:
+- Pre and post-processing
+- Authentication and authorization
+- Logging and metrics
+- Security headers
+- Rate limiting
 
-### Tests (`/tests/conformance`)
-Cross-implementation tests validate that both versions conform to the same behavior.
+#### MCP (Model Context Protocol)
+Native MCP implementation providing:
+- Tool registration and execution
+- Resource management
+- Multiple transport support (HTTP, SSE, stdio)
+- Discovery endpoints
+- Namespace isolation
 
-### Documentation (`/docs`)
-Shared documentation covers common concepts, deployment, and usage patterns.
+#### WebSocket Support
+Full WebSocket implementation featuring:
+- Connection pooling
+- Binary and text message support
+- Automatic ping/pong handling
+- Configurable timeouts
+- Per-connection rate limiting
 
-## Trade-offs
+### Directory Structure
 
-### Go Advantages
-- Faster development iteration
-- Battle-tested HTTP/2 support
-- Rich standard library
-- Simple deployment (single binary)
+```
+/
+├── cmd/              # Command-line applications
+├── internal/         # Private application code
+├── examples/         # Example implementations
+├── docs/            # Documentation
+├── benchmarks/      # Performance benchmarks
+├── spec/            # API specifications
+└── configs/         # Configuration examples
+```
 
-### Rust Advantages
-- No garbage collection pauses
-- Lower memory footprint
-- Predictable performance
-- Can target no_std environments
+## Key Design Decisions
 
-## Future Directions
+### Go Standard Library First
+We prioritize Go's standard library over external packages. This provides:
+- Better long-term stability
+- Reduced dependency management
+- More predictable behavior
+- Easier debugging
 
-1. **Performance Benchmarks** - Detailed comparisons under various workloads
-2. **WASM Support** - Rust implementation compiled to WebAssembly
-3. **Embedded Targets** - Rust on microcontrollers
-4. **Advanced MCP Features** - Leverage each language's strengths
+### Interface-Based Design
+Heavy use of interfaces enables:
+- Easy testing with mocks
+- Flexible implementations
+- Clean separation of concerns
+- Plugin-style extensibility
+
+### Context-Aware
+All handlers and middleware use Go's context pattern for:
+- Request-scoped values
+- Cancellation propagation
+- Timeout management
+- Tracing and correlation
+
+### Error Handling
+Consistent error handling approach:
+- Errors are always returned, never panicked
+- Structured logging for debugging
+- User-friendly error messages
+- Proper HTTP status codes
+
+## Performance Characteristics
+
+### Concurrency Model
+- One goroutine per connection
+- Efficient goroutine pooling
+- Non-blocking I/O operations
+- Careful resource management
+
+### Memory Management
+- Minimal allocations in hot paths
+- Buffer pooling for large operations
+- Careful string handling
+- Efficient JSON encoding/decoding
+
+### Network Optimization
+- HTTP/2 support via standard library
+- Keep-alive connections
+- Configurable timeouts
+- Graceful shutdown
+
+## Security Architecture
+
+### Defense in Depth
+Multiple layers of security:
+1. Input validation
+2. Rate limiting
+3. Security headers
+4. Authentication middleware
+5. Authorization checks
+
+### Secure Defaults
+- TLS 1.2+ only
+- Secure cookie flags
+- CORS protection
+- XSS prevention headers
+
+## Future Roadmap
+
+### Near Term
+- Enhanced metrics and observability
+- Additional MCP tool implementations
+- Performance optimizations
+- Extended authentication providers
+
+### Long Term
+- HTTP/3 support
+- Advanced caching strategies
+- Distributed tracing
+- Service mesh integration
 
 ## Contributing
 
-When adding features:
-1. Update the specification first
-2. Implement in both languages
-3. Add conformance tests
+When contributing to HyperServe:
+1. Follow Go best practices and idioms
+2. Maintain minimal dependency philosophy
+3. Write comprehensive tests
 4. Update documentation
+5. Consider performance implications
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed guidelines.

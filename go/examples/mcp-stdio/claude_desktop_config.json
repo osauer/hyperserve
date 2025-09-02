@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "hyperserve-local": {
-      "command": "go",
-      "args": ["run", "/path/to/hyperserve/examples/mcp-stdio/main.go", "-verbose"],
-      "env": {}
-    }
-  }
-}

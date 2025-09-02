@@ -7,8 +7,8 @@ on:
     branches: [ main ]
 
 jobs:
-  go:
-    name: Go Tests
+  test:
+    name: Test
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -19,39 +19,16 @@ jobs:
         go-version: '1.24'
     
     - name: Test
-      run: |
-        cd go
-        go test -v ./...
+      run: go test -v ./...
     
     - name: Build
-      run: |
-        cd go
-        go build -v ./...
+      run: go build -v ./...
+    
+    - name: Build CLI
+      run: go build -v ./cmd/hyperserve
 
-  rust:
-    name: Rust Tests
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Rust
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        toolchain: stable
-    
-    - name: Test
-      run: |
-        cd rust
-        cargo test --all-features
-    
-    - name: Build
-      run: |
-        cd rust
-        cargo build --release
-
-  conformance:
-    name: Conformance Tests
-    needs: [go, rust]
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -61,16 +38,21 @@ jobs:
       with:
         go-version: '1.24'
     
-    - name: Set up Rust
-      uses: dtolnay/rust-toolchain@stable
+    - name: golangci-lint
+      uses: golangci/golangci-lint-action@v3
+      with:
+        version: latest
+
+  benchmark:
+    name: Benchmark
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
     
-    - name: Build servers
-      run: |
-        cd go && go build -o ../hyperserve-go ./cmd/hyperserve
-        cd ../rust && cargo build --release --bin hyperserve
-        cp target/release/hyperserve ../hyperserve-rust
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
     
-    - name: Run conformance tests
-      run: |
-        cd tests
-        # TODO: Add conformance test runner
+    - name: Run benchmarks
+      run: go test -bench=. -benchmem ./...

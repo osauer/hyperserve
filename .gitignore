@@ -59,7 +59,6 @@ benchmarks/results/
 benchmarks/hyperserve-*
 benchmarks/*.txt
 benchmarks/go-server
-benchmarks/rust-server
 benchmarks/performance_test.sh
 
 # Coverage reports
@@ -103,13 +102,9 @@ examples/**/*
 !examples/**/go.mod
 !examples/**/go.sum
 !examples/**/.gitkeep
-go/go-server
-go/hyperserve-go
-
-# Rust build artifacts
-/rust/target/
-/rust/Cargo.lock
-**/*.rs.bk
+# Main binary
+/hyperserve
+/cmd/hyperserve/hyperserve
 
 # Python
 __pycache__/
