@@ -412,7 +412,6 @@ func (srv *Server) Run() error {
 	
 	// log httpServer start time for collection up-time metric
 	srv.serverStart = time.Now()
-	srv.isRunning.Store(true)
 
 	// Check if we're running in stdio mode for MCP
 	if srv.Options.MCPEnabled && srv.Options.MCPTransport == StdioTransport {
@@ -420,6 +419,7 @@ func (srv *Server) Run() error {
 		if srv.mcpHandler == nil {
 			return fmt.Errorf("MCP handler not initialized for stdio transport")
 		}
+		srv.isRunning.Store(true)
 		return srv.mcpHandler.RunStdioLoop()
 	}
 
@@ -431,6 +431,7 @@ func (srv *Server) Run() error {
 		IdleTimeout:       srv.Options.IdleTimeout,
 		ReadHeaderTimeout: srv.Options.ReadHeaderTimeout, // Prevent Slowloris attacks
 	}
+	
 	// If ReadHeaderTimeout is not set, default to ReadTimeout
 	if srv.httpServer.ReadHeaderTimeout == 0 && srv.httpServer.ReadTimeout > 0 {
 		srv.httpServer.ReadHeaderTimeout = srv.httpServer.ReadTimeout
@@ -446,6 +447,9 @@ func (srv *Server) Run() error {
 			return err
 		}
 	}
+	
+	// Mark as running only AFTER all servers (http AND health) are initialized
+	srv.isRunning.Store(true)
 
 	// Channel for server errors
 	serverErr := make(chan error, 1)

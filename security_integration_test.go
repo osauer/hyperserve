@@ -36,14 +36,14 @@ func TestHealthServerTimeoutConfiguration(t *testing.T) {
 	}
 
 	// Start the server
-	serverStarted := make(chan bool)
 	go func() {
-		serverStarted <- true
 		srv.Run()
 	}()
 
-	<-serverStarted
-	time.Sleep(100 * time.Millisecond)
+	// Wait for server to be fully initialized (isRunning=true means httpServer is ready)
+	for !srv.isRunning.Load() {
+		time.Sleep(1 * time.Millisecond)
+	}
 
 	// Verify main server timeouts
 	if srv.httpServer.ReadTimeout != 10*time.Second {

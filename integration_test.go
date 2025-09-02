@@ -22,26 +22,33 @@ func TestServerStartStopIntegration(t *testing.T) {
 	// Disable health server for this test to avoid port conflicts
 	srv.Options.RunHealthServer = false
 
-	// Channel to signal server started
-	serverStarted := make(chan bool)
+	// Channel to receive server run result
+	serverResult := make(chan error, 1)
 	
 	// Test server startup and shutdown
 	go func() {
-		serverStarted <- true
 		err := srv.Run()
 		// The server should exit with ErrServerClosed when stopped gracefully
 		if err != nil && err != http.ErrServerClosed {
-			t.Errorf("server run failed: %v", err)
+			serverResult <- fmt.Errorf("server run failed: %v", err)
+		} else {
+			serverResult <- nil
 		}
 	}()
 
-	// Wait for server to start
-	<-serverStarted
-	time.Sleep(100 * time.Millisecond)
+	// Wait for server to be fully initialized (isRunning=true means httpServer is ready)
+	for !srv.isRunning.Load() {
+		time.Sleep(1 * time.Millisecond)
+	}
 
 	// Stop the server
 	if err := srv.Stop(); err != nil {
 		t.Errorf("failed to stop server: %v", err)
+	}
+	
+	// Check server run result
+	if err := <-serverResult; err != nil {
+		t.Error(err)
 	}
 }
 
