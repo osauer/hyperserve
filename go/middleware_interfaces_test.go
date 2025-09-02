@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 )
 
@@ -217,7 +218,7 @@ func TestMiddlewareWithWebSocket(t *testing.T) {
 		},
 	}
 	
-	wsHandlerCalled := false
+	var wsHandlerCalled atomic.Bool
 	srv.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		// Verify that w can be hijacked through the middleware
 		if _, ok := w.(http.Hijacker); !ok {
@@ -231,7 +232,7 @@ func TestMiddlewareWithWebSocket(t *testing.T) {
 			return
 		}
 		conn.Close()
-		wsHandlerCalled = true
+		wsHandlerCalled.Store(true)
 	})
 	
 	// Create test server
@@ -251,7 +252,7 @@ func TestMiddlewareWithWebSocket(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	
-	if !wsHandlerCalled {
+	if !wsHandlerCalled.Load() {
 		t.Error("WebSocket handler was not called")
 	}
 }

@@ -268,6 +268,8 @@ srv.AddMiddleware("/admin", RequireAdminAuth)
 
 ### WebSocket Support
 
+Full RFC 6455 compliant WebSocket implementation with ping/pong handlers:
+
 ```go
 upgrader := hyperserve.Upgrader{
     CheckOrigin: hyperserve.SameOriginCheck(),
@@ -277,7 +279,22 @@ srv.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
     conn, _ := upgrader.Upgrade(w, r, nil)
     defer conn.Close()
     
-    // Handle WebSocket connection
+    // Set handlers for control frames (NEW in v0.19.2)
+    conn.SetPingHandler(func(appData string) error {
+        // Custom ping handling
+        return conn.WriteControl(PongMessage, []byte(appData), time.Now().Add(time.Second))
+    })
+    
+    conn.SetCloseHandler(func(code int, text string) error {
+        // Custom close handling
+        return nil
+    })
+    
+    // JSON helpers (NEW in v0.19.2)
+    conn.WriteJSON(map[string]string{"type": "greeting", "msg": "Hello"})
+    
+    var msg map[string]interface{}
+    conn.ReadJSON(&msg)
 })
 ```
 

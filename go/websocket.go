@@ -1,9 +1,11 @@
 package hyperserve
 
 import (
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/osauer/hyperserve/internal/ws"
@@ -47,6 +49,14 @@ type Conn struct {
 	conn         *ws.Conn
 	pingInterval time.Duration
 	pongTimeout  time.Duration
+	
+	// Handler functions
+	closeHandler func(code int, text string) error
+	pingHandler  func(appData string) error
+	pongHandler  func(appData string) error
+	
+	// Handler mutex for thread safety
+	handlerMu    sync.Mutex
 }
 
 // Upgrader upgrades HTTP connections to WebSocket connections
@@ -154,14 +164,76 @@ func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeade
 	wsConn := ws.NewConn(netConn, buf, true, maxMessageSize)
 	
 	
-	return &Conn{
+	c := &Conn{
 		conn: wsConn,
-	}, nil
+	}
+	
+	// Set default handlers
+	c.SetCloseHandler(nil)
+	c.SetPingHandler(nil)
+	c.SetPongHandler(nil)
+	
+	return c, nil
 }
 
 // ReadMessage reads a message from the WebSocket connection
 func (c *Conn) ReadMessage() (messageType int, p []byte, err error) {
-	return c.conn.ReadMessage()
+	// Read the message
+	messageType, p, err = c.conn.ReadMessage()
+	if err != nil {
+		return messageType, p, err
+	}
+	
+	// Handle control messages
+	switch messageType {
+	case PingMessage:
+		c.handlerMu.Lock()
+		handler := c.pingHandler
+		c.handlerMu.Unlock()
+		if handler != nil {
+			if err := handler(string(p)); err != nil {
+				return messageType, p, err
+			}
+		}
+		// Continue reading for the next message
+		return c.ReadMessage()
+		
+	case PongMessage:
+		c.handlerMu.Lock()
+		handler := c.pongHandler
+		c.handlerMu.Unlock()
+		if handler != nil {
+			if err := handler(string(p)); err != nil {
+				return messageType, p, err
+			}
+		}
+		// Continue reading for the next message
+		return c.ReadMessage()
+		
+	case CloseMessage:
+		var code int
+		var text string
+		if len(p) >= 2 {
+			code = int(p[0])<<8 | int(p[1])
+			if len(p) > 2 {
+				text = string(p[2:])
+			}
+		} else {
+			code = CloseNoStatusReceived
+		}
+		
+		c.handlerMu.Lock()
+		handler := c.closeHandler
+		c.handlerMu.Unlock()
+		if handler != nil {
+			if err := handler(code, text); err != nil {
+				return messageType, p, err
+			}
+		}
+		return messageType, p, err
+	}
+	
+	return messageType, p, err
 }
 
 // WriteMessage writes a message to the WebSocket connection
@@ -183,41 +255,92 @@ func (c *Conn) Close() error {
 
 // CloseHandler returns the current close handler
 func (c *Conn) CloseHandler() func(code int, text string) error {
-	return func(code int, text string) error {
-		// Default close handler
-		return nil
+	c.handlerMu.Lock()
+	defer c.handlerMu.Unlock()
+	
+	if c.closeHandler == nil {
+		return func(code int, text string) error {
+			return nil
+		}
 	}
+	return c.closeHandler
 }
 
 // SetCloseHandler sets the handler for close messages
 func (c *Conn) SetCloseHandler(h func(code int, text string) error) {
-	// TODO: Implement close handler support
+	c.handlerMu.Lock()
+	defer c.handlerMu.Unlock()
+	
+	if h == nil {
+		// Set default close handler
+		c.closeHandler = func(code int, text string) error {
+			// Send close frame back
+			message := make([]byte, 2+len(text))
+			message[0] = byte(code >> 8)
+			message[1] = byte(code)
+			copy(message[2:], text)
+			return c.WriteControl(CloseMessage, message, time.Now().Add(time.Second))
+		}
+	} else {
+		c.closeHandler = h
+	}
 }
 
 // PingHandler returns the current ping handler
 func (c *Conn) PingHandler() func(appData string) error {
-	return func(appData string) error {
-		// Default ping handler - send pong
-		return c.WriteControl(PongMessage, []byte(appData), time.Now().Add(time.Second))
+	c.handlerMu.Lock()
+	defer c.handlerMu.Unlock()
+	
+	if c.pingHandler == nil {
+		return func(appData string) error {
+			return c.WriteControl(PongMessage, []byte(appData), time.Now().Add(time.Second))
+		}
 	}
+	return c.pingHandler
 }
 
 // SetPingHandler sets the handler for ping messages
 func (c *Conn) SetPingHandler(h func(appData string) error) {
-	// TODO: Implement ping handler support
+	c.handlerMu.Lock()
+	defer c.handlerMu.Unlock()
+	
+	if h == nil {
+		// Set default ping handler
+		c.pingHandler = func(appData string) error {
+			// Respond with pong
+			return c.WriteControl(PongMessage, []byte(appData), time.Now().Add(time.Second))
+		}
+	} else {
+		c.pingHandler = h
+	}
 }
 
 // PongHandler returns the current pong handler
 func (c *Conn) PongHandler() func(appData string) error {
-	return func(appData string) error {
-		// Default pong handler - no-op
-		return nil
+	c.handlerMu.Lock()
+	defer c.handlerMu.Unlock()
+	
+	if c.pongHandler == nil {
+		return func(appData string) error {
+			return nil
+		}
 	}
+	return c.pongHandler
 }
 
 // SetPongHandler sets the handler for pong messages
 func (c *Conn) SetPongHandler(h func(appData string) error) {
-	// TODO: Implement pong handler support
+	c.handlerMu.Lock()
+	defer c.handlerMu.Unlock()
+	
+	if h == nil {
+		// Set default pong handler (no-op)
+		c.pongHandler = func(appData string) error {
+			return nil
+		}
+	} else {
+		c.pongHandler = h
+	}
 }
 
 // SetReadDeadline sets the read deadline on the connection
@@ -242,16 +365,20 @@ func (c *Conn) RemoteAddr() net.Addr {
 
 // WriteJSON writes a JSON-encoded message to the connection
 func (c *Conn) WriteJSON(v interface{}) error {
-	// This is a simplified version - in a real implementation you'd want to use encoding/json
-	// For now, we'll return an error suggesting to use WriteMessage with JSON manually
-	return errors.New("WriteJSON not implemented - use json.Marshal and WriteMessage")
+	data, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	return c.WriteMessage(TextMessage, data)
 }
 
 // ReadJSON reads a JSON-encoded message from the connection
 func (c *Conn) ReadJSON(v interface{}) error {
-	// This is a simplified version - in a real implementation you'd want to use encoding/json
-	// For now, we'll return an error suggesting to use ReadMessage with JSON manually
-	return errors.New("ReadJSON not implemented - use ReadMessage and json.Unmarshal")
+	_, data, err := c.ReadMessage()
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, v)
 }
 
 // IsUnexpectedCloseError checks if the error is an unexpected close error
