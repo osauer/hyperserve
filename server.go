@@ -8,7 +8,7 @@ with minimal external dependencies (golang.org/x/time/rate for rate limiting onl
 Key Features:
   - Zero configuration with sensible defaults
   - Built-in middleware for logging, recovery, and metrics
-  - Graceful shutdown handling
+  - Graceful shutdown handling with application hooks
   - Health check endpoints for Kubernetes
   - Model Context Protocol (MCP) support for AI assistants
   - WebSocket support for real-time communication (standard library only)
@@ -39,6 +39,17 @@ With Options:
 		hyperserve.WithMCPSupport("MyApp", "1.0.0"),
 	)
 
+Graceful Shutdown with Hooks:
+
+	srv, err := hyperserve.NewServer(
+		hyperserve.WithAddr(":8080"),
+		hyperserve.WithOnShutdown(func(ctx context.Context) error {
+			log.Println("Stopping background workers...")
+			// Stop your application's goroutines, close connections, etc.
+			return nil
+		}),
+	)
+
 WebSocket Support:
 
 	upgrader := hyperserve.Upgrader{
@@ -46,7 +57,7 @@ WebSocket Support:
 			return true // Configure based on your needs
 		},
 	}
-	
+
 	srv.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -54,7 +65,7 @@ WebSocket Support:
 			return
 		}
 		defer conn.Close()
-		
+
 		// Handle WebSocket messages
 		for {
 			messageType, p, err := conn.ReadMessage()
@@ -612,6 +623,48 @@ func (srv *Server) handleShutdown(serverErr chan error) error {
 }
 
 func (srv *Server) shutdown(ctx context.Context) error {
+	// Execute shutdown hooks first (before HTTP server shutdown)
+	// Give hooks 5 seconds of the 10-second budget
+	if len(srv.Options.OnShutdownHooks) > 0 {
+		hookDeadline := 5 * time.Second
+		// If overall deadline is shorter, use half of it for hooks
+		if deadline, ok := ctx.Deadline(); ok {
+			remaining := time.Until(deadline)
+			if remaining < 10*time.Second {
+				hookDeadline = remaining / 2
+			}
+		}
+
+		hookCtx, hookCancel := context.WithTimeout(context.Background(), hookDeadline)
+		defer hookCancel()
+
+		logger.Info("Executing shutdown hooks", "count", len(srv.Options.OnShutdownHooks))
+		for i, hook := range srv.Options.OnShutdownHooks {
+			if hook == nil {
+				continue
+			}
+
+			// Run hook with timeout
+			done := make(chan error, 1)
+			go func(h func(context.Context) error) {
+				done <- h(hookCtx)
+			}(hook)
+
+			select {
+			case err := <-done:
+				if err != nil {
+					logger.Error("Shutdown hook error", "hook", i, "error", err)
+				} else {
+					logger.Debug("Shutdown hook completed", "hook", i)
+				}
+			case <-hookCtx.Done():
+				logger.Warn("Shutdown hook timeout", "hook", i)
+				// Continue with remaining hooks even if one times out
+			}
+		}
+		logger.Info("All shutdown hooks executed")
+	}
+
 	// Create an error channel to collect errors from goroutines
 	errChan := make(chan error, 2)
 	var wg sync.WaitGroup
@@ -1034,6 +1087,32 @@ func WithDebugMode() ServerOptionFunc {
 func WithSuppressBanner(suppress bool) ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.SuppressBanner = suppress
+		return nil
+	}
+}
+
+// WithOnShutdown registers a function to be called when the server receives a shutdown signal.
+// Multiple hooks can be registered and are executed sequentially in the order they were added.
+// Hooks are called before the HTTP server shutdown begins, allowing applications to cleanly
+// stop their own goroutines and release resources.
+//
+// Each hook receives a context with a timeout (typically 5 seconds of the total 10-second
+// shutdown budget). Hooks should respect the context deadline and return promptly.
+// Errors from hooks are logged but don't prevent shutdown from proceeding.
+//
+// Example:
+//
+//	srv, _ := hyperserve.NewServer(
+//		hyperserve.WithOnShutdown(func(ctx context.Context) error {
+//			log.Println("Stopping background workers...")
+//			return stopWorkers(ctx)
+//		}),
+//	)
+func WithOnShutdown(hook func(context.Context) error) ServerOptionFunc {
+	return func(srv *Server) error {
+		if hook != nil {
+			srv.Options.OnShutdownHooks = append(srv.Options.OnShutdownHooks, hook)
+		}
 		return nil
 	}
 }

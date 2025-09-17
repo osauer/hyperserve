@@ -37,6 +37,7 @@ Example configuration file (options.json):
 package hyperserve
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -100,6 +101,12 @@ type ServerOptions struct {
 	DebugMode              bool     `json:"debug_mode,omitempty"`
 	// Banner configuration
 	SuppressBanner         bool     `json:"suppress_banner,omitempty"`
+
+	// OnShutdownHooks are functions called when the server receives a shutdown signal.
+	// Hooks are executed sequentially in the order they were added, before HTTP server shutdown.
+	// Each hook receives a context with timeout and should respect the deadline.
+	// Errors from hooks are logged but don't prevent shutdown.
+	OnShutdownHooks        []func(context.Context) error `json:"-"`
 }
 
 var defaultServerOptions = &ServerOptions{
