@@ -14,10 +14,10 @@ Middleware can be applied globally or to specific routes:
 
 	// Global middleware
 	srv.AddMiddleware("*", hyperserve.RequestLoggerMiddleware)
-	
+
 	// Route-specific middleware
 	srv.AddMiddleware("/api", hyperserve.AuthMiddleware(srv.Options))
-	
+
 	// Combine multiple middleware
 	srv.AddMiddlewareGroup("/admin",
 		hyperserve.AuthMiddleware(srv.Options),
@@ -97,32 +97,32 @@ func (mwr *MiddlewareRegistry) filterMiddleware() {
 // applyToMux creates a handler that applies route-specific middleware
 func (mwr *MiddlewareRegistry) applyToMux(mux *http.ServeMux) http.Handler {
 	mwr.filterMiddleware()
-	
+
 	// Return a handler that checks routes and applies appropriate middleware
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Start with the original mux as the final handler
 		finalHandler := http.Handler(mux)
-		
+
 		// Collect all applicable middleware for this request path
 		var applicableMiddleware []MiddlewareFunc
-		
+
 		// First, add global middleware (if any)
 		if globalStack, exists := mwr.middleware[GlobalMiddlewareRoute]; exists {
 			applicableMiddleware = append(applicableMiddleware, globalStack...)
 		}
-		
+
 		// Then, add route-specific middleware
 		for route, stack := range mwr.middleware {
 			if route != GlobalMiddlewareRoute && strings.HasPrefix(r.URL.Path, route) {
 				applicableMiddleware = append(applicableMiddleware, stack...)
 			}
 		}
-		
+
 		// Apply middleware in reverse order (so first registered runs first)
 		for i := len(applicableMiddleware) - 1; i >= 0; i-- {
 			finalHandler = applicableMiddleware[i](finalHandler)
 		}
-		
+
 		// Serve the request with the wrapped handler
 		finalHandler.ServeHTTP(w, r)
 	})
@@ -270,7 +270,7 @@ func AuthMiddleware(options *ServerOptions) MiddlewareFunc {
 // RequestLoggerMiddleware returns a middleware function that logs structured request information.
 // It captures and logs:
 //   - Client IP address
-//   - HTTP method and URL path  
+//   - HTTP method and URL path
 //   - Trace ID (if present in X-Trace-ID header)
 //   - Response status code
 //   - Request duration
@@ -383,7 +383,7 @@ var securityHeaders = []Header{
 	{"X-Frame-Options", "DENY"},                                                   // Mitigate clickjacking
 	{"Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload"}, // Enforce HTTPS with preload
 	{"Referrer-Policy", "strict-origin-when-cross-origin"},                        // Balance privacy and functionality
-	{"Permissions-Policy", "geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), fullscreen=(self)"},                                                                                                                                                  // Modern replacement for Feature-Policy (removed invalid 'speaker' directive)
+	{"Permissions-Policy", "geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), fullscreen=(self)"}, // Modern replacement for Feature-Policy (removed invalid 'speaker' directive)
 	{"Cross-Origin-Embedder-Policy", "require-corp"},                // Prevent cross-origin attacks
 	{"Cross-Origin-Opener-Policy", "same-origin"},                   // Isolate browsing context
 	{"Cross-Origin-Resource-Policy", "same-origin"},                 // Control cross-origin resource sharing
@@ -398,13 +398,13 @@ var securityHeaders = []Header{
 func generateCSP(options *ServerOptions) string {
 	// Base CSP without worker-src (will fall back to child-src)
 	csp := "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; media-src 'self'; object-src 'none'; child-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
-	
+
 	// Add Web Worker support if enabled
 	if options.CSPWebWorkerSupport {
 		// Add blob: to worker-src and child-src for Web Worker support
 		csp = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; media-src 'self'; object-src 'none'; child-src 'self' blob:; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 	}
-	
+
 	return csp
 }
 
@@ -431,12 +431,7 @@ func HeadersMiddleware(options *ServerOptions) MiddlewareFunc {
 				w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
 			}
 
-			// ToDo add allowed site origin(s) to the header
-			// w.Header().Set("Access-Control-Allow-Origin", "https://client-site.com")
-
-			// Handle preflight request
-			if r.Method == http.MethodOptions {
-				w.WriteHeader(http.StatusNoContent)
+			if handled := applyCORSHeaders(w, r, options.CORS); handled {
 				return
 			}
 
@@ -444,6 +439,84 @@ func HeadersMiddleware(options *ServerOptions) MiddlewareFunc {
 			next.ServeHTTP(w, r)
 		}
 	}
+}
+
+func applyCORSHeaders(w http.ResponseWriter, r *http.Request, cors *CORSOptions) bool {
+	if cors == nil {
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return true
+		}
+		return false
+	}
+
+	origin := r.Header.Get("Origin")
+	allowedOrigin, originOK := cors.resolveAllowedOrigin(origin)
+
+	if originOK {
+		w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+		if allowedOrigin != "*" {
+			addVaryHeader(w, "Origin")
+		}
+	} else {
+		w.Header().Del("Access-Control-Allow-Origin")
+	}
+
+	if cors.AllowCredentials && originOK {
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+	} else {
+		w.Header().Del("Access-Control-Allow-Credentials")
+	}
+
+	if len(cors.AllowedMethods) > 0 {
+		w.Header().Set("Access-Control-Allow-Methods", joinTokens(cors.AllowedMethods))
+	}
+	if len(cors.AllowedHeaders) > 0 {
+		w.Header().Set("Access-Control-Allow-Headers", joinTokens(cors.AllowedHeaders))
+	}
+
+	if len(cors.ExposeHeaders) > 0 {
+		w.Header().Set("Access-Control-Expose-Headers", joinTokens(cors.ExposeHeaders))
+	} else {
+		w.Header().Del("Access-Control-Expose-Headers")
+	}
+
+	if cors.MaxAgeSeconds > 0 {
+		w.Header().Set("Access-Control-Max-Age", formatMaxAge(cors.MaxAgeSeconds))
+	}
+
+	addVaryHeader(w, "Access-Control-Request-Method")
+	addVaryHeader(w, "Access-Control-Request-Headers")
+
+	if r.Method == http.MethodOptions {
+		if origin == "" {
+			w.WriteHeader(http.StatusNoContent)
+			return true
+		}
+		if !originOK {
+			w.WriteHeader(http.StatusForbidden)
+			return true
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return true
+	}
+
+	return false
+}
+
+func addVaryHeader(w http.ResponseWriter, value string) {
+	if value == "" {
+		return
+	}
+	existing := w.Header().Values("Vary")
+	for _, header := range existing {
+		for _, token := range strings.Split(header, ",") {
+			if strings.EqualFold(strings.TrimSpace(token), value) {
+				return
+			}
+		}
+	}
+	w.Header().Add("Vary", value)
 }
 
 // ChaosMiddleware returns a middleware handler that simulates random failures for chaos engineering.

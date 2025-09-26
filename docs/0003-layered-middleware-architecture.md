@@ -72,7 +72,7 @@ Middleware execution order follows registration sequence.
 // Typical API server setup
 srv.AddMiddleware("*", RequestIDMiddleware())
 srv.AddMiddleware("*", LoggingMiddleware(srv.Options))
-srv.AddMiddleware("/api", CORSMiddleware(corsConfig))
+srv.AddMiddleware("/api", SecureWeb(srv.Options)) // CORS configured via WithCORS or ServerOptions.CORS
 srv.AddMiddleware("/api", AuthMiddleware(srv.Options))
 srv.AddMiddleware("/api", RateLimitMiddleware(srv))
 

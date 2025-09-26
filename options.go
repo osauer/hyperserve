@@ -2,10 +2,10 @@
 Package hyperserve provides configuration options for the HTTP server.
 
 Configuration follows a hierarchical priority:
-  1. Function parameters (highest priority)
-  2. Environment variables
-  3. Configuration file (options.json)
-  4. Default values (lowest priority)
+ 1. Function parameters (highest priority)
+ 2. Environment variables
+ 3. Configuration file (options.json)
+ 4. Default values (lowest priority)
 
 Environment Variables:
   - SERVER_ADDR: Main server address (default ":8080")
@@ -43,6 +43,8 @@ import (
 	"net/http"
 	"os"
 	"reflect"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -80,33 +82,34 @@ type ServerOptions struct {
 	ECHKeys                [][]byte `json:"-"` // ECH keys are sensitive, don't serialize
 	HardenedMode           bool     `json:"hardened_mode,omitempty"`
 	// MCP (Model Context Protocol) configuration
-	MCPEnabled             bool     `json:"mcp_enabled,omitempty"`
-	MCPEndpoint            string   `json:"mcp_endpoint,omitempty"`
-	MCPServerName          string   `json:"mcp_server_name,omitempty"`
-	MCPServerVersion       string   `json:"mcp_server_version,omitempty"`
-	MCPToolsEnabled        bool     `json:"mcp_tools_enabled,omitempty"`
-	MCPResourcesEnabled    bool     `json:"mcp_resources_enabled,omitempty"`
-	MCPFileToolRoot        string   `json:"mcp_file_tool_root,omitempty"`
-	MCPLogResourceSize     int      `json:"mcp_log_resource_size,omitempty"`
-	MCPTransport           MCPTransportType `json:"mcp_transport,omitempty"`
-	MCPDev                 bool     `json:"mcp_dev,omitempty"`
-	MCPObservability       bool     `json:"mcp_observability,omitempty"`
-	MCPDiscoveryPolicy     DiscoveryPolicy `json:"mcp_discovery_policy,omitempty"`
-	MCPDiscoveryFilter     func(toolName string, r *http.Request) bool `json:"-"` // Custom filter function
-	mcpTransportOpts       mcpTransportOptions // Internal transport options
+	MCPEnabled          bool                                        `json:"mcp_enabled,omitempty"`
+	MCPEndpoint         string                                      `json:"mcp_endpoint,omitempty"`
+	MCPServerName       string                                      `json:"mcp_server_name,omitempty"`
+	MCPServerVersion    string                                      `json:"mcp_server_version,omitempty"`
+	MCPToolsEnabled     bool                                        `json:"mcp_tools_enabled,omitempty"`
+	MCPResourcesEnabled bool                                        `json:"mcp_resources_enabled,omitempty"`
+	MCPFileToolRoot     string                                      `json:"mcp_file_tool_root,omitempty"`
+	MCPLogResourceSize  int                                         `json:"mcp_log_resource_size,omitempty"`
+	MCPTransport        MCPTransportType                            `json:"mcp_transport,omitempty"`
+	MCPDev              bool                                        `json:"mcp_dev,omitempty"`
+	MCPObservability    bool                                        `json:"mcp_observability,omitempty"`
+	MCPDiscoveryPolicy  DiscoveryPolicy                             `json:"mcp_discovery_policy,omitempty"`
+	MCPDiscoveryFilter  func(toolName string, r *http.Request) bool `json:"-"` // Custom filter function
+	mcpTransportOpts    mcpTransportOptions                         // Internal transport options
 	// CSP (Content Security Policy) configuration
-	CSPWebWorkerSupport    bool     `json:"csp_web_worker_support,omitempty"`
+	CSPWebWorkerSupport bool         `json:"csp_web_worker_support,omitempty"`
+	CORS                *CORSOptions `json:"cors,omitempty"`
 	// Logging configuration
-	LogLevel               string   `json:"log_level,omitempty"`
-	DebugMode              bool     `json:"debug_mode,omitempty"`
+	LogLevel  string `json:"log_level,omitempty"`
+	DebugMode bool   `json:"debug_mode,omitempty"`
 	// Banner configuration
-	SuppressBanner         bool     `json:"suppress_banner,omitempty"`
+	SuppressBanner bool `json:"suppress_banner,omitempty"`
 
 	// OnShutdownHooks are functions called when the server receives a shutdown signal.
 	// Hooks are executed sequentially in the order they were added, before HTTP server shutdown.
 	// Each hook receives a context with timeout and should respect the deadline.
 	// Errors from hooks are logged but don't prevent shutdown.
-	OnShutdownHooks        []func(context.Context) error `json:"-"`
+	OnShutdownHooks []func(context.Context) error `json:"-"`
 }
 
 var defaultServerOptions = &ServerOptions{
@@ -119,10 +122,10 @@ var defaultServerOptions = &ServerOptions{
 	CertFile:               "server.crt",
 	RateLimit:              1,
 	Burst:                  10,
-	ReadTimeout:            30 * time.Second,    // Increased from 5s for better compatibility
-	WriteTimeout:           30 * time.Second,    // Increased from 10s for better compatibility
+	ReadTimeout:            30 * time.Second, // Increased from 5s for better compatibility
+	WriteTimeout:           30 * time.Second, // Increased from 10s for better compatibility
 	IdleTimeout:            120 * time.Second,
-	ReadHeaderTimeout:      10 * time.Second,    // Slowloris protection
+	ReadHeaderTimeout:      10 * time.Second, // Slowloris protection
 	StaticDir:              "static/",
 	TemplateDir:            "template/",
 	RunHealthServer:        false,
@@ -137,22 +140,22 @@ var defaultServerOptions = &ServerOptions{
 	EnableECH:              false,
 	HardenedMode:           false,
 	// MCP defaults
-	MCPEnabled:             false,
-	MCPEndpoint:            "/mcp",
-	MCPServerName:          "hyperserve",
-	MCPServerVersion:       "1.0.0",
-	MCPToolsEnabled:        false,  // Disabled by default - users must opt-in
-	MCPResourcesEnabled:    false,  // Disabled by default - users must opt-in
-	MCPFileToolRoot:        "",
-	MCPLogResourceSize:     100,
-	MCPTransport:           HTTPTransport,
-	MCPDev:                 false,  // Disabled by default - security sensitive
-	MCPObservability:       false,  // Disabled by default - users must opt-in
+	MCPEnabled:          false,
+	MCPEndpoint:         "/mcp",
+	MCPServerName:       "hyperserve",
+	MCPServerVersion:    "1.0.0",
+	MCPToolsEnabled:     false, // Disabled by default - users must opt-in
+	MCPResourcesEnabled: false, // Disabled by default - users must opt-in
+	MCPFileToolRoot:     "",
+	MCPLogResourceSize:  100,
+	MCPTransport:        HTTPTransport,
+	MCPDev:              false, // Disabled by default - security sensitive
+	MCPObservability:    false, // Disabled by default - users must opt-in
 	// CSP defaults
-	CSPWebWorkerSupport:    false,  // Disabled by default - users must opt-in
+	CSPWebWorkerSupport: false, // Disabled by default - users must opt-in
 	// Logging defaults
-	LogLevel:               "INFO",
-	DebugMode:              false,
+	LogLevel:  "INFO",
+	DebugMode: false,
 }
 
 // Log level constants for server configuration.
@@ -177,6 +180,7 @@ func NewServerOptions() *ServerOptions {
 	// Create a copy of defaultServerOptions to avoid modifying the shared instance
 	config := *defaultServerOptions
 	configPtr := applyEnvVars(applyConfigFile(&config))
+	configPtr.CORS = normalizeCORSOptions(configPtr.CORS)
 	return configPtr
 }
 
@@ -200,7 +204,7 @@ func applyEnvVars(config *ServerOptions) *ServerOptions {
 			logger.Debug("Hardened mode enabled from environment variable", "variable", paramHardenedMode)
 		}
 	}
-	
+
 	// MCP (Model Context Protocol) environment variables
 	if mcpEnabled := os.Getenv(paramMCPEnabled); mcpEnabled != "" {
 		if mcpEnabled == "true" || mcpEnabled == "1" {
@@ -271,7 +275,7 @@ func applyEnvVars(config *ServerOptions) *ServerOptions {
 		}
 		logger.Debug("MCP transport set from environment variable", "variable", paramMCPTransport, "transport", mcpTransport)
 	}
-	
+
 	// CSP (Content Security Policy) environment variables
 	if cspWebWorkerSupport := os.Getenv(paramCSPWebWorkerSupport); cspWebWorkerSupport != "" {
 		if cspWebWorkerSupport == "true" || cspWebWorkerSupport == "1" {
@@ -282,7 +286,7 @@ func applyEnvVars(config *ServerOptions) *ServerOptions {
 			logger.Debug("CSP Web Worker support disabled from environment variable", "variable", paramCSPWebWorkerSupport)
 		}
 	}
-	
+
 	// Logging environment variables
 	if logLevel := os.Getenv(paramLogLevel); logLevel != "" {
 		config.LogLevel = logLevel
@@ -298,7 +302,7 @@ func applyEnvVars(config *ServerOptions) *ServerOptions {
 			logger.Debug("Debug mode disabled from environment variable", "variable", paramDebugMode)
 		}
 	}
-	
+
 	// Banner configuration
 	if suppressBanner := os.Getenv(paramSuppressBanner); suppressBanner != "" {
 		if suppressBanner == "true" || suppressBanner == "1" {
@@ -309,8 +313,58 @@ func applyEnvVars(config *ServerOptions) *ServerOptions {
 			logger.Debug("Banner suppression disabled from environment variable", "variable", paramSuppressBanner)
 		}
 	}
-	
+
+	// CORS environment variables
+	corsConfigured := false
+	if allowed := os.Getenv(paramCORSAllowedOrigins); allowed != "" {
+		cors := ensureCORSOptions(config)
+		cors.AllowedOrigins = sanitizeTokens(strings.Split(allowed, ","), false)
+		corsConfigured = true
+	}
+	if methods := os.Getenv(paramCORSAllowedMethods); methods != "" {
+		cors := ensureCORSOptions(config)
+		cors.AllowedMethods = sanitizeTokens(strings.Split(methods, ","), true)
+		corsConfigured = true
+	}
+	if headers := os.Getenv(paramCORSAllowedHeaders); headers != "" {
+		cors := ensureCORSOptions(config)
+		cors.AllowedHeaders = sanitizeTokens(strings.Split(headers, ","), false)
+		corsConfigured = true
+	}
+	if expose := os.Getenv(paramCORSExposeHeaders); expose != "" {
+		cors := ensureCORSOptions(config)
+		cors.ExposeHeaders = sanitizeTokens(strings.Split(expose, ","), false)
+		corsConfigured = true
+	}
+	if allowCreds := os.Getenv(paramCORSAllowCredentials); allowCreds != "" {
+		cors := ensureCORSOptions(config)
+		switch strings.ToLower(strings.TrimSpace(allowCreds)) {
+		case "true", "1":
+			cors.AllowCredentials = true
+		case "false", "0":
+			cors.AllowCredentials = false
+		}
+		corsConfigured = true
+	}
+	if maxAge := os.Getenv(paramCORSMaxAge); maxAge != "" {
+		if seconds, err := strconv.Atoi(strings.TrimSpace(maxAge)); err == nil && seconds >= 0 {
+			cors := ensureCORSOptions(config)
+			cors.MaxAgeSeconds = seconds
+			corsConfigured = true
+		}
+	}
+	if corsConfigured {
+		config.CORS = normalizeCORSOptions(config.CORS)
+	}
+
 	return config
+}
+
+func ensureCORSOptions(config *ServerOptions) *CORSOptions {
+	if config.CORS == nil {
+		config.CORS = &CORSOptions{}
+	}
+	return config.CORS
 }
 
 // helper to read a options file and apply it to the options

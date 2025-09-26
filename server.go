@@ -23,11 +23,11 @@ Basic Usage:
 	if err != nil {
 		log.Fatal(err)
 	}
-	
+
 	srv.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "Hello, World!")
 	})
-	
+
 	srv.Run() // Blocks until shutdown signal
 
 With Options:
@@ -82,6 +82,7 @@ package hyperserve
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"html/template"
 	"io"
@@ -107,7 +108,7 @@ var logger = slog.Default()
 func init() {
 	slog.SetLogLoggerLevel(slog.LevelInfo)
 	logger.Debug("Server initializing...")
-	
+
 	// If version is still "dev", try to get it from build info
 	if Version == "dev" {
 		if info, ok := debug.ReadBuildInfo(); ok {
@@ -129,9 +130,9 @@ func init() {
 
 // Build information set at compile time using -ldflags
 var (
-	Version   = "dev"      // Version from git tags
-	BuildHash = "unknown"  // Git commit hash
-	BuildTime = "unknown"  // Build timestamp
+	Version   = "dev"     // Version from git tags
+	BuildHash = "unknown" // Git commit hash
+	BuildTime = "unknown" // Build timestamp
 )
 
 // closeWithLog is a helper to handle Close errors in defer statements.
@@ -156,25 +157,30 @@ func GetVersionInfo() string {
 
 // Environment management variable names
 const (
-	
-	paramServerAddr         = "SERVER_ADDR"
-	paramHealthAddr         = "HEALTH_ADDR"
-	paramHardenedMode       = "HS_HARDENED_MODE"
-	paramFileName           = "options.json"
-	paramMCPEnabled         = "HS_MCP_ENABLED"
-	paramMCPEndpoint        = "HS_MCP_ENDPOINT"
-	paramMCPServerName      = "HS_MCP_SERVER_NAME"
-	paramMCPServerVersion   = "HS_MCP_SERVER_VERSION"
-	paramMCPToolsEnabled    = "HS_MCP_TOOLS_ENABLED"
-	paramMCPResourcesEnabled = "HS_MCP_RESOURCES_ENABLED"
-	paramMCPFileToolRoot    = "HS_MCP_FILE_TOOL_ROOT"
-	paramMCPDev             = "HS_MCP_DEV"
-	paramMCPObservability   = "HS_MCP_OBSERVABILITY"
-	paramMCPTransport       = "HS_MCP_TRANSPORT"
-	paramCSPWebWorkerSupport = "HS_CSP_WEB_WORKER_SUPPORT"
-	paramLogLevel           = "HS_LOG_LEVEL"
-	paramDebugMode          = "HS_DEBUG"
-	paramSuppressBanner     = "HS_SUPPRESS_BANNER"
+	paramServerAddr           = "SERVER_ADDR"
+	paramHealthAddr           = "HEALTH_ADDR"
+	paramHardenedMode         = "HS_HARDENED_MODE"
+	paramFileName             = "options.json"
+	paramMCPEnabled           = "HS_MCP_ENABLED"
+	paramMCPEndpoint          = "HS_MCP_ENDPOINT"
+	paramMCPServerName        = "HS_MCP_SERVER_NAME"
+	paramMCPServerVersion     = "HS_MCP_SERVER_VERSION"
+	paramMCPToolsEnabled      = "HS_MCP_TOOLS_ENABLED"
+	paramMCPResourcesEnabled  = "HS_MCP_RESOURCES_ENABLED"
+	paramMCPFileToolRoot      = "HS_MCP_FILE_TOOL_ROOT"
+	paramMCPDev               = "HS_MCP_DEV"
+	paramMCPObservability     = "HS_MCP_OBSERVABILITY"
+	paramMCPTransport         = "HS_MCP_TRANSPORT"
+	paramCSPWebWorkerSupport  = "HS_CSP_WEB_WORKER_SUPPORT"
+	paramCORSAllowedOrigins   = "HS_CORS_ALLOWED_ORIGINS"
+	paramCORSAllowCredentials = "HS_CORS_ALLOW_CREDENTIALS"
+	paramCORSAllowedMethods   = "HS_CORS_ALLOWED_METHODS"
+	paramCORSAllowedHeaders   = "HS_CORS_ALLOWED_HEADERS"
+	paramCORSExposeHeaders    = "HS_CORS_EXPOSE_HEADERS"
+	paramCORSMaxAge           = "HS_CORS_MAX_AGE"
+	paramLogLevel             = "HS_LOG_LEVEL"
+	paramDebugMode            = "HS_DEBUG"
+	paramSuppressBanner       = "HS_SUPPRESS_BANNER"
 )
 
 // rateLimit limits requests per second that can be requested from the httpServer. Requires to add [RateLimitMiddleware]
@@ -198,31 +204,31 @@ type rateLimiterEntry struct {
 //		hyperserve.WithAddr(":8080"),
 //		hyperserve.WithHealthServer(),
 //	)
-//	
+//
 //	srv.HandleFunc("/api/users", handleUsers)
 //	srv.Run()
 type Server struct {
-	mux               *http.ServeMux
-	healthMux         *http.ServeMux
-	httpServer            *http.Server
-	healthServer          *http.Server
-	middleware            *MiddlewareRegistry
-	templates             *template.Template
-	templatesMu           sync.Mutex
-	Options               *ServerOptions
-	isReady               atomic.Bool
-	isRunning             atomic.Bool
-	totalRequests         atomic.Uint64
-	totalResponseTime     atomic.Int64
-	websocketConnections  atomic.Uint64
-	serverStart           time.Time
-	clientLimiters        map[string]*rateLimiterEntry
-	limitersMu            sync.RWMutex
-	cleanupTicker         *time.Ticker
-	cleanupDone           chan bool
-	staticRoot            *os.Root
-	templateRoot          *os.Root
-	mcpHandler            *MCPHandler
+	mux                  *http.ServeMux
+	healthMux            *http.ServeMux
+	httpServer           *http.Server
+	healthServer         *http.Server
+	middleware           *MiddlewareRegistry
+	templates            *template.Template
+	templatesMu          sync.Mutex
+	Options              *ServerOptions
+	isReady              atomic.Bool
+	isRunning            atomic.Bool
+	totalRequests        atomic.Uint64
+	totalResponseTime    atomic.Int64
+	websocketConnections atomic.Uint64
+	serverStart          time.Time
+	clientLimiters       map[string]*rateLimiterEntry
+	limitersMu           sync.RWMutex
+	cleanupTicker        *time.Ticker
+	cleanupDone          chan bool
+	staticRoot           *os.Root
+	templateRoot         *os.Root
+	mcpHandler           *MCPHandler
 }
 
 // NewServer creates a new instance of the Server with the given options.
@@ -249,7 +255,7 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 		clientLimiters: make(map[string]*rateLimiterEntry),
 		cleanupDone:    make(chan bool),
 	}
-	
+
 	// Apply log level from configuration before anything else
 	if srv.Options.LogLevel != "" {
 		switch srv.Options.LogLevel {
@@ -272,7 +278,7 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 		slog.SetLogLoggerLevel(slog.LevelDebug)
 		logger.Debug("Debug mode enabled from configuration")
 	}
-	
+
 	srv.middleware = NewMiddlewareRegistry(DefaultMiddleware(srv))
 	logger.Debug("Default middleware registered", "middlewares", []string{"MetricsMiddleware", "RequestLoggerMiddleware", "RecoveryMiddleware"})
 
@@ -282,7 +288,7 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 			return nil, err
 		}
 	}
-	
+
 	// Auto-configure MCP if enabled via environment/flags but not already configured programmatically
 	if srv.Options.MCPEnabled && srv.Options.MCPServerName != "" && srv.mcpHandler == nil {
 		// Check if MCP was already configured programmatically (via WithMCPSupport)
@@ -292,28 +298,28 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 		} else if srv.Options.MCPDev || srv.Options.MCPObservability {
 			// Auto-configure from environment/flags
 			var mcpConfigs []MCPTransportConfig
-			
+
 			// Set transport
 			if srv.Options.MCPTransport == StdioTransport {
 				mcpConfigs = append(mcpConfigs, MCPOverStdio())
 			}
 			// HTTP is the default, no need to explicitly add
-			
+
 			// Add developer mode if enabled
 			if srv.Options.MCPDev {
 				mcpConfigs = append(mcpConfigs, MCPDev())
 			}
-			
+
 			// Add observability if enabled
 			if srv.Options.MCPObservability {
 				mcpConfigs = append(mcpConfigs, MCPObservability())
 			}
-			
+
 			// Apply MCP configuration
 			if err := WithMCPSupport(srv.Options.MCPServerName, srv.Options.MCPServerVersion, mcpConfigs...)(srv); err != nil {
 				return nil, fmt.Errorf("failed to auto-configure MCP: %w", err)
 			}
-			logger.Info("MCP auto-configured from environment/flags", 
+			logger.Info("MCP auto-configured from environment/flags",
 				"name", srv.Options.MCPServerName,
 				"transport", srv.Options.MCPTransport,
 				"dev", srv.Options.MCPDev,
@@ -340,7 +346,7 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 			Version: srv.Options.MCPServerVersion,
 		}
 		srv.mcpHandler = NewMCPHandler(serverInfo)
-		
+
 		// Register built-in tools if enabled
 		if srv.Options.MCPToolsEnabled {
 			// File tools
@@ -350,21 +356,21 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 			} else {
 				srv.mcpHandler.RegisterToolInNamespace(fileReadTool, "hyperserve")
 			}
-			
+
 			listDirTool, err := NewListDirectoryTool(srv.Options.MCPFileToolRoot)
 			if err != nil {
 				logger.Warn("Failed to create list directory tool", "error", err)
 			} else {
 				srv.mcpHandler.RegisterToolInNamespace(listDirTool, "hyperserve")
 			}
-			
+
 			// HTTP request tool
 			srv.mcpHandler.RegisterToolInNamespace(NewHTTPRequestTool(), "hyperserve")
-			
+
 			// Calculator tool
 			srv.mcpHandler.RegisterToolInNamespace(NewCalculatorTool(), "hyperserve")
 		}
-		
+
 		// Register built-in resources if enabled
 		if srv.Options.MCPResourcesEnabled {
 			// Check preset mode
@@ -382,11 +388,11 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 				srv.mcpHandler.RegisterResource(NewLogResource(srv.Options.MCPLogResourceSize))
 			}
 		}
-		
+
 		// Register unified MCP endpoint
 		srv.mux.Handle(srv.Options.MCPEndpoint, srv.mcpHandler)
 		logger.Debug("MCP handler initialized", "endpoint", srv.Options.MCPEndpoint)
-		
+
 		// Setup discovery endpoints for Claude Code
 		srv.setupDiscoveryEndpoints()
 	}
@@ -420,7 +426,7 @@ func (srv *Server) Run() error {
 	if srv.Options.MCPTransport != StdioTransport && !srv.Options.SuppressBanner {
 		srv.printStartupBanner()
 	}
-	
+
 	// log httpServer start time for collection up-time metric
 	srv.serverStart = time.Now()
 
@@ -442,7 +448,7 @@ func (srv *Server) Run() error {
 		IdleTimeout:       srv.Options.IdleTimeout,
 		ReadHeaderTimeout: srv.Options.ReadHeaderTimeout, // Prevent Slowloris attacks
 	}
-	
+
 	// If ReadHeaderTimeout is not set, default to ReadTimeout
 	if srv.httpServer.ReadHeaderTimeout == 0 && srv.httpServer.ReadTimeout > 0 {
 		srv.httpServer.ReadHeaderTimeout = srv.httpServer.ReadTimeout
@@ -458,7 +464,7 @@ func (srv *Server) Run() error {
 			return err
 		}
 	}
-	
+
 	// Mark as running only AFTER all servers (http AND health) are initialized
 	srv.isRunning.Store(true)
 
@@ -469,8 +475,12 @@ func (srv *Server) Run() error {
 	go func() {
 		if srv.Options.EnableTLS {
 			if srv.Options.CertFile == "" || srv.Options.KeyFile == "" {
-				logger.Error("TLS enabled but no key or cert file provided.", "key", srv.Options.KeyFile,
-					"cert", srv.Options.CertFile)
+				err := fmt.Errorf("TLS enabled but no key or cert file provided")
+				logger.Error(err.Error(), "key", srv.Options.KeyFile, "cert", srv.Options.CertFile)
+				select {
+				case serverErr <- err:
+				default:
+				}
 				return
 			}
 			// Configure TLS settings
@@ -494,9 +504,9 @@ func (srv *Server) logServerMetrics() {
 		tp = srv.totalRequests.Load() / uint64(resp)
 	}
 	upTime := time.Since(srv.serverStart)
-	logger.Info("Server metrics:", 
-		"up-time", upTime, 
-		"µs-in-handlers", resp, 
+	logger.Info("Server metrics:",
+		"up-time", upTime,
+		"µs-in-handlers", resp,
 		"total-req", srv.totalRequests.Load(),
 		"websocket-connections", srv.websocketConnections.Load(),
 		"avg-handles-per-µs", tp)
@@ -618,6 +628,9 @@ func (srv *Server) handleShutdown(serverErr chan error) error {
 		srv.isRunning.Store(false)
 		return srv.shutdown(ctx)
 	case err := <-serverErr:
+		srv.isRunning.Store(false)
+		srv.isReady.Store(false)
+		srv.stopCleanup()
 		return err
 	}
 }
@@ -635,7 +648,7 @@ func (srv *Server) shutdown(ctx context.Context) error {
 			}
 		}
 
-		hookCtx, hookCancel := context.WithTimeout(context.Background(), hookDeadline)
+		hookCtx, hookCancel := context.WithTimeout(ctx, hookDeadline)
 		defer hookCancel()
 
 		logger.Info("Executing shutdown hooks", "count", len(srv.Options.OnShutdownHooks))
@@ -801,7 +814,7 @@ func (srv *Server) Handle(pattern string, handlerFunc http.HandlerFunc) {
 //	    users := getUsersFromDB()
 //	    json.NewEncoder(w).Encode(users)
 //	})
-//	
+//
 //	srv.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 //	    w.WriteHeader(http.StatusOK)
 //	    fmt.Fprintln(w, "OK")
@@ -818,16 +831,16 @@ func (srv *Server) HandleFuncDynamic(pattern, tmplName string, dataFunc DataFunc
 		logger.Error("Failed to parse templates", "error", err)
 		return err
 	}
-	
+
 	// Check if the template exists
 	if srv.templates != nil && srv.templates.Lookup(tmplName) == nil {
 		return fmt.Errorf("template %s not found", tmplName)
 	}
-	
+
 	srv.mux.HandleFunc(pattern,
 		func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			
+
 			data := dataFunc(r)
 			if err := srv.templates.ExecuteTemplate(w, tmplName, data); err != nil {
 				logger.Error("Failed to execute template", "template", tmplName, "error", err)
@@ -920,12 +933,12 @@ func (srv *Server) HandleTemplate(pattern, t string, data interface{}) error {
 	if err := srv.parseTemplates(); err != nil {
 		return fmt.Errorf("Failed to parse templates. %w", err)
 	}
-	
+
 	// Check if the template exists
 	if srv.templates != nil && srv.templates.Lookup(t) == nil {
 		return fmt.Errorf("template %s not found", t)
 	}
-	
+
 	srv.mux.HandleFunc(pattern, srv.templateHandler(t, data))
 	return nil
 }
@@ -1054,7 +1067,14 @@ func WithTLS(certFile, keyFile string) ServerOptionFunc {
 		errCert := checkfile(certFile, wd)
 		errKey := checkfile(keyFile, wd)
 		if errCert != nil || errKey != nil {
-			return fmt.Errorf("Error checking files: %w %w", errCert, errKey)
+			errs := make([]error, 0, 2)
+			if errCert != nil {
+				errs = append(errs, fmt.Errorf("cert file %q: %w", certFile, errCert))
+			}
+			if errKey != nil {
+				errs = append(errs, fmt.Errorf("key file %q: %w", keyFile, errKey))
+			}
+			return fmt.Errorf("error checking TLS files: %w", errors.Join(errs...))
 		}
 		srv.Options.EnableTLS = true
 		return nil
@@ -1205,6 +1225,14 @@ func WithRateLimit(limit rateLimit, burst int) ServerOptionFunc {
 	}
 }
 
+// WithCORS configures Cross-Origin Resource Sharing options for HTTP handlers.
+func WithCORS(opts *CORSOptions) ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.CORS = normalizeCORSOptions(opts)
+		return nil
+	}
+}
+
 // WithTemplateDir sets the directory path where HTML templates are located.
 // Templates in this directory can be used with HandleTemplate and HandleFuncDynamic methods.
 // Returns an error if the specified directory does not exist or is not accessible.
@@ -1217,7 +1245,7 @@ func WithTemplateDir(dir string) ServerOptionFunc {
 			}
 			return fmt.Errorf("template directory access error: %s: %w", dir, err)
 		}
-		
+
 		srv.Options.TemplateDir = dir
 		return nil
 	}
@@ -1275,7 +1303,7 @@ func WithMCPSupport(name, version string, configs ...MCPTransportConfig) ServerO
 		srv.Options.MCPEnabled = true
 		srv.Options.MCPServerName = name
 		srv.Options.MCPServerVersion = version
-		
+
 		// Apply transport configurations
 		if len(configs) == 0 {
 			// Default to HTTP transport on /mcp
@@ -1292,7 +1320,7 @@ func WithMCPSupport(name, version string, configs ...MCPTransportConfig) ServerO
 				srv.Options.MCPEndpoint = srv.Options.mcpTransportOpts.endpoint
 			}
 		}
-		
+
 		// Handle presets
 		if srv.Options.mcpTransportOpts.observabilityMode {
 			// Observability: minimal resources only for production monitoring
@@ -1303,15 +1331,15 @@ func WithMCPSupport(name, version string, configs ...MCPTransportConfig) ServerO
 			srv.Options.MCPResourcesEnabled = true
 			srv.Options.MCPToolsEnabled = true
 		}
-		
+
 		transportName := "HTTP"
 		if srv.Options.MCPTransport == StdioTransport {
 			transportName = "stdio"
 		}
-		logger.Debug("MCP (Model Context Protocol) support enabled", 
+		logger.Debug("MCP (Model Context Protocol) support enabled",
 			"name", name,
 			"version", version,
-			"transport", transportName, 
+			"transport", transportName,
 			"endpoint", srv.Options.MCPEndpoint,
 			"observabilityMode", srv.Options.mcpTransportOpts.observabilityMode,
 			"developerMode", srv.Options.mcpTransportOpts.developerMode,
@@ -1329,16 +1357,16 @@ func WithMCPNamespace(name string, configs ...MCPNamespaceConfig) ServerOptionFu
 		if !srv.Options.MCPEnabled {
 			return fmt.Errorf("MCP support must be enabled before registering namespaces. Use WithMCPSupport() first")
 		}
-		
+
 		if srv.mcpHandler == nil {
 			return fmt.Errorf("MCP handler not initialized. This should not happen if MCP is enabled")
 		}
-		
+
 		// Register the namespace
 		if err := srv.mcpHandler.RegisterNamespace(name, configs...); err != nil {
 			return fmt.Errorf("failed to register MCP namespace %s: %w", name, err)
 		}
-		
+
 		logger.Debug("MCP namespace registered via server option", "namespace", name)
 		return nil
 	}
@@ -1365,7 +1393,6 @@ func WithMCPServerInfo(name, version string) ServerOptionFunc {
 		return nil
 	}
 }
-
 
 // WithMCPFileToolRoot configures a root directory for MCP file operations.
 // If specified, file tools will be restricted to this directory using os.Root for security.
@@ -1536,32 +1563,32 @@ func (srv *Server) printStartupBanner() {
 |_| |_|\__, | .__/ \___|_|  |___/\___|_|    \_/ \___|
        |___/|_|                                      
 `)
-	
+
 	// Version and build information
 	fmt.Printf("\nhyperserve %s", Version)
 	if BuildHash != "unknown" || BuildTime != "unknown" {
 		fmt.Printf(" (build: %s, %s)", BuildHash, BuildTime)
 	}
 	fmt.Println()
-	
+
 	// Build consolidated startup information
 	addr := srv.Options.Addr
 	if srv.Options.EnableTLS {
 		addr = srv.Options.TLSAddr
 	}
-	
+
 	protocol := "http"
 	if srv.Options.EnableTLS {
 		protocol = "https"
 	}
-	
+
 	// Print consolidated startup info
 	fmt.Printf("\nServer:    %s://%s\n", protocol, addr)
-	
+
 	if srv.Options.RunHealthServer {
 		fmt.Printf("Health:    http://%s\n", srv.Options.HealthAddr)
 	}
-	
+
 	if srv.Options.MCPEnabled {
 		fmt.Printf("MCP:       %s (unified HTTP/SSE endpoint)\n", srv.Options.MCPEndpoint)
 		if srv.Options.mcpTransportOpts.developerMode {
@@ -1571,6 +1598,6 @@ func (srv *Server) printStartupBanner() {
 			fmt.Printf("   HTTP: POST %s://%s%s with Content-Type: application/json\n", protocol, addr, srv.Options.MCPEndpoint)
 		}
 	}
-	
+
 	fmt.Println() // Empty line after banner
 }
