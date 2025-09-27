@@ -1,0 +1,94 @@
+package app
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+)
+
+// Config describes the runtime parameters for the service.
+type Config struct {
+	ServiceName        string `json:"serviceName"`
+	Addr               string `json:"addr"`
+	HealthAddr         string `json:"healthAddr"`
+	RateLimit          int    `json:"rateLimit"`
+	RateBurst          int    `json:"rateBurst"`
+	EnableMCP          bool   `json:"enableMCP"`
+	EnableHardenedMode bool   `json:"enableHardenedMode"`
+	LogLevel           string `json:"logLevel"`
+}
+
+// DefaultConfig returns opinionated defaults for new services.
+func DefaultConfig() Config {
+	return Config{
+		ServiceName:        "{{ .ServiceTitle }}",
+		Addr:               "{{ .DefaultAddr }}",
+		HealthAddr:         "{{ .DefaultHealthAddr }}",
+		RateLimit:          {{ .DefaultRateLimit }},
+		RateBurst:          {{ .DefaultRateBurst }},
+		EnableMCP:          {{ .WithMCP }},
+		EnableHardenedMode: true,
+		LogLevel:           "INFO",
+	}
+}
+
+// ResolveConfigPath returns the config file path, allowing overrides via APP_CONFIG.
+func ResolveConfigPath() string {
+	if custom := os.Getenv("APP_CONFIG"); custom != "" {
+		return custom
+	}
+	return filepath.FromSlash("configs/default.json")
+}
+
+// LoadConfig loads configuration from disk and applies environment overrides.
+func LoadConfig(path string) (Config, error) {
+	cfg := DefaultConfig()
+
+	if _, err := os.Stat(path); err == nil {
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return Config{}, fmt.Errorf("read config: %w", readErr)
+		}
+		if len(data) > 0 {
+			if err := json.Unmarshal(data, &cfg); err != nil {
+				return Config{}, fmt.Errorf("parse config: %w", err)
+			}
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return Config{}, fmt.Errorf("stat config: %w", err)
+	}
+
+	applyEnvOverrides(&cfg)
+	return cfg, nil
+}
+
+func applyEnvOverrides(cfg *Config) {
+	if addr := os.Getenv("SERVER_ADDR"); addr != "" {
+		cfg.Addr = addr
+	}
+	if h := os.Getenv("HEALTH_ADDR"); h != "" {
+		cfg.HealthAddr = h
+	}
+	if mcp := os.Getenv("HS_MCP_ENABLED"); mcp != "" {
+		cfg.EnableMCP = mcp == "1" || mcp == "true" || mcp == "TRUE"
+	}
+	if hardened := os.Getenv("HS_HARDENED_MODE"); hardened != "" {
+		cfg.EnableHardenedMode = hardened == "1" || hardened == "true" || hardened == "TRUE"
+	}
+	if rl := os.Getenv("HS_RATE_LIMIT"); rl != "" {
+		if v, err := strconv.Atoi(rl); err == nil {
+			cfg.RateLimit = v
+		}
+	}
+	if burst := os.Getenv("HS_RATE_BURST"); burst != "" {
+		if v, err := strconv.Atoi(burst); err == nil {
+			cfg.RateBurst = v
+		}
+	}
+	if lvl := os.Getenv("HS_LOG_LEVEL"); lvl != "" {
+		cfg.LogLevel = lvl
+	}
+}

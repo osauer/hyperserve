@@ -1,0 +1,56 @@
+package app
+
+import (
+	"fmt"
+	"os"
+
+	"github.com/osauer/hyperserve"
+	"golang.org/x/time/rate"
+)
+
+const version = "0.1.0"
+
+// NewServer constructs a HyperServe instance configured with security-first defaults.
+func NewServer(cfg Config) (*hyperserve.Server, error) {
+	var opts []hyperserve.ServerOptionFunc
+
+	if cfg.HealthAddr != "" {
+		os.Setenv("HEALTH_ADDR", cfg.HealthAddr)
+	}
+
+	if cfg.LogLevel != "" {
+		os.Setenv("HS_LOG_LEVEL", cfg.LogLevel)
+	}
+
+	opts = append(opts,
+		hyperserve.WithAddr(cfg.Addr),
+		hyperserve.WithHealthServer(),
+		hyperserve.WithRateLimit(rate.Limit(cfg.RateLimit), cfg.RateBurst),
+	)
+
+	if cfg.EnableHardenedMode {
+		opts = append(opts, hyperserve.WithHardenedMode())
+	}
+
+	if cfg.EnableMCP {
+		opts = append(opts,
+			hyperserve.WithMCPSupport(cfg.ServiceName, version),
+			hyperserve.WithMCPBuiltinTools(true),
+			hyperserve.WithMCPBuiltinResources(true),
+		)
+	}
+
+	srv, err := hyperserve.NewServer(opts...)
+	if err != nil {
+		return nil, fmt.Errorf("create server: %w", err)
+	}
+
+	return srv, nil
+}
+
+// RegisterMiddleware applies opinionated middleware stacks for secure defaults.
+func RegisterMiddleware(srv *hyperserve.Server) {
+	srv.AddMiddleware("*", hyperserve.RequestLoggerMiddleware)
+	srv.AddMiddlewareStack("/web", hyperserve.SecureWeb(srv.Options))
+	srv.AddMiddleware("/api", hyperserve.RateLimitMiddleware(srv))
+}

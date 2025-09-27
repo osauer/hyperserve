@@ -1,0 +1,30 @@
+# {{ .ServiceTitle }}
+
+Generated with `hyperserve-init`. This project bootstraps a production-grade HyperServe deployment with hardened defaults and optional MCP automation surfaces.
+
+## Quick Start
+
+```bash
+go run ./cmd/server
+```
+
+The server listens on `{{ .DefaultAddr }}` by default and exposes a health server on `{{ .DefaultHealthAddr }}`.
+
+## Configuration
+
+Configuration lives in `configs/default.json`. Override any value with environment variables:
+
+- `HS_MCP_ENABLED=true` enables Model Context Protocol support.
+- `HS_HARDENED_MODE=true` enforces security headers.
+- `SERVER_ADDR=":9090"` changes the HTTP listener.
+
+## Deployment
+
+- `make build` produces a hardened binary.
+- `make docker-build` builds the container image defined in `Dockerfile`.
+
+## Next Steps
+
+- Add application routes in `internal/app/routes.go`.
+- Extend `internal/app/config.go` with your own configuration sources.
+- Wire observability exporters or additional middleware as needed.

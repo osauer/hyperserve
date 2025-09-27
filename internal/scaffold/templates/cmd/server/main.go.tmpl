@@ -1,0 +1,27 @@
+package main
+
+import (
+	"log"
+
+	"{{ .Module }}/internal/app"
+)
+
+func main() {
+	cfg, err := app.LoadConfig(app.ResolveConfigPath())
+	if err != nil {
+		log.Fatalf("load config: %v", err)
+	}
+
+	srv, err := app.NewServer(cfg)
+	if err != nil {
+		log.Fatalf("create server: %v", err)
+	}
+
+	app.RegisterMiddleware(srv)
+	app.RegisterRoutes(srv, cfg)
+
+	log.Printf("%s listening on %s", cfg.ServiceName, cfg.Addr)
+	if err := srv.Run(); err != nil {
+		log.Fatalf("server exited: %v", err)
+	}
+}

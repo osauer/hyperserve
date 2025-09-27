@@ -1,0 +1,31 @@
+package app
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/osauer/hyperserve"
+)
+
+// RegisterRoutes wires HTTP handlers for the service.
+func RegisterRoutes(srv *hyperserve.Server, cfg Config) {
+	srv.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprintf(w, `<main style="font-family: sans-serif; padding: 2rem;">
+<h1>%s</h1>
+<p>Status: <strong>online</strong></p>
+<p>Explore the JSON API at <code>/api/v1/status</code>.</p>
+</main>`, cfg.ServiceName)
+	})
+
+	srv.HandleFunc("/api/v1/status", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"service":   cfg.ServiceName,
+			"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
+			"status":    "ok",
+		})
+	})
+}

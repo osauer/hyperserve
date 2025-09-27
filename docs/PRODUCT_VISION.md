@@ -28,4 +28,11 @@ These items deepen HyperServe’s differentiation (AI-native + secure + producti
 
 1. **Kick off OTLP bridge** – Sketch the metrics/trace exporter API, flesh out configuration knobs, and capture benchmark baselines before adding collectors.
 2. **Prototype runtime controls** – Define the privileged MCP namespace, enumerate the safe toggles, and wire auditing stubs so RBAC can be layered in next.
-3. **Scaffold `hyperserve init`** – Draft the CLI UX, identify template inputs, and reuse example code to produce a runnable starter service with MCP + OTLP wiring.
+3. **Expand `hyperserve-init` templates** – Layer in OTLP-ready wiring, runtime control stubs, and template variants so the scaffold stays aligned with the broader roadmap.
+
+## One-Click Bundles (Exploration)
+
+- **Goal**: Deliver pre-built HyperServe applications (starting with the Regime project in `../regime`) that end users can deploy with a single command.
+- **Approach**: Create a `hyperserve bundle` workflow that vendors the backend/frontend, emits Docker/Compose assets, and publishes signed artifacts alongside scaffold templates.
+- **Separation of personas**: Keep `hyperserve-init` focused on developers, while bundles target operators or end users who want a turnkey deploy.
+- **Open questions**: Distribution channel (GitHub releases vs container registry), update cadence, and how to surface bundle links prominently in the README/downloads.

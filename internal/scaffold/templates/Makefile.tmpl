@@ -1,0 +1,24 @@
+BINARY := {{ .BinaryName }}
+
+.PHONY: run build docker-build test bench fmt tidy
+
+run:
+	go run ./cmd/server
+
+build:
+	CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/$(BINARY) ./cmd/server
+
+fmt:
+	gofmt -w ./
+
+test:
+	go test ./...
+
+tidy:
+	go mod tidy
+
+bench:
+	go test -bench=. -benchmem ./...
+
+docker-build:
+	docker build -t {{ .ServiceSlug }}:dev .

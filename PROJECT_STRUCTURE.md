@@ -75,10 +75,12 @@ Representative files (not exhaustive):
 Command-line applications built with HyperServe:
 - `example-server/` - Lightweight binary for benchmarks and load testing
 - `server/` - Feature-complete CLI wrapping the library for demos
+- `hyperserve-init/` - Project scaffolding CLI that generates secure, MCP-ready services
 
 ### `/internal`
 Private packages not exposed in the public API:
 - `ws/` - WebSocket protocol implementation details
+- `scaffold/` - Project generator and templates backing `hyperserve-init`
 
 ### `/examples`
 Comprehensive examples demonstrating features such as authentication, MCP, WebSocket pooling, HTMX integrations, and configuration management. Directory names follow a `feature-name` convention (e.g., `mcp-basic`, `websocket-pool`).
@@ -90,6 +92,7 @@ Technical documentation:
 - MCP integration guide
 - WebSocket implementation
 - [Performance guide](docs/PERFORMANCE.md)
+- [Scaffolding guide](docs/SCAFFOLDING.md)
 - Best practices
 
 ### `/spec`

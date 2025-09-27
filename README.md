@@ -4,6 +4,7 @@ HyperServe lets humans and AI assistants co-manage the same production-grade Go 
 
 ## Features
 
+- 🧱 **Project Scaffold** - Generate secure, MCP-ready services via `hyperserve-init`
 - 🚀 **Minimal Dependencies** - Only 1 dependency (`golang.org/x/time`)
 - 🤖 **MCP Support** - Built-in Model Context Protocol for AI assistants
 - 🔌 **WebSocket Support** - Real-time bidirectional communication
@@ -21,6 +22,17 @@ srv.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 })
 srv.Run()
 ```
+
+## Scaffold a New Service
+
+```bash
+go install github.com/osauer/hyperserve/cmd/hyperserve-init@latest
+hyperserve-init --module github.com/acme/payments
+cd payments
+go run ./cmd/server
+```
+
+Flags include `--name` (display name), `--out` (output directory), `--with-mcp=false` to opt out of MCP, and `--local-replace` for working against a local HyperServe checkout during development.
 
 ## Installation
 
@@ -78,6 +90,7 @@ See the [examples](./examples) directory for comprehensive examples including:
 - [API Specification](./spec/api.md) - Complete API documentation
 - [MCP Guide](./docs/MCP_GUIDE.md) - Model Context Protocol integration
 - [WebSocket Guide](./docs/WEBSOCKET_GUIDE.md) - WebSocket implementation details
+- [Scaffolding Guide](./docs/SCAFFOLDING.md) - `hyperserve-init` usage and templates
 
 ## Contributing
 
