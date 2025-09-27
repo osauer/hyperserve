@@ -3,9 +3,11 @@ package hyperserve
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -23,42 +25,57 @@ func TestMCPSSEEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("skipping: unable to bind listener: %v", err)
+		return
+	}
 
-	// Create test server
-	ts := httptest.NewServer(srv.mux)
-	defer ts.Close()
+	server := &http.Server{Handler: srv.mux}
+	done := make(chan struct{})
+	go func() {
+		_ = server.Serve(listener)
+		close(done)
+	}()
+	baseURL := fmt.Sprintf("http://%s", listener.Addr().String())
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = server.Shutdown(ctx)
+		<-done
+	}()
 
 	t.Run("SSE Connection", func(t *testing.T) {
 		// Debug: Check if MCP is enabled
 		if !srv.MCPEnabled() {
 			t.Fatal("MCP is not enabled on the server")
 		}
-		
+
 		// Debug: Check MCP endpoint
 		t.Logf("MCP endpoint: %s", srv.Options.MCPEndpoint)
 		t.Logf("MCP handler: %v", srv.mcpHandler)
-		
+
 		// First test base MCP endpoint
-		baseResp, err := http.Get(ts.URL + "/mcp")
+		baseResp, err := http.Get(baseURL + "/mcp")
 		if err != nil {
 			t.Fatal(err)
 		}
 		t.Logf("Base MCP endpoint status: %d", baseResp.StatusCode)
 		baseResp.Body.Close()
-		
+
 		// Connect to SSE endpoint
-		req, err := http.NewRequest("GET", ts.URL+"/mcp", nil)
+		req, err := http.NewRequest("GET", baseURL+"/mcp", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 		req.Header.Set("Accept", "text/event-stream")
-		
+
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer resp.Body.Close()
-		
+
 		// Debug: Print response status
 		t.Logf("Response status: %d", resp.StatusCode)
 		if resp.StatusCode != http.StatusOK {
@@ -73,7 +90,7 @@ func TestMCPSSEEndpoint(t *testing.T) {
 
 		// Read first event (connection event)
 		reader := bufio.NewReader(resp.Body)
-		
+
 		// Read until we get an event
 		var eventData string
 		for {
@@ -81,7 +98,7 @@ func TestMCPSSEEndpoint(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			
+
 			if strings.HasPrefix(line, "data: ") {
 				eventData = strings.TrimPrefix(line, "data: ")
 				eventData = strings.TrimSpace(eventData)
@@ -106,12 +123,12 @@ func TestMCPSSEEndpoint(t *testing.T) {
 
 	t.Run("HTTP Request with SSE Client ID", func(t *testing.T) {
 		// First connect to get a client ID
-		req, err := http.NewRequest("GET", ts.URL+"/mcp", nil)
+		req, err := http.NewRequest("GET", baseURL+"/mcp", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 		req.Header.Set("Accept", "text/event-stream")
-		
+
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
@@ -121,17 +138,17 @@ func TestMCPSSEEndpoint(t *testing.T) {
 		// Read connection event to get client ID
 		reader := bufio.NewReader(resp.Body)
 		var clientID string
-		
+
 		for {
 			line, err := reader.ReadString('\n')
 			if err != nil {
 				t.Fatal(err)
 			}
-			
+
 			if strings.HasPrefix(line, "data: ") {
 				eventData := strings.TrimPrefix(line, "data: ")
 				eventData = strings.TrimSpace(eventData)
-				
+
 				var connEvent map[string]interface{}
 				if err := json.Unmarshal([]byte(eventData), &connEvent); err == nil {
 					if id, ok := connEvent["clientId"].(string); ok {
@@ -144,14 +161,14 @@ func TestMCPSSEEndpoint(t *testing.T) {
 
 		// Now send a request with the SSE client ID
 		reqBody := bytes.NewBufferString(`{"jsonrpc":"2.0","method":"ping","id":1}`)
-		req2, err := http.NewRequest("POST", ts.URL+"/mcp", reqBody)
+		req2, err := http.NewRequest("POST", baseURL+"/mcp", reqBody)
 		if err != nil {
 			t.Fatal(err)
 		}
-		
+
 		req2.Header.Set("Content-Type", "application/json")
 		req2.Header.Set("X-SSE-Client-ID", clientID)
-		
+
 		resp2, err := http.DefaultClient.Do(req2)
 		if err != nil {
 			t.Fatal(err)
@@ -173,12 +190,12 @@ func TestSSEManager(t *testing.T) {
 		// Mock response writer and flusher
 		w := httptest.NewRecorder()
 		flusher := &mockFlusher{w: w}
-		
+
 		client := newSSEClient("test-client-1", w, flusher)
-		
+
 		// Add client
 		manager.addClient("test-client-1", client)
-		
+
 		// Check client count
 		if count := manager.GetClientCount(); count != 1 {
 			t.Errorf("Expected 1 client, got %d", count)
@@ -190,7 +207,7 @@ func TestSSEManager(t *testing.T) {
 			Result:  map[string]interface{}{"message": "test"},
 			ID:      1,
 		}
-		
+
 		err := manager.SendToClient("test-client-1", response)
 		if err != nil {
 			t.Errorf("Failed to send to client: %v", err)
@@ -198,7 +215,7 @@ func TestSSEManager(t *testing.T) {
 
 		// Remove client
 		manager.removeClient("test-client-1")
-		
+
 		// Check client count
 		if count := manager.GetClientCount(); count != 0 {
 			t.Errorf("Expected 0 clients, got %d", count)
@@ -220,7 +237,7 @@ func TestSSEManager(t *testing.T) {
 			Result:  map[string]interface{}{"broadcast": "test"},
 			ID:      nil,
 		}
-		
+
 		manager.BroadcastToAll(response)
 
 		// Clean up
@@ -289,7 +306,7 @@ func TestSSEClientLifecycle(t *testing.T) {
 
 	t.Run("Close", func(t *testing.T) {
 		client.Close()
-		
+
 		// Try to send after close
 		err := client.Send(&JSONRPCResponse{})
 		if err == nil {

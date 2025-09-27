@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.2] - 2025-09-27
+
+### Added
+- Regression coverage for shutdown context propagation and WebSocket pool statistics snapshots.
+
+### Changed
+- Brought README, ADRs, guides, and API spec in sync with current behaviour and APIs.
+- Hardened MCP SSE and middleware integration tests to use sandbox-friendly listeners or skip gracefully when networking is restricted.
+- Documented repository hygiene expectations and broadened ignores for local tooling caches.
+
+### Fixed
+- Prevented double-closing of the rate-limiter cleanup ticker during repeated shutdowns.
+- `go test ./...` no longer leaves stray `_test.txt` logs and avoids panicking when health-server ports are unavailable.
+
 ## [0.19.1] - 2025-07-22
 
 ### Added

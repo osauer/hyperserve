@@ -31,7 +31,10 @@ go.work.sum
 *~
 
 # Claude local settings
-.claude/settings.local.json
+.claude/
+
+# MCP client metadata
+.mcp/
 
 # OS specific files
 .DS_Store
@@ -68,6 +71,7 @@ coverage.html
 # Build artifacts
 /bin/
 /dist/
+.gocache/
 
 # Example binaries
 examples/*/main

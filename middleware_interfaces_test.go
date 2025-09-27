@@ -75,76 +75,76 @@ func (mc *mockConn) Close() error { return nil }
 
 func TestLoggingResponseWriterInterfaces(t *testing.T) {
 	// Test that interfaces are properly delegated through loggingResponseWriter
-	
+
 	t.Run("hijacker interface preserved", func(t *testing.T) {
 		mock := &mockResponseWriter{
 			baseResponseWriter: newBaseResponseWriter(),
-			hijackable:        true,
+			hijackable:         true,
 		}
-		
+
 		lrw := &loggingResponseWriter{
 			ResponseWriter: mock,
-			statusCode:    http.StatusOK,
-			bytesWritten:  0,
+			statusCode:     http.StatusOK,
+			bytesWritten:   0,
 		}
-		
+
 		// Hijacker method should work
 		_, _, err := lrw.Hijack()
 		if err != nil {
 			t.Errorf("Hijack() error = %v, want nil", err)
 		}
 	})
-	
+
 	t.Run("hijacker interface error when not available", func(t *testing.T) {
 		mock := &mockResponseWriter{
 			baseResponseWriter: newBaseResponseWriter(),
-			hijackable:        false,
+			hijackable:         false,
 		}
-		
+
 		lrw := &loggingResponseWriter{
 			ResponseWriter: mock,
-			statusCode:    http.StatusOK,
-			bytesWritten:  0,
+			statusCode:     http.StatusOK,
+			bytesWritten:   0,
 		}
-		
+
 		// Hijacker method should return error
 		_, _, err := lrw.Hijack()
 		if err == nil {
 			t.Error("Hijack() error = nil, want error")
 		}
 	})
-	
+
 	t.Run("pusher interface preserved", func(t *testing.T) {
 		mock := &mockResponseWriter{
 			baseResponseWriter: newBaseResponseWriter(),
-			pushable:          true,
+			pushable:           true,
 		}
-		
+
 		lrw := &loggingResponseWriter{
 			ResponseWriter: mock,
-			statusCode:    http.StatusOK,
-			bytesWritten:  0,
+			statusCode:     http.StatusOK,
+			bytesWritten:   0,
 		}
-		
+
 		// Push method should work
 		err := lrw.Push("/test", nil)
 		if err != nil {
 			t.Errorf("Push() error = %v, want nil", err)
 		}
 	})
-	
+
 	t.Run("pusher interface error when not available", func(t *testing.T) {
 		mock := &mockResponseWriter{
 			baseResponseWriter: newBaseResponseWriter(),
-			pushable:          false,
+			pushable:           false,
 		}
-		
+
 		lrw := &loggingResponseWriter{
 			ResponseWriter: mock,
-			statusCode:    http.StatusOK,
-			bytesWritten:  0,
+			statusCode:     http.StatusOK,
+			bytesWritten:   0,
 		}
-		
+
 		// Push method should return ErrNotSupported
 		err := lrw.Push("/test", nil)
 		if err != http.ErrNotSupported {
@@ -158,15 +158,15 @@ func TestLoggingResponseWriterFlusher(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	lrw := &loggingResponseWriter{
 		ResponseWriter: recorder,
-		statusCode:    http.StatusOK,
-		bytesWritten:  0,
+		statusCode:     http.StatusOK,
+		bytesWritten:   0,
 	}
-	
+
 	// httptest.ResponseRecorder implements Flusher
 	if _, ok := lrw.ResponseWriter.(http.Flusher); !ok {
 		t.Skip("Test ResponseWriter doesn't implement Flusher")
 	}
-	
+
 	// Should not panic
 	lrw.Flush()
 }
@@ -174,28 +174,28 @@ func TestLoggingResponseWriterFlusher(t *testing.T) {
 func TestLoggingResponseWriterReadFrom(t *testing.T) {
 	data := []byte("Hello, World!")
 	reader := bytes.NewReader(data)
-	
+
 	recorder := httptest.NewRecorder()
 	lrw := &loggingResponseWriter{
 		ResponseWriter: recorder,
-		statusCode:    http.StatusOK,
-		bytesWritten:  0,
+		statusCode:     http.StatusOK,
+		bytesWritten:   0,
 	}
-	
+
 	// Test ReadFrom
 	n, err := lrw.ReadFrom(reader)
 	if err != nil {
 		t.Fatalf("ReadFrom() error = %v", err)
 	}
-	
+
 	if n != int64(len(data)) {
 		t.Errorf("ReadFrom() n = %v, want %v", n, len(data))
 	}
-	
+
 	if lrw.bytesWritten != len(data) {
 		t.Errorf("bytesWritten = %v, want %v", lrw.bytesWritten, len(data))
 	}
-	
+
 	if recorder.Body.String() != string(data) {
 		t.Errorf("Body = %v, want %v", recorder.Body.String(), string(data))
 	}
@@ -207,17 +207,17 @@ func TestMiddlewareWithWebSocket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
-	
+
 	// Add logging middleware
 	srv.AddMiddleware("*", RequestLoggerMiddleware)
-	
+
 	// Add WebSocket handler
 	upgrader := Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
 			return true
 		},
 	}
-	
+
 	var wsHandlerCalled atomic.Bool
 	srv.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		// Verify that w can be hijacked through the middleware
@@ -225,7 +225,7 @@ func TestMiddlewareWithWebSocket(t *testing.T) {
 			t.Error("ResponseWriter doesn't implement Hijacker after middleware")
 			return
 		}
-		
+
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			t.Errorf("Upgrade failed: %v", err)
@@ -234,24 +234,38 @@ func TestMiddlewareWithWebSocket(t *testing.T) {
 		conn.Close()
 		wsHandlerCalled.Store(true)
 	})
-	
-	// Create test server
-	ts := httptest.NewServer(srv.mux)
-	defer ts.Close()
-	
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("skipping websocket middleware test: %v", err)
+		return
+	}
+
+	server := &http.Server{Handler: srv.mux}
+	done := make(chan struct{})
+	go func() {
+		_ = server.Serve(listener)
+		close(done)
+	}()
+	baseURL := "http://" + listener.Addr().String()
+	defer func() {
+		server.Close()
+		<-done
+	}()
+
 	// Make WebSocket request
-	req, _ := http.NewRequest("GET", ts.URL+"/ws", nil)
+	req, _ := http.NewRequest("GET", baseURL+"/ws", nil)
 	req.Header.Set("Upgrade", "websocket")
 	req.Header.Set("Connection", "Upgrade")
 	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
 	req.Header.Set("Sec-WebSocket-Version", "13")
-	
+
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("Request failed: %v", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if !wsHandlerCalled.Load() {
 		t.Error("WebSocket handler was not called")
 	}

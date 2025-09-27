@@ -9,7 +9,7 @@ This guide defines the idiomatic principles that all hyperserve examples must fo
 // ❌ BAD
 srv, _ := hyperserve.NewServer(
     hyperserve.WithAddr(":8080"),      // Already default
-    hyperserve.WithHealthServer(),     // Already default
+    hyperserve.WithHealthServer(),     // Optional: only enable when demonstrating health checks
 )
 
 // ✅ GOOD  

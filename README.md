@@ -7,7 +7,7 @@ A lightweight, high-performance HTTP server framework with built-in Model Contex
 - 🚀 **Minimal Dependencies** - Only 1 dependency (`golang.org/x/time`)
 - 🤖 **MCP Support** - Built-in Model Context Protocol for AI assistants
 - 🔌 **WebSocket Support** - Real-time bidirectional communication
-- 🛡️ **Secure by Default** - Built-in security headers and rate limiting
+- 🛡️ **Security Middleware** - Hardened headers, auth, and rate limiting ready to enable
 - 📊 **Observable** - Metrics, health checks, and structured logging
 - ⚡ **High Performance** - Optimized for throughput and low latency
 - 🔧 **Battle-tested HTTP/2** - Leverages Go's excellent standard library
@@ -45,10 +45,21 @@ HS_MCP_SERVER_VERSION=1.0.0
 Or programmatically:
 ```go
 srv, _ := hyperserve.NewServer(
-    hyperserve.WithMCPSupport(),
+    hyperserve.WithMCPSupport("MyServer", "1.0.0"),
     hyperserve.WithMCPBuiltinTools(true),
     hyperserve.WithMCPBuiltinResources(true),
 )
+```
+
+### Common Middleware
+
+`NewServer` wires in recovery, request logging, and metrics collectors.
+Security middleware (headers, auth, rate limiting) can be enabled per route:
+
+```go
+srv, _ := hyperserve.NewServer()
+srv.AddMiddleware("/api", hyperserve.RateLimitMiddleware(srv))
+srv.AddMiddlewareStack("/web", hyperserve.SecureWeb(srv.Options))
 ```
 
 ## Examples

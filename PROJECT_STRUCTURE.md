@@ -11,15 +11,16 @@ hyperserve/
 ├── .github/workflows/    # CI/CD workflows
 ├── benchmarks/          # Performance benchmarks
 ├── cmd/                 # Command-line applications
-│   └── hyperserve/     # Main server executable
+│   ├── example-server/ # Minimal benchmarking server
+│   └── server/         # Reference CLI wrapper around the library
 ├── configs/            # Configuration examples
 ├── docs/               # Documentation
 ├── examples/           # Example implementations
-│   ├── auth/          # Authentication examples
-│   ├── basic/         # Basic usage
-│   ├── enterprise/    # Enterprise features
-│   ├── mcp/           # MCP integration
-│   └── websocket/     # WebSocket examples
+│   ├── auth/               # Authentication examples
+│   ├── enterprise/         # Enterprise features
+│   ├── hello-world/        # Basic usage
+│   ├── mcp-*/              # MCP integration patterns
+│   └── websocket-*/        # WebSocket examples
 ├── internal/           # Private application code
 │   └── ws/            # WebSocket internals
 ├── spec/               # API specifications
@@ -43,9 +44,6 @@ hyperserve/
 - `CHANGELOG.md` - Release history
 - `CLAUDE.md` - AI assistant instructions
 - `LICENSE` - MIT license
-
-### Markers
-- `.mcp` - MCP marker for AI tools
 
 ## Core Components
 
@@ -71,19 +69,15 @@ hyperserve/
 
 ### `/cmd`
 Command-line applications built with HyperServe:
-- `hyperserve/` - Main server executable with CLI flags
+- `example-server/` - Lightweight binary for benchmarks and load testing
+- `server/` - Feature-complete CLI wrapping the library for demos
 
 ### `/internal`
 Private packages not exposed in the public API:
 - `ws/` - WebSocket protocol implementation details
 
 ### `/examples`
-Comprehensive examples demonstrating features:
-- `auth/` - JWT, API keys, RBAC
-- `basic/` - Simple server setup
-- `enterprise/` - Production-ready configurations
-- `mcp/` - MCP tools and resources
-- `websocket/` - Real-time communication
+Comprehensive examples demonstrating features such as authentication, MCP, WebSocket pooling, HTMX integrations, and configuration management. Directory names follow a `feature-name` convention (e.g., `mcp-basic`, `websocket-pool`).
 
 ### `/docs`
 Technical documentation:
@@ -131,8 +125,8 @@ import "github.com/osauer/hyperserve/internal/ws" // Internal (not recommended)
 # Build the library
 go build .
 
-# Build the server
-go build ./cmd/hyperserve
+# Build the reference CLI
+go build ./cmd/server
 
 # Run tests
 go test ./...

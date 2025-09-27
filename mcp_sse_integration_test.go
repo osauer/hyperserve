@@ -6,8 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -20,43 +20,61 @@ func TestMCPWithSSEIntegration(t *testing.T) {
 		Version: "1.0.0",
 	}
 	handler := NewMCPHandler(serverInfo)
-	
+
 	// Register a test tool
 	handler.RegisterTool(&testTool{})
-	
+
 	// Create test server
 	mux := http.NewServeMux()
 	mux.HandleFunc("/mcp", handler.ServeHTTP)
 	mux.HandleFunc("/mcp/sse", handler.ServeHTTP)
-	
-	server := httptest.NewServer(mux)
-	defer server.Close()
-	
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("skipping: unable to bind test listener: %v", err)
+		return
+	}
+
+	server := &http.Server{Handler: mux}
+	done := make(chan struct{})
+	go func() {
+		_ = server.Serve(listener)
+		close(done)
+	}()
+
+	baseURL := fmt.Sprintf("http://%s", listener.Addr().String())
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = server.Shutdown(ctx)
+		<-done
+	}()
+
 	t.Run("SSE Connection and MCP Flow", func(t *testing.T) {
 		// 1. Connect SSE client
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		
-		req, err := http.NewRequestWithContext(ctx, "GET", server.URL+"/mcp", nil)
+
+		req, err := http.NewRequestWithContext(ctx, "GET", baseURL+"/mcp", nil)
 		if err != nil {
 			t.Fatalf("Failed to create SSE request: %v", err)
 		}
 		req.Header.Set("Accept", "text/event-stream")
-		
+
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatalf("Failed to connect SSE: %v", err)
 		}
 		defer resp.Body.Close()
-		
+
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("Expected 200, got %d", resp.StatusCode)
 		}
-		
+
 		if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
 			t.Fatalf("Expected text/event-stream, got %s", ct)
 		}
-		
+
 		// Create scanner for SSE events
 		scanner := bufio.NewScanner(resp.Body)
 		events := make(chan string, 10)
@@ -68,7 +86,7 @@ func TestMCPWithSSEIntegration(t *testing.T) {
 				}
 			}
 		}()
-		
+
 		// Get client ID from connection event
 		var clientID string
 		select {
@@ -87,7 +105,7 @@ func TestMCPWithSSEIntegration(t *testing.T) {
 		case <-time.After(2 * time.Second):
 			t.Fatal("Timeout waiting for connection event")
 		}
-		
+
 		// 2. Send initialize request via HTTP with SSE client ID
 		initReq := map[string]interface{}{
 			"jsonrpc": "2.0",
@@ -102,21 +120,21 @@ func TestMCPWithSSEIntegration(t *testing.T) {
 			},
 			"id": 1,
 		}
-		
+
 		reqBody, _ := json.Marshal(initReq)
-		httpReq, err := http.NewRequest("POST", server.URL+"/mcp", bytes.NewReader(reqBody))
+		httpReq, err := http.NewRequest("POST", baseURL+"/mcp", bytes.NewReader(reqBody))
 		if err != nil {
 			t.Fatalf("Failed to create HTTP request: %v", err)
 		}
 		httpReq.Header.Set("Content-Type", "application/json")
 		httpReq.Header.Set("X-SSE-Client-ID", clientID)
-		
+
 		httpResp, err := http.DefaultClient.Do(httpReq)
 		if err != nil {
 			t.Fatalf("Failed to send initialize: %v", err)
 		}
 		httpResp.Body.Close()
-		
+
 		// 3. Verify response comes through SSE
 		select {
 		case event := <-events:
@@ -124,24 +142,24 @@ func TestMCPWithSSEIntegration(t *testing.T) {
 			if err := json.Unmarshal([]byte(event), &response); err != nil {
 				t.Fatalf("Failed to parse SSE response: %v", err)
 			}
-			
+
 			if response["id"] != float64(1) {
 				t.Fatalf("Expected response ID 1, got %v", response["id"])
 			}
-			
+
 			result, ok := response["result"].(map[string]interface{})
 			if !ok {
 				t.Fatal("No result in response")
 			}
-			
+
 			if result["protocolVersion"] != "2024-11-05" {
 				t.Fatalf("Expected protocol version 2024-11-05, got %v", result["protocolVersion"])
 			}
-			
+
 		case <-time.After(2 * time.Second):
 			t.Fatal("Timeout waiting for SSE response")
 		}
-		
+
 		// 4. Test tool call through SSE
 		toolReq := map[string]interface{}{
 			"jsonrpc": "2.0",
@@ -154,21 +172,21 @@ func TestMCPWithSSEIntegration(t *testing.T) {
 			},
 			"id": 2,
 		}
-		
+
 		reqBody, _ = json.Marshal(toolReq)
-		httpReq, err = http.NewRequest("POST", server.URL+"/mcp", bytes.NewReader(reqBody))
+		httpReq, err = http.NewRequest("POST", baseURL+"/mcp", bytes.NewReader(reqBody))
 		if err != nil {
 			t.Fatalf("Failed to create tool request: %v", err)
 		}
 		httpReq.Header.Set("Content-Type", "application/json")
 		httpReq.Header.Set("X-SSE-Client-ID", clientID)
-		
+
 		httpResp, err = http.DefaultClient.Do(httpReq)
 		if err != nil {
 			t.Fatalf("Failed to send tool call: %v", err)
 		}
 		httpResp.Body.Close()
-		
+
 		// Verify tool response through SSE
 		select {
 		case event := <-events:
@@ -176,42 +194,42 @@ func TestMCPWithSSEIntegration(t *testing.T) {
 			if err := json.Unmarshal([]byte(event), &response); err != nil {
 				t.Fatalf("Failed to parse tool response: %v", err)
 			}
-			
+
 			if response["id"] != float64(2) {
 				t.Fatalf("Expected response ID 2, got %v", response["id"])
 			}
-			
+
 			result, ok := response["result"].(map[string]interface{})
 			if !ok {
 				t.Fatal("No result in tool response")
 			}
-			
+
 			if result["content"].([]interface{})[0].(map[string]interface{})["text"] != "Echo: hello" {
 				t.Fatal("Unexpected tool response")
 			}
-			
+
 		case <-time.After(2 * time.Second):
 			t.Fatal("Timeout waiting for tool response")
 		}
 	})
-	
+
 	t.Run("Multiple SSE Clients", func(t *testing.T) {
 		// Connect two SSE clients
 		clients := make([]string, 2)
-		
+
 		for i := 0; i < 2; i++ {
-			req, err := http.NewRequest("GET", server.URL+"/mcp", nil)
+			req, err := http.NewRequest("GET", baseURL+"/mcp", nil)
 			if err != nil {
 				t.Fatalf("Failed to create request for client %d: %v", i, err)
 			}
 			req.Header.Set("Accept", "text/event-stream")
-			
+
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
 				t.Fatalf("Failed to connect SSE client %d: %v", i, err)
 			}
 			defer resp.Body.Close()
-			
+
 			// Read connection event to get client ID
 			scanner := bufio.NewScanner(resp.Body)
 			for scanner.Scan() {
@@ -227,12 +245,12 @@ func TestMCPWithSSEIntegration(t *testing.T) {
 					}
 				}
 			}
-			
+
 			if clients[i] == "" {
 				t.Fatalf("No client ID for client %d", i)
 			}
 		}
-		
+
 		// Verify different client IDs
 		if clients[0] == clients[1] {
 			t.Fatal("Clients have same ID")
@@ -269,7 +287,7 @@ func (t *testTool) Execute(params map[string]interface{}) (interface{}, error) {
 	if !ok {
 		return nil, fmt.Errorf("message must be a string")
 	}
-	
+
 	// Return a simple string - the handler will wrap it in the proper format
 	return "Echo: " + msg, nil
 }

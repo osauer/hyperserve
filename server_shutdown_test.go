@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -242,6 +243,44 @@ func TestShutdownHookTimeout(t *testing.T) {
 	// Second hook should still have been attempted
 	// (though it might not complete due to timeout)
 	t.Logf("Hook 2 execution status: %d", atomic.LoadInt32(&hook2Executed))
+}
+
+func TestShutdownHookReceivesParentContext(t *testing.T) {
+	t.Parallel()
+
+	type ctxKey string
+	const key ctxKey = "test"
+
+	var (
+		mu       sync.Mutex
+		captured interface{}
+	)
+
+	hook := func(ctx context.Context) error {
+		mu.Lock()
+		captured = ctx.Value(key)
+		mu.Unlock()
+		return nil
+	}
+
+	srv, err := NewServer(WithOnShutdown(hook))
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+
+	parentCtx := context.WithValue(context.Background(), key, "inherited-value")
+	ctx, cancel := context.WithTimeout(parentCtx, time.Second)
+	defer cancel()
+
+	if err := srv.shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown failed: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if captured != "inherited-value" {
+		t.Fatalf("expected hook to see parent context value, got %v", captured)
+	}
 }
 
 // TestShutdownHookNilHandling verifies nil hooks are handled gracefully

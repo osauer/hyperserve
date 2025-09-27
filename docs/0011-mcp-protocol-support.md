@@ -51,7 +51,7 @@ We will implement native MCP support in hyperserve with the following architectu
 
 ### 4. Configuration Integration
 
-- **Functional Options**: `WithMCPSupport()`, `WithMCPEndpoint()`, etc.
+- **Functional Options**: `WithMCPSupport(name, version, ...)`, `WithMCPEndpoint()`, etc.
 - **ServerOptions Fields**: MCP configuration in main options struct
 - **Default Values**: Sensible defaults following hyperserve patterns
 - **Environment Variables**: Support for env-based configuration
@@ -71,13 +71,13 @@ We will implement native MCP support in hyperserve with the following architectu
 hyperserve/
 ├── jsonrpc.go              # JSON-RPC 2.0 engine
 ├── mcp.go                  # MCP protocol handler
-├── mcp_tools.go            # Built-in tools implementation
-├── mcp_resources.go        # Built-in resources implementation
+├── mcp_builtin.go          # Built-in tools & resources implementation
 ├── mcp_test.go             # MCP protocol tests
 ├── mcp_tools_test.go       # Tools tests
 ├── mcp_resources_test.go   # Resources tests
 ├── mcp_integration_test.go # Integration tests
-└── examples/mcp/           # Complete example application
+├── mcp_transport.go        # SSE/stdio transport helpers
+└── examples/mcp-*          # Complete example applications
 ```
 
 ### Configuration Schema
@@ -120,9 +120,10 @@ type ServerOptions struct {
 // Basic usage
 srv, err := hyperserve.NewServer(
     hyperserve.WithAddr(":8080"),
-    hyperserve.WithMCPSupport(),
+    hyperserve.WithMCPSupport("my-server", "1.0.0"),
     hyperserve.WithMCPEndpoint("/mcp"),
-    hyperserve.WithMCPServerInfo("my-server", "1.0.0"),
+    hyperserve.WithMCPBuiltinTools(true),
+    hyperserve.WithMCPBuiltinResources(true),
     hyperserve.WithMCPFileToolRoot("/safe/directory"),
 )
 

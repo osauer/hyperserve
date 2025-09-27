@@ -1492,9 +1492,11 @@ func (srv *Server) cleanupRateLimiters() {
 func (srv *Server) stopCleanup() {
 	if srv.cleanupTicker != nil {
 		srv.cleanupTicker.Stop()
+		srv.cleanupTicker = nil
 	}
 	if srv.cleanupDone != nil {
 		close(srv.cleanupDone)
+		srv.cleanupDone = nil
 	}
 }
 

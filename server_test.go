@@ -28,7 +28,7 @@ func TestHandleTemplateValidTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error writing template file: %v", err)
 	}
-	
+
 	// Create server with template directory
 	srv, err := NewServer(WithTemplateDir(templateDir))
 	if err != nil {
@@ -63,7 +63,7 @@ func TestHandleTemplateMissingTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error creating template directory: %v", err)
 	}
-	
+
 	// Create server with template directory that has no templates
 	srv, err := NewServer(WithTemplateDir(templateDir))
 	if err != nil {
@@ -93,7 +93,7 @@ func TestHandleFuncDynamicValidTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error writing template file: %v", err)
 	}
-	
+
 	// Create server with template directory
 	srv, err := NewServer(WithTemplateDir(templateDir))
 	if err != nil {
@@ -123,16 +123,16 @@ func TestHandleFuncDynamicValidTemplate(t *testing.T) {
 
 func TestHandleFuncDynamicMissingTemplate(t *testing.T) {
 	t.Parallel()
-	// Use unique directory name to avoid conflicts in parallel tests  
+	// Use unique directory name to avoid conflicts in parallel tests
 	templateDir := fmt.Sprintf("./test_templates_%d_%d", time.Now().UnixNano(), os.Getpid())
-	
+
 	// Create the template directory first
 	err := os.MkdirAll(templateDir, 0755)
 	if err != nil {
 		t.Fatalf("failed to create template directory: %v", err)
 	}
 	defer os.RemoveAll(templateDir)
-	
+
 	// Create server with existing template directory
 	srv, err := NewServer(WithTemplateDir(templateDir))
 	if err != nil {
@@ -202,6 +202,31 @@ func TestFIPSMode(t *testing.T) {
 	}
 }
 
+func TestRunReturnsErrorWhenTLSMisconfigured(t *testing.T) {
+	t.Parallel()
+
+	srv, err := NewServer()
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+
+	srv.Options.EnableTLS = true
+	srv.Options.TLSAddr = ":0"
+	srv.Options.CertFile = ""
+	srv.Options.KeyFile = ""
+
+	err = srv.Run()
+	if err == nil {
+		t.Fatal("expected Run to fail when TLS is misconfigured")
+	}
+	if !strings.Contains(err.Error(), "TLS enabled but no key or cert file provided") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if srv.isRunning.Load() {
+		t.Fatal("expected server to be marked as not running after TLS startup failure")
+	}
+}
+
 func TestEncryptedClientHello(t *testing.T) {
 	t.Parallel()
 	echKey := []byte("test-ech-key")
@@ -222,13 +247,13 @@ func TestEncryptedClientHello(t *testing.T) {
 // Template Directory Validation Tests
 func TestWithTemplateDirInvalidDirectory(t *testing.T) {
 	t.Parallel()
-	
+
 	// Test with non-existent directory
 	_, err := NewServer(WithTemplateDir("/non/existent/directory"))
 	if err == nil {
 		t.Error("expected error for non-existent template directory")
 	}
-	
+
 	expectedError := "template directory not found"
 	if !strings.Contains(err.Error(), expectedError) {
 		t.Errorf("expected error to contain '%s', got: %s", expectedError, err.Error())
@@ -237,22 +262,22 @@ func TestWithTemplateDirInvalidDirectory(t *testing.T) {
 
 func TestWithTemplateDirValidDirectory(t *testing.T) {
 	t.Parallel()
-	
+
 	// Create a temporary directory
 	templateDir := fmt.Sprintf("./test_templates_%d_%d", time.Now().UnixNano(), os.Getpid())
 	defer os.RemoveAll(templateDir)
-	
+
 	err := os.MkdirAll(templateDir, 0755)
 	if err != nil {
 		t.Fatalf("failed to create test directory: %v", err)
 	}
-	
+
 	// Test with valid directory
 	srv, err := NewServer(WithTemplateDir(templateDir))
 	if err != nil {
 		t.Errorf("unexpected error for valid template directory: %v", err)
 	}
-	
+
 	if srv.Options.TemplateDir != templateDir {
 		t.Errorf("expected template directory to be %s, got %s", templateDir, srv.Options.TemplateDir)
 	}
@@ -261,21 +286,21 @@ func TestWithTemplateDirValidDirectory(t *testing.T) {
 // Hardened Mode Tests
 func TestWithHardenedMode(t *testing.T) {
 	t.Parallel()
-	
+
 	srv, err := NewServer(WithHardenedMode())
 	if err != nil {
 		t.Fatalf("failed to create server with hardened mode: %v", err)
 	}
-	
+
 	if !srv.Options.HardenedMode {
 		t.Error("expected hardened mode to be enabled")
 	}
 }
 
-// Environment Variable Parsing Tests  
+// Environment Variable Parsing Tests
 func TestHardenedModeEnvironmentVariable(t *testing.T) {
 	t.Parallel()
-	
+
 	// Save original environment
 	originalEnv := os.Getenv("HS_HARDENED_MODE")
 	defer func() {
@@ -285,28 +310,28 @@ func TestHardenedModeEnvironmentVariable(t *testing.T) {
 			os.Setenv("HS_HARDENED_MODE", originalEnv)
 		}
 	}()
-	
+
 	// Test with "true"
 	os.Setenv("HS_HARDENED_MODE", "true")
 	options := NewServerOptions()
 	if !options.HardenedMode {
 		t.Error("expected hardened mode to be enabled with HS_HARDENED_MODE=true")
 	}
-	
+
 	// Test with "1"
 	os.Setenv("HS_HARDENED_MODE", "1")
 	options = NewServerOptions()
 	if !options.HardenedMode {
 		t.Error("expected hardened mode to be enabled with HS_HARDENED_MODE=1")
 	}
-	
+
 	// Test with "false"
 	os.Setenv("HS_HARDENED_MODE", "false")
 	options = NewServerOptions()
 	if options.HardenedMode {
 		t.Error("expected hardened mode to be disabled with HS_HARDENED_MODE=false")
 	}
-	
+
 	// Test with empty value
 	os.Setenv("HS_HARDENED_MODE", "")
 	options = NewServerOptions()
@@ -318,7 +343,7 @@ func TestHardenedModeEnvironmentVariable(t *testing.T) {
 // Enhanced Template Error Handling Tests
 func TestHandleFuncDynamicTemplateErrors(t *testing.T) {
 	t.Parallel()
-	
+
 	// Use unique directory name to avoid conflicts in parallel tests
 	templateDir := fmt.Sprintf("./test_templates_%d_%d", time.Now().UnixNano(), os.Getpid())
 	defer os.RemoveAll(templateDir)
@@ -333,7 +358,7 @@ func TestHandleFuncDynamicTemplateErrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error writing template file: %v", err)
 	}
-	
+
 	// Create server with template directory
 	srv, err := NewServer(WithTemplateDir(templateDir))
 	if err != nil {
@@ -351,7 +376,7 @@ func TestHandleFuncDynamicTemplateErrors(t *testing.T) {
 
 func TestHandleFuncDynamicNonExistentTemplate(t *testing.T) {
 	t.Parallel()
-	
+
 	// Use unique directory name to avoid conflicts in parallel tests
 	templateDir := fmt.Sprintf("./test_templates_%d_%d", time.Now().UnixNano(), os.Getpid())
 	defer os.RemoveAll(templateDir)
@@ -361,7 +386,7 @@ func TestHandleFuncDynamicNonExistentTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error creating template directory: %v", err)
 	}
-	
+
 	// Create server with template directory
 	srv, err := NewServer(WithTemplateDir(templateDir))
 	if err != nil {
@@ -375,7 +400,7 @@ func TestHandleFuncDynamicNonExistentTemplate(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for non-existent template")
 	}
-	
+
 	expectedError := "template missing.html not found"
 	if !strings.Contains(err.Error(), expectedError) {
 		t.Errorf("expected error to contain '%s', got: %s", expectedError, err.Error())
@@ -384,23 +409,23 @@ func TestHandleFuncDynamicNonExistentTemplate(t *testing.T) {
 
 func TestWithCSPWebWorkerSupport(t *testing.T) {
 	t.Parallel()
-	
+
 	// Test that the option is disabled by default
 	srv, err := NewServer()
 	if err != nil {
 		t.Fatalf("error creating server: %v", err)
 	}
-	
+
 	if srv.Options.CSPWebWorkerSupport {
 		t.Error("expected CSPWebWorkerSupport to be disabled by default")
 	}
-	
+
 	// Test that the option can be enabled
 	srv, err = NewServer(WithCSPWebWorkerSupport())
 	if err != nil {
 		t.Fatalf("error creating server with CSP Web Worker support: %v", err)
 	}
-	
+
 	if !srv.Options.CSPWebWorkerSupport {
 		t.Error("expected CSPWebWorkerSupport to be enabled")
 	}

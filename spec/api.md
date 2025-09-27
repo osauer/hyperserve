@@ -5,9 +5,9 @@ This document defines the API specification that HyperServe implements.
 ## Core Endpoints
 
 ### Health Checks
-- `GET /healthz` - Returns 200 if server is healthy
-- `GET /readyz` - Returns 200 if server is ready to accept requests  
-- `GET /livez` - Returns 200 if server is alive
+- `GET /healthz/` - Returns 200 if server is healthy (slashless path redirects)
+- `GET /readyz/` - Returns 200 if server is ready to accept requests  
+- `GET /livez/` - Returns 200 if server is alive
 
 ### MCP Endpoint
 - `POST /mcp` - Model Context Protocol endpoint
@@ -48,19 +48,24 @@ This document defines the API specification that HyperServe implements.
 }
 ```
 
-## Middleware Requirements
+## Middleware
 
-All implementations MUST provide these middleware in the default configuration:
+HyperServe enables the following middleware by default:
 
 1. **Request Logging**
    - Log format: `{timestamp} {ip} {method} {path} {status} {duration}`
-   - Must log to stdout/structured logging
+   - Logs to stdout/structured logging
 
 2. **Panic Recovery**
-   - Catch panics and return 500
-   - Log panic details with stack trace
+   - Catches panics and returns 500
+   - Logs panic details with stack trace
 
-3. **Security Headers**
+3. **Metrics Collection**
+   - Tracks total requests and handler latency
+
+Security headers and rate limiting are available via helper middleware stacks and can be enabled per route:
+
+- **Security Headers**
    ```
    X-Content-Type-Options: nosniff
    X-Frame-Options: DENY
@@ -68,18 +73,13 @@ All implementations MUST provide these middleware in the default configuration:
    Content-Security-Policy: [configurable]
    ```
 
-4. **Rate Limiting**
-   - Default: 100 req/s per IP, burst 200
+- **Rate Limiting** (configurable per deployment)
+   - Token bucket limiter across client IPs
    - Returns 429 when exceeded
    - Headers:
      - X-RateLimit-Limit
      - X-RateLimit-Remaining
      - X-RateLimit-Reset
-
-5. **Metrics Collection**
-   - Total requests
-   - Response time (average, min, max)
-   - Active WebSocket connections
 
 ## WebSocket Support
 

@@ -48,20 +48,15 @@ Require Go 1.24 as the minimum supported version and actively leverage its new f
 
 Key features leveraged:
 ```go
-// os.Root for secure file serving
-root := os.Root(staticDir)
-srv.Static("/static", root)
+srv, _ := hyperserve.NewServer(hyperserve.WithFIPSMode())
+
+// os.Root for secure file serving (HandleStatic uses it automatically)
+srv.HandleStatic("/static/")
 
 // Swiss Tables (automatic with regular maps)
 rateLimiters := make(map[string]*rate.Limiter)
 
-// FIPS mode
-if opts.FIPSMode {
-    tlsConfig.FIPSMode = true
-}
-
-// Post-quantum crypto enabled by default
-// (no code needed, automatic in TLS 1.3)
+// Post-quantum crypto enabled by default in Go 1.24's TLS stack
 ```
 
 ## Examples
@@ -77,8 +72,10 @@ go 1.24
 // Using Go 1.24 features
 srv, _ := hyperserve.NewServer(
     hyperserve.WithFIPSMode(),        // FIPS 140-3 compliance
-    hyperserve.WithStaticRoot(root),  // os.Root sandboxing
 )
+
+// os.Root sandboxing is enabled internally when available
+srv.HandleStatic("/static/")
 ```
 
 ## Notes

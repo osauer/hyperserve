@@ -107,12 +107,12 @@ srv, _ := hyperserve.NewServer(
 ```go
 // Basic MCP support (protocol only, no built-in tools/resources)
 srv, err := hyperserve.NewServer(
-    hyperserve.WithMCPSupport(),
+    hyperserve.WithMCPSupport("MyServer", "1.0.0"),
 )
 
 // MCP with built-in tools and resources
 srv, err := hyperserve.NewServer(
-    hyperserve.WithMCPSupport(),
+    hyperserve.WithMCPSupport("MyServer", "1.0.0"),
     hyperserve.WithMCPBuiltinTools(true),      // Enable built-in tools (disabled by default)
     hyperserve.WithMCPBuiltinResources(true),  // Enable built-in resources (disabled by default)
     hyperserve.WithMCPFileToolRoot("/safe/path"), // Set root for file operations
