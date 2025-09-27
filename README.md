@@ -91,6 +91,7 @@ See the [examples](./examples) directory for comprehensive examples including:
 - [MCP Guide](./docs/MCP_GUIDE.md) - Model Context Protocol integration
 - [WebSocket Guide](./docs/WEBSOCKET_GUIDE.md) - WebSocket implementation details
 - [Scaffolding Guide](./docs/SCAFFOLDING.md) - `hyperserve-init` usage and templates
+- [Bundle Exploration](./docs/BUNDLE_EXPLORATION.md) - Strategy for one-click Regime deployment
 
 ## Contributing
 
