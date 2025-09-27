@@ -39,7 +39,11 @@ What makes HyperServe efficient:
 2. **Pre-allocated buffers** for common paths
 3. **Minimal interface conversions**
 4. **Efficient middleware chaining** without reflection
-5. **Swiss Tables (Go 1.24)** for O(1) rate limiter lookups
+5. **Swiss Tables (Go 1.24+)** for O(1) rate limiter lookups
+
+### Measurement Notes
+
+> **Keep metrics current**: The tables in this section are directional and depend on hardware, workload, and Go version. Before publishing new numbers, rerun `go test -bench=. -benchmem ./...`, capture the hardware/Go version used, and update the tables accordingly.
 
 ## Performance Tips
 
@@ -90,7 +94,7 @@ srv.HandleStatic("/static/")
 
 ### 4. Rate Limiting Configuration
 
-Go 1.24's Swiss Tables make rate limiting 30-35% faster:
+Go 1.24's Swiss Tables (or newer) make rate limiting 30-35% faster. On earlier toolchains the improvement will be smaller:
 
 ```go
 // Configure appropriate limits

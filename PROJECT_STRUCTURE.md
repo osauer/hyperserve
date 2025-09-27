@@ -48,16 +48,20 @@ hyperserve/
 ## Core Components
 
 ### Source Files
+Representative files (not exhaustive):
 - `server.go` - Main server implementation
+- `options.go` - Server configuration options
+- `options_mcp_discovery.go` - MCP service discovery helpers
 - `middleware.go` - Middleware system
+- `cors.go` - CORS middleware primitives
 - `handlers.go` - HTTP handlers
+- `interceptor.go` - Request/response interceptors
 - `websocket.go` - WebSocket support
 - `websocket_pool.go` - Connection pooling
+- `websocket_security.go` - WebSocket authentication and transport security
 - `mcp.go` - MCP protocol implementation
 - `mcp_transport.go` - MCP transport layers
 - `mcp_builtin.go` - Built-in MCP tools
-- `options.go` - Server configuration options
-- `interceptor.go` - Request/response interceptors
 - `jsonrpc.go` - JSON-RPC protocol support
 
 ### Test Files
@@ -81,10 +85,11 @@ Comprehensive examples demonstrating features such as authentication, MCP, WebSo
 
 ### `/docs`
 Technical documentation:
-- API guides
+- API guides (`docs/guides/`)
+- Design decision logs (`docs/000*-*.md`)
 - MCP integration guide
 - WebSocket implementation
-- Performance optimization
+- [Performance guide](docs/PERFORMANCE.md)
 - Best practices
 
 ### `/spec`
