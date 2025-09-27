@@ -1,6 +1,6 @@
 # HyperServe
 
-A lightweight, high-performance HTTP server framework with built-in Model Context Protocol (MCP) support, written in Go.
+HyperServe lets humans and AI assistants co-manage the same production-grade Go services. A zero-dependency, high-performance core ships with native Model Context Protocol (MCP) control surfaces and hardened defaults so you can automate safely from laptop to regulated environments.
 
 ## Features
 
