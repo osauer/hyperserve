@@ -1469,9 +1469,15 @@ func WithCSPWebWorkerSupport() ServerOptionFunc {
 // cleanupRateLimiters runs periodically to clean up old rate limiters
 // This prevents memory leaks from accumulating client IP rate limiters
 func (srv *Server) cleanupRateLimiters() {
+	ticker := srv.cleanupTicker
+	if ticker == nil {
+		return
+	}
+
+	done := srv.cleanupDone
 	for {
 		select {
-		case <-srv.cleanupTicker.C:
+		case <-ticker.C:
 			now := time.Now()
 			srv.limitersMu.Lock()
 			// Clean up rate limiters that haven't been used in the last 10 minutes
@@ -1482,7 +1488,7 @@ func (srv *Server) cleanupRateLimiters() {
 				}
 			}
 			srv.limitersMu.Unlock()
-		case <-srv.cleanupDone:
+		case <-done:
 			return
 		}
 	}
