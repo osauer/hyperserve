@@ -61,17 +61,28 @@ Full WebSocket implementation featuring:
 - Configurable timeouts
 - Per-connection rate limiting
 
+### Package Layout
+- `pkg/server`: public HTTP server surface, middleware registry, interceptors, MCP runtime
+- `pkg/websocket`: low-level WebSocket primitives, origin checks, pooling
+- `pkg/jsonrpc`: standalone JSON-RPC engine reused by MCP
+- Root facades (`*_facade.go`) keep `github.com/osauer/hyperserve` imports source-compatible
+
 ### Directory Structure
 
 ```
 /
 ├── cmd/              # Command-line applications
-├── internal/         # Private application code
+├── internal/         # Private application code (non-exported)
+├── pkg/              # Public Go packages
+│   ├── server/       # HTTP server, middleware, MCP
+│   ├── websocket/    # WebSocket primitives & pooling
+│   └── jsonrpc/      # JSON-RPC 2.0 engine
 ├── examples/         # Example implementations
-├── docs/            # Documentation
-├── benchmarks/      # Performance benchmarks
-├── spec/            # API specifications
-└── configs/         # Configuration examples
+├── docs/             # Documentation
+├── benchmarks/       # Performance benchmarks
+├── spec/             # API specifications
+├── configs/          # Configuration examples
+└── facade*.go        # Backwards-compatible re-exports
 ```
 
 ## Key Design Decisions

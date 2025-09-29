@@ -11,21 +11,30 @@ hyperserve/
 ├── .github/workflows/    # CI/CD workflows
 ├── benchmarks/          # Performance benchmarks
 ├── cmd/                 # Command-line applications
-│   ├── example-server/ # Minimal benchmarking server
-│   └── server/         # Reference CLI wrapper around the library
-├── configs/            # Configuration examples
-├── docs/               # Documentation
-├── examples/           # Example implementations
-│   ├── auth/               # Authentication examples
-│   ├── enterprise/         # Enterprise features
-│   ├── hello-world/        # Basic usage
-│   ├── mcp-*/              # MCP integration patterns
-│   └── websocket-*/        # WebSocket examples
-├── internal/           # Private application code
-│   └── ws/            # WebSocket internals
-├── spec/               # API specifications
-│   └── conformance/   # Conformance tests
-└── *.go               # Core library files
+│   ├── example-server/  # Minimal benchmarking server
+│   └── server/          # Reference CLI wrapper around the library
+├── configs/             # Configuration examples
+├── docs/                # Documentation
+├── examples/            # Example implementations
+│   ├── auth/                # Authentication examples
+│   ├── enterprise/
+│   ├── mcp-*/
+│   └── websocket-*/
+├── internal/            # Private application code
+│   ├── scaffold/        # Project generator internals
+│   └── ws/              # WebSocket protocol primitives
+├── pkg/                 # Public Go packages
+│   ├── jsonrpc/         # JSON-RPC 2.0 engine
+│   ├── server/          # HTTP/MCP server core
+│   └── websocket/       # WebSocket primitives & pooling
+├── spec/                # API specifications
+│   └── conformance/     # Conformance tests
+├── server/              # Legacy generated assets (to be archived)
+├── jsonrpc_facade.go    # Backwards compatibility shim
+├── mcp_facade.go        # Backwards compatibility shim
+├── server_facade.go     # Backwards compatibility shim
+├── websocket_facade.go  # Backwards compatibility shim
+└── go.{mod,sum}
 ```
 
 ## Root Files
@@ -48,26 +57,16 @@ hyperserve/
 ## Core Components
 
 ### Source Files
-Representative files (not exhaustive):
-- `server.go` - Main server implementation
-- `options.go` - Server configuration options
-- `options_mcp_discovery.go` - MCP service discovery helpers
-- `middleware.go` - Middleware system
-- `cors.go` - CORS middleware primitives
-- `handlers.go` - HTTP handlers
-- `interceptor.go` - Request/response interceptors
-- `websocket.go` - WebSocket support
-- `websocket_pool.go` - Connection pooling
-- `websocket_security.go` - WebSocket authentication and transport security
-- `mcp.go` - MCP protocol implementation
-- `mcp_transport.go` - MCP transport layers
-- `mcp_builtin.go` - Built-in MCP tools
-- `jsonrpc.go` - JSON-RPC protocol support
+Key packages:
+- `pkg/server` – HTTP server, middleware registry, interceptor chain, and MCP implementation
+- `pkg/websocket` – WebSocket upgrader, connection pool, and security helpers
+- `pkg/jsonrpc` – Stand-alone JSON-RPC 2.0 processing engine
+- Root shims re-export the stable API for existing imports
 
 ### Test Files
-- `*_test.go` - Unit tests for each component
-- `integration_test.go` - Integration tests
-- `benchmark_test.go` - Performance benchmarks
+- Package-local `*_test.go` alongside implementations
+- `pkg/server` owns integration, security, and benchmark suites
+- Fixtures live under package-specific `testdata/`
 
 ## Key Directories
 
@@ -114,11 +113,11 @@ Configuration examples:
 
 ## Design Philosophy
 
-1. **Flat structure** - Core library at root for easy imports
-2. **Clear separation** - Public API vs internal implementation
-3. **Comprehensive examples** - Real-world usage patterns
-4. **Extensive testing** - Unit, integration, and benchmarks
-5. **Rich documentation** - Guides for all skill levels
+1. **Layered packages** – Core logic in `pkg/`, with root shims for compatibility
+2. **Clear separation** – Public API vs. internal tooling
+3. **Comprehensive examples** – Real-world usage patterns
+4. **Extensive testing** – Unit, integration, and benchmarks
+5. **Rich documentation** – Guides for all skill levels
 
 ## Import Paths
 
