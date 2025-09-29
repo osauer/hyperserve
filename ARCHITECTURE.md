@@ -82,7 +82,7 @@ Full WebSocket implementation featuring:
 ├── benchmarks/       # Performance benchmarks
 ├── spec/             # API specifications
 ├── configs/          # Configuration examples
-└── facade*.go        # Backwards-compatible re-exports
+└── go.{mod,sum}
 ```
 
 ## Key Design Decisions

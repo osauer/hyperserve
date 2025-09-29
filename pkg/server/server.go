@@ -2,7 +2,7 @@
 // Use of this source code is governed by a MIT-style license that can be found in the LICENSE file.
 
 /*
-Package hyperserve provides a lightweight, high-performance HTTP server framework
+Package server provides a lightweight, high-performance HTTP server framework
 with minimal external dependencies (golang.org/x/time/rate for rate limiting only).
 
 Key Features:
@@ -19,7 +19,7 @@ Key Features:
 
 Basic Usage:
 
-	srv, err := hyperserve.NewServer()
+	srv, err := server.NewServer()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -32,18 +32,18 @@ Basic Usage:
 
 With Options:
 
-	srv, err := hyperserve.NewServer(
-		hyperserve.WithAddr(":8080"),
-		hyperserve.WithHealthServer(),
-		hyperserve.WithTLS("cert.pem", "key.pem"),
-		hyperserve.WithMCPSupport("MyApp", "1.0.0"),
+	srv, err := server.NewServer(
+		server.WithAddr(":8080"),
+		server.WithHealthServer(),
+		server.WithTLS("cert.pem", "key.pem"),
+		server.WithMCPSupport("MyApp", "1.0.0"),
 	)
 
 Graceful Shutdown with Hooks:
 
-	srv, err := hyperserve.NewServer(
-		hyperserve.WithAddr(":8080"),
-		hyperserve.WithOnShutdown(func(ctx context.Context) error {
+	srv, err := server.NewServer(
+		server.WithAddr(":8080"),
+		server.WithOnShutdown(func(ctx context.Context) error {
 			log.Println("Stopping background workers...")
 			// Stop your application's goroutines, close connections, etc.
 			return nil
@@ -52,7 +52,7 @@ Graceful Shutdown with Hooks:
 
 WebSocket Support:
 
-	upgrader := hyperserve.Upgrader{
+	upgrader := server.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
 			return true // Configure based on your needs
 		},
@@ -197,9 +197,9 @@ type rateLimiterEntry struct {
 //
 // Example:
 //
-//	srv, _ := hyperserve.NewServer(
-//		hyperserve.WithAddr(":8080"),
-//		hyperserve.WithHealthServer(),
+//	srv, _ := server.NewServer(
+//		server.WithAddr(":8080"),
+//		server.WithHealthServer(),
 //	)
 //
 //	srv.HandleFunc("/api/users", handleUsers)
@@ -234,11 +234,11 @@ type Server struct {
 //
 // Options can be provided to customize the server behavior:
 //
-//	srv, err := hyperserve.NewServer(
-//		hyperserve.WithAddr(":3000"),
-//		hyperserve.WithHealthServer(),          // Enable health checks on :8081
-//		hyperserve.WithTLS("cert.pem", "key.pem"), // Enable HTTPS
-//		hyperserve.WithRateLimit(100, 200),     // 100 req/s, burst of 200
+//	srv, err := server.NewServer(
+//		server.WithAddr(":3000"),
+//		server.WithHealthServer(),          // Enable health checks on :8081
+//		server.WithTLS("cert.pem", "key.pem"), // Enable HTTPS
+//		server.WithRateLimit(100, 200),     // 100 req/s, burst of 200
 //	)
 //
 // Returns an error if any of the options fail to apply.
@@ -1124,8 +1124,8 @@ func WithSuppressBanner(suppress bool) ServerOptionFunc {
 //
 // Example:
 //
-//	srv, _ := hyperserve.NewServer(
-//		hyperserve.WithOnShutdown(func(ctx context.Context) error {
+//	srv, _ := server.NewServer(
+//		server.WithOnShutdown(func(ctx context.Context) error {
 //			log.Println("Stopping background workers...")
 //			return stopWorkers(ctx)
 //		}),

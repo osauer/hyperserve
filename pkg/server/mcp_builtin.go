@@ -1,4 +1,4 @@
-// Package hyperserve provides comprehensive MCP (Model Context Protocol) built-in tools and resources.
+// Package server provides comprehensive MCP (Model Context Protocol) built-in tools and resources.
 //
 // This file consolidates all built-in MCP functionality including:
 //   - Developer Tools: For interactive development with AI assistants
@@ -61,8 +61,8 @@ import (
 //
 // Example:
 //
-//	srv, _ := hyperserve.NewServer(
-//	    hyperserve.WithMCPSupport("DevServer", "1.0.0", hyperserve.MCPDev()),
+//	srv, _ := server.NewServer(
+//	    server.WithMCPSupport("DevServer", "1.0.0", server.MCPDev()),
 //	)
 func MCPDev() MCPTransportConfig {
 	return func(opts *mcpTransportOptions) {
@@ -816,8 +816,8 @@ func (srv *Server) RegisterDeveloperMCPTools() {
 //
 // Example:
 //
-//	srv, _ := hyperserve.NewServer(
-//	    hyperserve.WithMCPSupport("MyApp", "1.0.0", hyperserve.MCPObservability()),
+//	srv, _ := server.NewServer(
+//	    server.WithMCPSupport("MyApp", "1.0.0", server.MCPObservability()),
 //	)
 func MCPObservability() MCPTransportConfig {
 	return func(opts *mcpTransportOptions) {

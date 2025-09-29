@@ -118,13 +118,13 @@ type ServerOptions struct {
 
 ```go
 // Basic usage
-srv, err := hyperserve.NewServer(
-    hyperserve.WithAddr(":8080"),
-    hyperserve.WithMCPSupport("my-server", "1.0.0"),
-    hyperserve.WithMCPEndpoint("/mcp"),
-    hyperserve.WithMCPBuiltinTools(true),
-    hyperserve.WithMCPBuiltinResources(true),
-    hyperserve.WithMCPFileToolRoot("/safe/directory"),
+srv, err := server.NewServer(
+    server.WithAddr(":8080"),
+    server.WithMCPSupport("my-server", "1.0.0"),
+    server.WithMCPEndpoint("/mcp"),
+    server.WithMCPBuiltinTools(true),
+    server.WithMCPBuiltinResources(true),
+    server.WithMCPFileToolRoot("/safe/directory"),
 )
 
 // With custom tools

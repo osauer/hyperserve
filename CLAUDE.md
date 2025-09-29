@@ -75,18 +75,18 @@ HyperServe supports configurable discovery policies to control what information 
 
 ```go
 // Only show tool/resource counts (most secure)
-srv, _ := hyperserve.NewServer(
-    hyperserve.WithMCPDiscoveryPolicy(hyperserve.DiscoveryCount),
+srv, _ := server.NewServer(
+    server.WithMCPDiscoveryPolicy(server.DiscoveryCount),
 )
 
 // Show full list only with Authorization header
-srv, _ := hyperserve.NewServer(
-    hyperserve.WithMCPDiscoveryPolicy(hyperserve.DiscoveryAuthenticated),
+srv, _ := server.NewServer(
+    server.WithMCPDiscoveryPolicy(server.DiscoveryAuthenticated),
 )
 
 // Custom filter for RBAC integration
-srv, _ := hyperserve.NewServer(
-    hyperserve.WithMCPDiscoveryFilter(func(toolName string, r *http.Request) bool {
+srv, _ := server.NewServer(
+    server.WithMCPDiscoveryFilter(func(toolName string, r *http.Request) bool {
         // Decode JWT from Authorization header
         token := r.Header.Get("Authorization")
         if claims, err := validateJWT(token); err == nil {
@@ -106,16 +106,16 @@ srv, _ := hyperserve.NewServer(
 
 ```go
 // Basic MCP support (protocol only, no built-in tools/resources)
-srv, err := hyperserve.NewServer(
-    hyperserve.WithMCPSupport("MyServer", "1.0.0"),
+srv, err := server.NewServer(
+    server.WithMCPSupport("MyServer", "1.0.0"),
 )
 
 // MCP with built-in tools and resources
-srv, err := hyperserve.NewServer(
-    hyperserve.WithMCPSupport("MyServer", "1.0.0"),
-    hyperserve.WithMCPBuiltinTools(true),      // Enable built-in tools (disabled by default)
-    hyperserve.WithMCPBuiltinResources(true),  // Enable built-in resources (disabled by default)
-    hyperserve.WithMCPFileToolRoot("/safe/path"), // Set root for file operations
+srv, err := server.NewServer(
+    server.WithMCPSupport("MyServer", "1.0.0"),
+    server.WithMCPBuiltinTools(true),      // Enable built-in tools (disabled by default)
+    server.WithMCPBuiltinResources(true),  // Enable built-in resources (disabled by default)
+    server.WithMCPFileToolRoot("/safe/path"), // Set root for file operations
 )
 ```
 
@@ -180,10 +180,10 @@ validator := func(ctx context.Context, token string) (string, bool) {
 }
 
 // Create server with authentication
-srv, err := hyperserve.NewServer(
-    hyperserve.WithAuthTokenValidator(validator),
-    hyperserve.WithSecurityHeaders(true),
-    hyperserve.WithRateLimiting(true),
+srv, err := server.NewServer(
+    server.WithAuthTokenValidator(validator),
+    server.WithSecurityHeaders(true),
+    server.WithRateLimiting(true),
 )
 
 // Apply auth middleware to protected routes
@@ -197,8 +197,8 @@ The authentication system integrates seamlessly with MCP discovery policies:
 
 ```go
 // Use JWT claims for MCP tool filtering
-srv, err := hyperserve.NewServer(
-    hyperserve.WithMCPDiscoveryFilter(func(toolName string, r *http.Request) bool {
+srv, err := server.NewServer(
+    server.WithMCPDiscoveryFilter(func(toolName string, r *http.Request) bool {
         token := r.Header.Get("Authorization")
         if claims, err := validateJWT(token); err == nil {
             return claims.HasPermission(toolName)

@@ -28,7 +28,7 @@ Provide optional template integration using Go's `html/template`:
 
 Templates are configured via:
 ```go
-hyperserve.WithTemplateDir("./templates")
+server.WithTemplateDir("./templates")
 ```
 
 ## Consequences
@@ -86,8 +86,8 @@ templates/
 
 Server configuration:
 ```go
-srv, _ := hyperserve.NewServer(
-    hyperserve.WithTemplateDir("./templates"),
+srv, _ := server.NewServer(
+    server.WithTemplateDir("./templates"),
 )
 
 // Render template with data

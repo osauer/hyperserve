@@ -83,9 +83,9 @@ spec:
 
 ```go
 // Server with health server explicitly enabled
-srv, _ := hyperserve.NewServer(
-    hyperserve.WithPort(8080),     // Main server on 8080
-    hyperserve.WithHealthServer(), // Health server on 8081
+srv, _ := server.NewServer(
+    server.WithPort(8080),     // Main server on 8080
+    server.WithHealthServer(), // Health server on 8081
 )
 
 // Optional: Custom health checks

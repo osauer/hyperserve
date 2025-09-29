@@ -7,24 +7,24 @@ This guide defines the idiomatic principles that all hyperserve examples must fo
 ### 1. Leverage Defaults
 ```go
 // ❌ BAD
-srv, _ := hyperserve.NewServer(
-    hyperserve.WithAddr(":8080"),      // Already default
-    hyperserve.WithHealthServer(),     // Optional: only enable when demonstrating health checks
+srv, _ := server.NewServer(
+    server.WithAddr(":8080"),      // Already default
+    server.WithHealthServer(),     // Optional: only enable when demonstrating health checks
 )
 
 // ✅ GOOD  
-srv, _ := hyperserve.NewServer()      // Uses sensible defaults
+srv, _ := server.NewServer()      // Uses sensible defaults
 ```
 
 ### 2. Functional Options Only
 ```go
 // ❌ BAD
-server, _ := hyperserve.NewServer()
+server, _ := server.NewServer()
 server.Options.TemplateDir = "./templates"
 
 // ✅ GOOD
-srv, _ := hyperserve.NewServer(
-    hyperserve.WithTemplateDir("./templates"),
+srv, _ := server.NewServer(
+    server.WithTemplateDir("./templates"),
 )
 ```
 
@@ -54,8 +54,8 @@ srv.Run()
 ### 5. Show Middleware When Relevant
 ```go
 // Only add middleware that demonstrates the feature
-srv.AddMiddleware("/api", hyperserve.RateLimitMiddleware(srv))
-srv.AddMiddlewareStack("/api", hyperserve.SecureAPI(srv))
+srv.AddMiddleware("/api", server.RateLimitMiddleware(srv))
+srv.AddMiddlewareStack("/api", server.SecureAPI(srv))
 ```
 
 ### 6. Separate Concerns
@@ -63,7 +63,7 @@ srv.AddMiddlewareStack("/api", hyperserve.SecureAPI(srv))
 func main() {
     setupSampleData()  // Separate function
     
-    srv, _ := hyperserve.NewServer(...)
+    srv, _ := server.NewServer(...)
     srv.HandleTemplate("/", "home.html", nil)
     srv.Run()
 }
@@ -87,7 +87,7 @@ if err := srv.Run(); err != nil {
 fmt.Fprintf(w, "data: %s\n\n", json)
 
 // ✅ GOOD  
-msg := hyperserve.NewSSEMessage(data)
+msg := server.NewSSEMessage(data)
 fmt.Fprint(w, msg)
 ```
 

@@ -15,12 +15,25 @@ HyperServe lets humans and AI assistants co-manage the same production-grade Go 
 
 ## Quick Start
 
+> All code samples import the server package with `server "github.com/osauer/hyperserve/pkg/server"`.
+
 ```go
-srv, _ := hyperserve.NewServer()
-srv.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-    fmt.Fprintln(w, "Hello, World!")
-})
-srv.Run()
+import (
+    "fmt"
+    "net/http"
+
+    server "github.com/osauer/hyperserve/pkg/server"
+)
+
+func main() {
+    srv, _ := server.NewServer()
+
+    srv.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+        fmt.Fprintln(w, "Hello, World!")
+    })
+
+    srv.Run()
+}
 ```
 
 ## Scaffold a New Service
@@ -37,7 +50,7 @@ Flags include `--name` (display name), `--out` (output directory), `--with-mcp=f
 ## Installation
 
 ```bash
-go get github.com/osauer/hyperserve
+go get github.com/osauer/hyperserve/pkg/server
 ```
 
 ## MCP (Model Context Protocol)
@@ -56,10 +69,10 @@ HS_MCP_SERVER_VERSION=1.0.0
 
 Or programmatically:
 ```go
-srv, _ := hyperserve.NewServer(
-    hyperserve.WithMCPSupport("MyServer", "1.0.0"),
-    hyperserve.WithMCPBuiltinTools(true),
-    hyperserve.WithMCPBuiltinResources(true),
+srv, _ := server.NewServer(
+    server.WithMCPSupport("MyServer", "1.0.0"),
+    server.WithMCPBuiltinTools(true),
+    server.WithMCPBuiltinResources(true),
 )
 ```
 
@@ -69,9 +82,9 @@ srv, _ := hyperserve.NewServer(
 Security middleware (headers, auth, rate limiting) can be enabled per route:
 
 ```go
-srv, _ := hyperserve.NewServer()
-srv.AddMiddleware("/api", hyperserve.RateLimitMiddleware(srv))
-srv.AddMiddlewareStack("/web", hyperserve.SecureWeb(srv.Options))
+srv, _ := server.NewServer()
+srv.AddMiddleware("/api", server.RateLimitMiddleware(srv))
+srv.AddMiddlewareStack("/web", server.SecureWeb(srv.Options))
 ```
 
 ## Examples

@@ -6,8 +6,8 @@ import "net/http"
 //
 // Example:
 //
-//	srv, _ := hyperserve.NewServer(
-//	    hyperserve.WithMCPDiscoveryPolicy(hyperserve.DiscoveryCount),
+//	srv, _ := server.NewServer(
+//	    server.WithMCPDiscoveryPolicy(server.DiscoveryCount),
 //	)
 func WithMCPDiscoveryPolicy(policy DiscoveryPolicy) ServerOptionFunc {
 	return func(srv *Server) error {
@@ -23,8 +23,8 @@ func WithMCPDiscoveryPolicy(policy DiscoveryPolicy) ServerOptionFunc {
 //
 // Example - Hide admin tools from external requests:
 //
-//	srv, _ := hyperserve.NewServer(
-//	    hyperserve.WithMCPDiscoveryFilter(func(toolName string, r *http.Request) bool {
+//	srv, _ := server.NewServer(
+//	    server.WithMCPDiscoveryFilter(func(toolName string, r *http.Request) bool {
 //	        if strings.Contains(toolName, "admin") {
 //	            // Only show admin tools to internal IPs
 //	            return strings.HasPrefix(r.RemoteAddr, "10.") ||
@@ -36,8 +36,8 @@ func WithMCPDiscoveryPolicy(policy DiscoveryPolicy) ServerOptionFunc {
 //
 // Example - RBAC with Bearer token:
 //
-//	srv, _ := hyperserve.NewServer(
-//	    hyperserve.WithMCPDiscoveryFilter(func(toolName string, r *http.Request) bool {
+//	srv, _ := server.NewServer(
+//	    server.WithMCPDiscoveryFilter(func(toolName string, r *http.Request) bool {
 //	        token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 //	        if token == "" {
 //	            return !strings.Contains(toolName, "sensitive")

@@ -6,7 +6,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/osauer/hyperserve"
+	server "github.com/osauer/hyperserve/pkg/server"
 )
 
 func main() {
@@ -19,24 +19,24 @@ func main() {
 
 	// Create server with options
 	addr := fmt.Sprintf(":%d", *port)
-	var opts []hyperserve.ServerOptionFunc
+	var opts []server.ServerOptionFunc
 
 	if *mcp {
 		opts = append(opts,
-			hyperserve.WithMCPSupport("HyperServe Go", "1.0.0"),
-			hyperserve.WithMCPBuiltinTools(true),
-			hyperserve.WithMCPBuiltinResources(true),
+			server.WithMCPSupport("HyperServe Go", "1.0.0"),
+			server.WithMCPBuiltinTools(true),
+			server.WithMCPBuiltinResources(true),
 		)
 	}
 
 	if *verbose {
-		opts = append(opts, hyperserve.WithDebugMode())
+		opts = append(opts, server.WithDebugMode())
 	}
 
-	opts = append(opts, hyperserve.WithAddr(addr))
+	opts = append(opts, server.WithAddr(addr))
 
 	// Create server
-	srv, err := hyperserve.NewServer(opts...)
+	srv, err := server.NewServer(opts...)
 	if err != nil {
 		log.Fatal(err)
 	}

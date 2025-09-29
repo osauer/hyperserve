@@ -17,8 +17,8 @@ func TestSlowlorisProtection(t *testing.T) {
 	// connections that take too long to send complete headers.
 
 	// Example configuration for Slowloris protection:
-	// srv, _ := hyperserve.NewServer(
-	//     hyperserve.WithReadHeaderTimeout(5*time.Second),
+	// srv, _ := server.NewServer(
+	//     server.WithReadHeaderTimeout(5*time.Second),
 	// )
 }
 
@@ -203,9 +203,9 @@ func TestTLSConfiguration(t *testing.T) {
 	t.Skip("Skipping TLS configuration test - requires actual certificate files")
 
 	// Example of proper TLS configuration:
-	// srv, _ := hyperserve.NewServer(
-	//     hyperserve.WithTLS("cert.pem", "key.pem"),
-	//     hyperserve.WithFIPSMode(), // For enhanced security
+	// srv, _ := server.NewServer(
+	//     server.WithTLS("cert.pem", "key.pem"),
+	//     server.WithFIPSMode(), // For enhanced security
 	// )
 	//
 	// The server will automatically:

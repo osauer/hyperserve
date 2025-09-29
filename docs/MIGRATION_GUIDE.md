@@ -27,16 +27,16 @@ This guide helps you migrate your HyperServe application to take full advantage 
 
 **Before (Standard TLS):**
 ```go
-srv, _ := hyperserve.NewServer(
-    hyperserve.WithTLS("cert.pem", "key.pem"),
+srv, _ := server.NewServer(
+    server.WithTLS("cert.pem", "key.pem"),
 )
 ```
 
 **After (FIPS-Compliant):**
 ```go
-srv, _ := hyperserve.NewServer(
-    hyperserve.WithTLS("cert.pem", "key.pem"),
-    hyperserve.WithFIPSMode(),  // Enable FIPS 140-3
+srv, _ := server.NewServer(
+    server.WithTLS("cert.pem", "key.pem"),
+    server.WithFIPSMode(),  // Enable FIPS 140-3
 )
 ```
 
@@ -49,8 +49,8 @@ srv, _ := hyperserve.NewServer(
 
 **Before (Standard TLS):**
 ```go
-srv, _ := hyperserve.NewServer(
-    hyperserve.WithTLS("cert.pem", "key.pem"),
+srv, _ := server.NewServer(
+    server.WithTLS("cert.pem", "key.pem"),
 )
 ```
 
@@ -59,9 +59,9 @@ srv, _ := hyperserve.NewServer(
 // Generate or load ECH keys
 echKeys := [][]byte{primaryKey, backupKey}
 
-srv, _ := hyperserve.NewServer(
-    hyperserve.WithTLS("cert.pem", "key.pem"),
-    hyperserve.WithEncryptedClientHello(echKeys...),
+srv, _ := server.NewServer(
+    server.WithTLS("cert.pem", "key.pem"),
+    server.WithEncryptedClientHello(echKeys...),
 )
 ```
 
@@ -94,13 +94,13 @@ srv.HandleStatic("/static/")  // Same API, more secure!
 **Before:**
 ```go
 // Uses sync.Map internally
-srv.AddMiddleware("/api", hyperserve.RateLimitMiddleware(srv.Options))
+srv.AddMiddleware("/api", server.RateLimitMiddleware(srv.Options))
 ```
 
 **After:**
 ```go
 // Uses Swiss Tables - same API, better performance
-srv.AddMiddleware("/api", hyperserve.RateLimitMiddleware(srv))
+srv.AddMiddleware("/api", server.RateLimitMiddleware(srv))
 ```
 
 **Benefits:**
@@ -141,12 +141,12 @@ import (
 )
 
 func main() {
-    srv, _ := hyperserve.NewServer(
-        hyperserve.WithAddr(":8080"),
-        hyperserve.WithTLS("cert.pem", "key.pem"),
+    srv, _ := server.NewServer(
+        server.WithAddr(":8080"),
+        server.WithTLS("cert.pem", "key.pem"),
     )
     
-    srv.AddMiddleware("/api", hyperserve.RateLimitMiddleware(srv.Options))
+    srv.AddMiddleware("/api", server.RateLimitMiddleware(srv.Options))
     srv.HandleStatic("/static/")
     
     srv.Run()
@@ -162,15 +162,15 @@ import (
 )
 
 func main() {
-    srv, _ := hyperserve.NewServer(
-        hyperserve.WithAddr(":8080"),
-        hyperserve.WithTLS("cert.pem", "key.pem"),
-        hyperserve.WithFIPSMode(),  // New: FIPS compliance
-        hyperserve.WithEncryptedClientHello(echKeys...),  // New: ECH
+    srv, _ := server.NewServer(
+        server.WithAddr(":8080"),
+        server.WithTLS("cert.pem", "key.pem"),
+        server.WithFIPSMode(),  // New: FIPS compliance
+        server.WithEncryptedClientHello(echKeys...),  // New: ECH
     )
     
     // Same API, better performance with Swiss Tables
-    srv.AddMiddleware("/api", hyperserve.RateLimitMiddleware(srv))
+    srv.AddMiddleware("/api", server.RateLimitMiddleware(srv))
     
     // Same API, now uses os.Root for security
     srv.HandleStatic("/static/")

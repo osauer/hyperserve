@@ -98,8 +98,8 @@ Go 1.24's Swiss Tables (or newer) make rate limiting 30-35% faster. On earlier t
 
 ```go
 // Configure appropriate limits
-srv, _ := hyperserve.NewServer(
-    hyperserve.WithRateLimit(1000, 2000), // 1000 req/s, burst 2000
+srv, _ := server.NewServer(
+    server.WithRateLimit(1000, 2000), // 1000 req/s, burst 2000
 )
 ```
 

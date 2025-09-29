@@ -4,15 +4,15 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/osauer/hyperserve"
+	server "github.com/osauer/hyperserve/pkg/server"
 	"golang.org/x/time/rate"
 )
 
 const version = "0.1.0"
 
 // NewServer constructs a HyperServe instance configured with security-first defaults.
-func NewServer(cfg Config) (*hyperserve.Server, error) {
-	var opts []hyperserve.ServerOptionFunc
+func NewServer(cfg Config) (*server.Server, error) {
+	var opts []server.ServerOptionFunc
 
 	if cfg.HealthAddr != "" {
 		os.Setenv("HEALTH_ADDR", cfg.HealthAddr)
@@ -23,24 +23,24 @@ func NewServer(cfg Config) (*hyperserve.Server, error) {
 	}
 
 	opts = append(opts,
-		hyperserve.WithAddr(cfg.Addr),
-		hyperserve.WithHealthServer(),
-		hyperserve.WithRateLimit(rate.Limit(cfg.RateLimit), cfg.RateBurst),
+		server.WithAddr(cfg.Addr),
+		server.WithHealthServer(),
+		server.WithRateLimit(rate.Limit(cfg.RateLimit), cfg.RateBurst),
 	)
 
 	if cfg.EnableHardenedMode {
-		opts = append(opts, hyperserve.WithHardenedMode())
+		opts = append(opts, server.WithHardenedMode())
 	}
 
 	if cfg.EnableMCP {
 		opts = append(opts,
-			hyperserve.WithMCPSupport(cfg.ServiceName, version),
-			hyperserve.WithMCPBuiltinTools(true),
-			hyperserve.WithMCPBuiltinResources(true),
+			server.WithMCPSupport(cfg.ServiceName, version),
+			server.WithMCPBuiltinTools(true),
+			server.WithMCPBuiltinResources(true),
 		)
 	}
 
-	srv, err := hyperserve.NewServer(opts...)
+	srv, err := server.NewServer(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("create server: %w", err)
 	}
@@ -49,8 +49,8 @@ func NewServer(cfg Config) (*hyperserve.Server, error) {
 }
 
 // RegisterMiddleware applies opinionated middleware stacks for secure defaults.
-func RegisterMiddleware(srv *hyperserve.Server) {
-	srv.AddMiddleware("*", hyperserve.RequestLoggerMiddleware)
-	srv.AddMiddlewareStack("/web", hyperserve.SecureWeb(srv.Options))
-	srv.AddMiddleware("/api", hyperserve.RateLimitMiddleware(srv))
+func RegisterMiddleware(srv *server.Server) {
+	srv.AddMiddleware("*", server.RequestLoggerMiddleware)
+	srv.AddMiddlewareStack("/web", server.SecureWeb(srv.Options))
+	srv.AddMiddleware("/api", server.RateLimitMiddleware(srv))
 }

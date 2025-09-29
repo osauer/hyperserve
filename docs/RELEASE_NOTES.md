@@ -138,9 +138,9 @@ Stop() error  // Graceful shutdown with 10s timeout
 
 3. **Enable New Features (Optional)**
    ```go
-   srv, err := hyperserve.NewServer(
-       hyperserve.WithFIPSMode(),  // For FIPS compliance
-       hyperserve.WithEncryptedClientHello(echKeys...),  // For ECH
+   srv, err := server.NewServer(
+       server.WithFIPSMode(),  // For FIPS compliance
+       server.WithEncryptedClientHello(echKeys...),  // For ECH
    )
    ```
 

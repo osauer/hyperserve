@@ -6,11 +6,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/osauer/hyperserve"
+	server "github.com/osauer/hyperserve/pkg/server"
 )
 
 // RegisterRoutes wires HTTP handlers for the service.
-func RegisterRoutes(srv *hyperserve.Server, cfg Config) {
+func RegisterRoutes(srv *server.Server, cfg Config) {
 	srv.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprintf(w, `<main style="font-family: sans-serif; padding: 2rem;">

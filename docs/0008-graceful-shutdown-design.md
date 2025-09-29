@@ -91,7 +91,7 @@ func (s *Server) Stop() error {
 
 ```go
 // Basic usage
-srv, _ := hyperserve.NewServer()
+srv, _ := server.NewServer()
 go srv.Run()
 
 // Graceful shutdown on SIGTERM
@@ -105,8 +105,8 @@ if err := srv.Stop(); err != nil {
 }
 
 // Custom shutdown timeout
-srv, _ := hyperserve.NewServer(
-    hyperserve.WithShutdownTimeout(60 * time.Second),
+srv, _ := server.NewServer(
+    server.WithShutdownTimeout(60 * time.Second),
 )
 
 // Kubernetes pod termination

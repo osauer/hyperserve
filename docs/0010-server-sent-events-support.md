@@ -29,14 +29,14 @@ Provide Server-Sent Events as a first-class feature:
 
 ```go
 // Simple SSE endpoint
-srv.HandleFunc("/events", hyperserve.SSEHandler(func(w http.ResponseWriter, r *http.Request, send chan<- hyperserve.SSEMessage) {
+srv.HandleFunc("/events", server.SSEHandler(func(w http.ResponseWriter, r *http.Request, send chan<- server.SSEMessage) {
     ticker := time.NewTicker(time.Second)
     defer ticker.Stop()
     
     for {
         select {
         case <-ticker.C:
-            send <- hyperserve.NewSSEMessage("time", time.Now().String())
+            send <- server.NewSSEMessage("time", time.Now().String())
         case <-r.Context().Done():
             return
         }
@@ -97,14 +97,14 @@ func (m SSEMessage) String() string  // Formats as SSE protocol
 
 ```go
 // Time ticker example
-srv.HandleFunc("/time", hyperserve.SSEHandler(func(w http.ResponseWriter, r *http.Request, send chan<- hyperserve.SSEMessage) {
+srv.HandleFunc("/time", server.SSEHandler(func(w http.ResponseWriter, r *http.Request, send chan<- server.SSEMessage) {
     ticker := time.NewTicker(time.Second)
     defer ticker.Stop()
     
     for {
         select {
         case <-ticker.C:
-            send <- hyperserve.NewSSEMessage("tick", time.Now().Format(time.RFC3339))
+            send <- server.NewSSEMessage("tick", time.Now().Format(time.RFC3339))
         case <-r.Context().Done():
             return
         }
@@ -112,11 +112,11 @@ srv.HandleFunc("/time", hyperserve.SSEHandler(func(w http.ResponseWriter, r *htt
 }))
 
 // Progress updates
-srv.HandleFunc("/upload/progress", hyperserve.SSEHandler(func(w http.ResponseWriter, r *http.Request, send chan<- hyperserve.SSEMessage) {
+srv.HandleFunc("/upload/progress", server.SSEHandler(func(w http.ResponseWriter, r *http.Request, send chan<- server.SSEMessage) {
     uploadID := r.URL.Query().Get("id")
     
     for progress := range getUploadProgress(uploadID) {
-        send <- hyperserve.NewSSEMessage("progress", fmt.Sprintf("%d", progress))
+        send <- server.NewSSEMessage("progress", fmt.Sprintf("%d", progress))
         if progress >= 100 {
             break
         }

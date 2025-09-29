@@ -63,20 +63,20 @@ func NewServer(options ...ServerOptionFunc) (*Server, error)
 
 ```go
 // Simple usage with defaults
-srv, _ := hyperserve.NewServer()
+srv, _ := server.NewServer()
 
 // Custom configuration
-srv, _ := hyperserve.NewServer(
-    hyperserve.WithPort(8080),
-    hyperserve.WithRateLimit(100, 200),
-    hyperserve.WithTLS("cert.pem", "key.pem"),
+srv, _ := server.NewServer(
+    server.WithPort(8080),
+    server.WithRateLimit(100, 200),
+    server.WithTLS("cert.pem", "key.pem"),
 )
 
 // Reusable option sets
-productionOpts := []hyperserve.ServerOptionFunc{
-    hyperserve.WithFIPSMode(),
-    hyperserve.WithTimeouts(30*time.Second, 30*time.Second),
-    hyperserve.WithRateLimit(1000, 2000),
+productionOpts := []server.ServerOptionFunc{
+    server.WithFIPSMode(),
+    server.WithTimeouts(30*time.Second, 30*time.Second),
+    server.WithRateLimit(1000, 2000),
 }
-srv, _ := hyperserve.NewServer(productionOpts...)
+srv, _ := server.NewServer(productionOpts...)
 ```

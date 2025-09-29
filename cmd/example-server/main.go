@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/osauer/hyperserve"
+	server "github.com/osauer/hyperserve/pkg/server"
 )
 
 func main() {
@@ -18,9 +18,9 @@ func main() {
 	flag.Parse()
 
 	// Create server
-	srv, err := hyperserve.NewServer(
-		hyperserve.WithAddr(fmt.Sprintf(":%d", port)),
-		hyperserve.WithRateLimit(100, 200),
+	srv, err := server.NewServer(
+		server.WithAddr(fmt.Sprintf(":%d", port)),
+		server.WithRateLimit(100, 200),
 	)
 	if err != nil {
 		log.Fatal(err)

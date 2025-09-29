@@ -186,7 +186,7 @@ For production monitoring via Claude:
 ### Simple Tool
 
 ```go
-tool := hyperserve.NewTool("deploy").
+tool := server.NewTool("deploy").
     WithDescription("Deploy application").
     WithParameter("version", "string", "Version to deploy", true).
     WithParameter("environment", "string", "Target environment", true).
@@ -209,7 +209,7 @@ srv.RegisterMCPTool(tool)
 ### Simple Resource
 
 ```go
-resource := hyperserve.NewResource("app://stats/users").
+resource := server.NewResource("app://stats/users").
     WithName("User Statistics").
     WithDescription("Current user statistics").
     WithRead(func() (interface{}, error) {
@@ -227,17 +227,17 @@ srv.RegisterMCPResource(resource)
 ### Complete Extension
 
 ```go
-ext := hyperserve.NewMCPExtension("analytics").
+ext := server.NewMCPExtension("analytics").
     WithDescription("Analytics tools and data").
     WithTool(
-        hyperserve.NewTool("query_metrics").
+        server.NewTool("query_metrics").
             WithParameter("metric", "string", "Metric name", true).
             WithParameter("timeframe", "string", "Time range", false).
             WithExecute(queryMetrics).
             Build(),
     ).
     WithResource(
-        hyperserve.NewResource("analytics://dashboard/summary").
+        server.NewResource("analytics://dashboard/summary").
             WithRead(getDashboardData).
             Build(),
     ).

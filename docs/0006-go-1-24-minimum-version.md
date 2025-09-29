@@ -48,7 +48,7 @@ Require Go 1.24 as the minimum supported version and actively leverage its new f
 
 Key features leveraged:
 ```go
-srv, _ := hyperserve.NewServer(hyperserve.WithFIPSMode())
+srv, _ := server.NewServer(server.WithFIPSMode())
 
 // os.Root for secure file serving (HandleStatic uses it automatically)
 srv.HandleStatic("/static/")
@@ -70,8 +70,8 @@ go 1.24
 //go:build go1.24
 
 // Using Go 1.24 features
-srv, _ := hyperserve.NewServer(
-    hyperserve.WithFIPSMode(),        // FIPS 140-3 compliance
+srv, _ := server.NewServer(
+    server.WithFIPSMode(),        // FIPS 140-3 compliance
 )
 
 // os.Root sandboxing is enabled internally when available

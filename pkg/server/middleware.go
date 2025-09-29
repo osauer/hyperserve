@@ -1,5 +1,5 @@
 /*
-Package hyperserve provides built-in middleware for common HTTP server functionality.
+Package server provides built-in middleware for common HTTP server functionality.
 
 The middleware package includes:
   - Request logging with structured output
@@ -13,15 +13,15 @@ The middleware package includes:
 Middleware can be applied globally or to specific routes:
 
 	// Global middleware
-	srv.AddMiddleware("*", hyperserve.RequestLoggerMiddleware)
+	srv.AddMiddleware("*", server.RequestLoggerMiddleware)
 
 	// Route-specific middleware
-	srv.AddMiddleware("/api", hyperserve.AuthMiddleware(srv.Options))
+	srv.AddMiddleware("/api", server.AuthMiddleware(srv.Options))
 
 	// Combine multiple middleware
 	srv.AddMiddlewareGroup("/admin",
-		hyperserve.AuthMiddleware(srv.Options),
-		hyperserve.RateLimitMiddleware(srv),
+		server.AuthMiddleware(srv.Options),
+		server.RateLimitMiddleware(srv),
 	)
 */
 package server

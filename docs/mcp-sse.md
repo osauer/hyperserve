@@ -30,9 +30,9 @@ The SSE implementation provides:
 ### Server Setup
 
 ```go
-srv, err := hyperserve.NewServer(
-    hyperserve.WithMCPSupport("MyApp", "1.0.0"),
-    hyperserve.WithMCPBuiltinTools(true),
+srv, err := server.NewServer(
+    server.WithMCPSupport("MyApp", "1.0.0"),
+    server.WithMCPBuiltinTools(true),
 )
 ```
 

@@ -30,10 +30,6 @@ hyperserve/
 ├── spec/                # API specifications
 │   └── conformance/     # Conformance tests
 ├── server/              # Legacy generated assets (to be archived)
-├── jsonrpc_facade.go    # Backwards compatibility shim
-├── mcp_facade.go        # Backwards compatibility shim
-├── server_facade.go     # Backwards compatibility shim
-├── websocket_facade.go  # Backwards compatibility shim
 └── go.{mod,sum}
 ```
 

@@ -1,6 +1,6 @@
 # ADR-0009: Single Package Architecture
 
-**Status:** Accepted  
+**Status:** Superseded  
 **Date:** 2024-12-01  
 **Deciders:** hyperserve team  
 
@@ -16,28 +16,25 @@ This creates a decision point about package organization with tradeoffs between 
 
 ## Decision
 
-Keep all hyperserve code in a single package:
-- Everything exports from the `hyperserve` package
-- No internal sub-packages
-- All types and functions at the top level
+Adopt a layered package layout:
+- Public APIs live under `pkg/server`, `pkg/websocket`, `pkg/jsonrpc`
+- Internal helpers stay under `internal/`
+- Root module only hosts binaries, docs, and tooling
 
 ```go
-// Single import for everything
-import "github.com/example/hyperserve"
-
-// Not multiple imports
-// import "github.com/example/hyperserve/server"
-// import "github.com/example/hyperserve/middleware"
+import (
+    server "github.com/osauer/hyperserve/pkg/server"
+    websocket "github.com/osauer/hyperserve/pkg/websocket"
+)
 ```
 
 ## Consequences
 
 ### Positive
-- **Simple imports**: One import gives access to everything
-- **Discoverability**: All APIs visible in one place
-- **No circular dependencies**: Common problem with multi-package
-- **Easier testing**: Can test unexported functions
-- **Smaller API surface**: Forces thoughtful exports
+- **Clear ownership**: Server, JSON-RPC, and WebSocket surfaces evolve independently
+- **Lean root**: Avoids dozens of top-level files and keeps binaries/examples obvious
+- **Better docs**: Package README/API docs map directly to Go imports
+- **Safer API design**: Explicit exports per package limit accidental surface growth
 - **Better documentation**: Single godoc page
 
 ### Negative
@@ -80,18 +77,18 @@ Naming conventions:
 import "github.com/example/hyperserve"
 
 func main() {
-    // Everything available from hyperserve.*
-    srv, err := hyperserve.NewServer(
-        hyperserve.WithPort(8080),
-        hyperserve.WithRateLimit(100, 200),
+    // Everything available from server.*
+    srv, err := server.NewServer(
+        server.WithPort(8080),
+        server.WithRateLimit(100, 200),
     )
     
     // Middleware from same package
-    srv.AddMiddleware("*", hyperserve.LoggingMiddleware(srv.Options))
-    srv.AddMiddleware("/api", hyperserve.AuthMiddleware(srv.Options))
+    srv.AddMiddleware("*", server.LoggingMiddleware(srv.Options))
+    srv.AddMiddleware("/api", server.AuthMiddleware(srv.Options))
     
     // Types from same package
-    var handler hyperserve.HandlerFunc = func(w http.ResponseWriter, r *http.Request) {
+    var handler server.HandlerFunc = func(w http.ResponseWriter, r *http.Request) {
         // ...
     }
     

@@ -17,10 +17,10 @@ By default, hyperserve enforces same-origin policy for WebSocket connections. Yo
 
 ```go
 // 1. Default: Same-origin only (safest)
-upgrader := hyperserve.Upgrader{}
+upgrader := server.Upgrader{}
 
 // 2. Allow specific origins
-upgrader := hyperserve.Upgrader{
+upgrader := server.Upgrader{
     AllowedOrigins: []string{
         "https://example.com",
         "https://app.example.com",
@@ -29,7 +29,7 @@ upgrader := hyperserve.Upgrader{
 }
 
 // 3. Custom origin check function
-upgrader := hyperserve.Upgrader{
+upgrader := server.Upgrader{
     CheckOrigin: func(r *http.Request) bool {
         // Your custom logic here
         origin := r.Header.Get("Origin")
@@ -43,7 +43,7 @@ upgrader := hyperserve.Upgrader{
 Use the `BeforeUpgrade` hook for authentication, rate limiting, or other security checks:
 
 ```go
-upgrader := hyperserve.Upgrader{
+upgrader := server.Upgrader{
     BeforeUpgrade: func(w http.ResponseWriter, r *http.Request) error {
         // Example: Require authentication
         token := r.Header.Get("Authorization")
@@ -66,7 +66,7 @@ upgrader := hyperserve.Upgrader{
 Require clients to negotiate a specific subprotocol:
 
 ```go
-upgrader := hyperserve.Upgrader{
+upgrader := server.Upgrader{
     Subprotocols:    []string{"chat.v1", "chat.v2"},
     RequireProtocol: true, // Reject if no protocol is negotiated
 }
@@ -113,7 +113,7 @@ func (w *customResponseWriter) Flush() {
 The built-in `loggingResponseWriter` automatically supports WebSocket upgrades:
 
 ```go
-srv.AddMiddleware("*", hyperserve.RequestLoggerMiddleware)
+srv.AddMiddleware("*", server.RequestLoggerMiddleware)
 // WebSocket upgrades will work through the logging middleware
 ```
 
@@ -124,7 +124,7 @@ srv.AddMiddleware("*", hyperserve.RequestLoggerMiddleware)
 Always set appropriate message size limits:
 
 ```go
-upgrader := hyperserve.Upgrader{
+upgrader := server.Upgrader{
     MaxMessageSize: 512 * 1024, // 512KB limit
 }
 ```
@@ -134,7 +134,7 @@ upgrader := hyperserve.Upgrader{
 Configure appropriate timeouts:
 
 ```go
-upgrader := hyperserve.Upgrader{
+upgrader := server.Upgrader{
     HandshakeTimeout: 10 * time.Second,
 }
 
@@ -151,7 +151,7 @@ conn.SetPongHandler(func(string) error {
 Provide custom error responses:
 
 ```go
-upgrader := hyperserve.Upgrader{
+upgrader := server.Upgrader{
     Error: func(w http.ResponseWriter, r *http.Request, status int, reason error) {
         // Log the error
         logger.Error("WebSocket upgrade failed", 
@@ -202,9 +202,9 @@ Example test for WebSocket functionality:
 
 ```go
 func TestWebSocketEndpoint(t *testing.T) {
-    srv, _ := hyperserve.NewServer()
+    srv, _ := server.NewServer()
     
-    upgrader := hyperserve.Upgrader{
+    upgrader := server.Upgrader{
         CheckOrigin: func(r *http.Request) bool {
             return true // Allow all origins in tests
         },
@@ -288,7 +288,7 @@ CheckOrigin: func(r *http.Request) bool {
 **Solution**: Configure appropriate limits on both client and server:
 
 ```go
-upgrader := hyperserve.Upgrader{
+upgrader := server.Upgrader{
     MaxMessageSize: 10 * 1024 * 1024, // 10MB
 }
 ```
