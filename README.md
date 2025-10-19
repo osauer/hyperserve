@@ -104,7 +104,7 @@ srv, _ := server.NewServer(
 )
 ```
 
-Use `server.WithDeferredInitStopOnFailure(false)` to keep serving health checks when a bootstrap failure should not terminate the process.
+Use `server.WithDeferredInitStopOnFailure(false)` to keep serving health checks when a bootstrap failure should not terminate the process, and `server.CompleteDeferredInit(ctx, nil)` once the issue is resolved to flip the server to ready.
 
 ## Examples
 

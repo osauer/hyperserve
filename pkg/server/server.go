@@ -236,6 +236,8 @@ type Server struct {
 	lifecycleCancel      context.CancelFunc
 	bootstrapAllowPaths  map[string]struct{}
 	registeredRoutes     map[string]struct{}
+	onReadyMu            sync.Mutex
+	onReadyExecuted      atomic.Bool
 }
 
 // NewServer creates a new instance of the Server with the given options.
@@ -262,12 +264,9 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 		clientLimiters: make(map[string]*rateLimiterEntry),
 		cleanupDone:    make(chan bool),
 		bootstrapAllowPaths: map[string]struct{}{
-			"/healthz":  {},
-			"/healthz/": {},
-			"/readyz":   {},
-			"/readyz/":  {},
-			"/livez":    {},
-			"/livez/":   {},
+			"/healthz": {},
+			"/readyz":  {},
+			"/livez":   {},
 		},
 		registeredRoutes: make(map[string]struct{}),
 	}
@@ -471,14 +470,14 @@ func (srv *Server) Run() error {
 	srv.lifecycleCtx = lifecycleCtx
 	srv.lifecycleCancel = lifecycleCancel
 
-	handler := srv.middleware.applyToMux(srv.mux)
+	baseHandler := srv.middleware.applyToMux(srv.mux)
 	if srv.deferredInit != nil {
-		handler = srv.bootstrapReadinessHandler(handler)
+		baseHandler = srv.bootstrapReadinessHandler(baseHandler)
 	}
 
 	// initialize the underlying http httpServer for serving requests
 	srv.httpServer = &http.Server{
-		Handler:           handler,
+		Handler:           baseHandler,
 		ReadTimeout:       srv.Options.ReadTimeout,
 		WriteTimeout:      srv.Options.WriteTimeout,
 		IdleTimeout:       srv.Options.IdleTimeout,
@@ -493,9 +492,6 @@ func (srv *Server) Run() error {
 		srv.httpServer.ReadHeaderTimeout = srv.httpServer.ReadTimeout
 	}
 	srv.httpServer.RegisterOnShutdown(srv.logServerMetrics)
-
-	// apply available middleware to the httpServer
-	srv.httpServer.Handler = srv.middleware.applyToMux(srv.mux)
 
 	if srv.Options.RunHealthServer {
 		err := srv.initHealthServer()
@@ -751,18 +747,13 @@ func (srv *Server) startDeferredInit(errChan chan<- error) {
 		defer cancel()
 		logger.Info("Deferred initialization started")
 		if err := srv.deferredInit(initCtx, srv); err != nil {
-			srv.reportDeferredInitError("Deferred initialization failed", err, errChan)
+			srv.completeDeferredInit(initCtx, err, errChan)
 			return
 		}
 
-		if err := srv.runOnReadyHooks(initCtx); err != nil {
-			srv.reportDeferredInitError("OnReady hook failed", err, errChan)
+		if err := srv.completeDeferredInit(initCtx, nil, errChan); err != nil {
 			return
 		}
-
-		srv.setDeferredInitError(nil)
-		srv.isReady.Store(true)
-		logger.Info("Deferred initialization completed; server is ready")
 	}()
 }
 
@@ -825,6 +816,50 @@ func (srv *Server) runOnReadyHooks(ctx context.Context) error {
 	return nil
 }
 
+func (srv *Server) runOnReadyOnce(ctx context.Context) error {
+	if len(srv.Options.OnReadyHooks) == 0 {
+		return nil
+	}
+
+	if srv.onReadyExecuted.Load() {
+		return nil
+	}
+
+	srv.onReadyMu.Lock()
+	defer srv.onReadyMu.Unlock()
+	if srv.onReadyExecuted.Load() {
+		return nil
+	}
+
+	if err := srv.runOnReadyHooks(ctx); err != nil {
+		return err
+	}
+
+	srv.onReadyExecuted.Store(true)
+	return nil
+}
+
+func (srv *Server) completeDeferredInit(ctx context.Context, initErr error, errChan chan<- error) error {
+	if initErr != nil {
+		srv.reportDeferredInitError("Deferred initialization failed", initErr, errChan)
+		return initErr
+	}
+
+	if ctx == nil {
+		ctx = srv.lifecycleCtx
+	}
+
+	if err := srv.runOnReadyOnce(ctx); err != nil {
+		srv.reportDeferredInitError("OnReady hook failed", err, errChan)
+		return err
+	}
+
+	srv.setDeferredInitError(nil)
+	srv.isReady.Store(true)
+	logger.Info("Deferred initialization completed; server is ready")
+	return nil
+}
+
 func (srv *Server) bootstrapReadinessHandler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if srv.isReady.Load() {
@@ -847,28 +882,21 @@ func (srv *Server) bootstrapReadinessHandler(next http.Handler) http.Handler {
 }
 
 func (srv *Server) serveBootstrapHealth(w http.ResponseWriter, r *http.Request) bool {
-	path := r.URL.Path
-	normalized := strings.TrimSuffix(path, "/")
-	if normalized == "" {
-		normalized = path
-	}
-
-	if _, ok := srv.bootstrapAllowPaths[path]; !ok {
-		if _, ok = srv.bootstrapAllowPaths[normalized]; !ok {
-			return false
-		}
+	path := normalizeHealthPath(r.URL.Path)
+	if path == "" {
+		return false
 	}
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 
-	switch {
-	case strings.HasPrefix(normalized, "/healthz"):
+	switch path {
+	case "/healthz":
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
-	case strings.HasPrefix(normalized, "/readyz"):
+	case "/readyz":
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_, _ = w.Write([]byte("initializing"))
-	case strings.HasPrefix(normalized, "/livez"):
+	case "/livez":
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("alive"))
 	default:
@@ -893,15 +921,29 @@ func (srv *Server) routeRegisteredFor(path string) bool {
 }
 
 func (srv *Server) isPathAllowedDuringBootstrap(path string) bool {
-	if _, ok := srv.bootstrapAllowPaths[path]; ok {
-		return true
-	}
-	normalized := strings.TrimSuffix(path, "/")
+	normalized := normalizeHealthPath(path)
 	if normalized == "" {
-		normalized = path
+		return false
 	}
 	_, ok := srv.bootstrapAllowPaths[normalized]
 	return ok
+}
+
+func normalizeHealthPath(path string) string {
+	if path == "" {
+		return ""
+	}
+	if path[len(path)-1] == '/' {
+		path = path[:len(path)-1]
+	}
+	if path == "" {
+		path = "/"
+	}
+	switch path {
+	case "/healthz", "/readyz", "/livez":
+		return path
+	}
+	return ""
 }
 
 func (srv *Server) getDeferredInitError() error {
@@ -1054,6 +1096,14 @@ func (srv *Server) Stop() error {
 	srv.isReady.Store(false)
 	srv.isRunning.Store(false)
 	return srv.shutdown(ctx)
+}
+
+// CompleteDeferredInit allows applications to manually finalize deferred initialization
+// after addressing failures. Passing a nil error reruns any pending OnReady hooks and
+// marks the server ready. Passing a non-nil error records the failure and leaves the
+// server in an initializing state.
+func (srv *Server) CompleteDeferredInit(ctx context.Context, err error) error {
+	return srv.completeDeferredInit(ctx, err, nil)
 }
 
 func (srv *Server) shutdownHealthServer(ctx context.Context) error {

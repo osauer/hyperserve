@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.0] - 2025-10-19
+
+### Added
+- `CompleteDeferredInit` helper for manually finalizing deferred bootstrap sequences without restarting the process.
+
+### Fixed
+- Ensured deferred-init readiness gating is respected by the running HTTP server and avoids matching health endpoint prefixes.
+- Allowed OnReady hooks to rerun after failures and improved manual recovery paths for non-fatal bootstrap errors.
+
 ## [0.23.0] - 2025-10-19
 
 ### Added
