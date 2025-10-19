@@ -104,12 +104,21 @@ type ServerOptions struct {
 	DebugMode bool   `json:"debug_mode,omitempty"`
 	// Banner configuration
 	SuppressBanner bool `json:"suppress_banner,omitempty"`
+	BannerColor    bool `json:"banner_color,omitempty"`
 
 	// OnShutdownHooks are functions called when the server receives a shutdown signal.
 	// Hooks are executed sequentially in the order they were added, before HTTP server shutdown.
 	// Each hook receives a context with timeout and should respect the deadline.
 	// Errors from hooks are logged but don't prevent shutdown.
 	OnShutdownHooks []func(context.Context) error `json:"-"`
+
+	// DeferredInit is an optional callback that runs after the server listener is up but before
+	// the server is marked ready. While it executes, regular handlers return 503 responses.
+	DeferredInit func(context.Context, *Server) error `json:"-"`
+	// OnReadyHooks run after deferred initialization succeeds and before the server is marked ready.
+	OnReadyHooks []func(context.Context, *Server) error `json:"-"`
+	// StopOnDeferredInitFailure indicates whether the server should shut down if deferred init fails.
+	StopOnDeferredInitFailure bool `json:"stop_on_deferred_init_failure,omitempty"`
 }
 
 var defaultServerOptions = &ServerOptions{
@@ -156,6 +165,11 @@ var defaultServerOptions = &ServerOptions{
 	// Logging defaults
 	LogLevel:  "INFO",
 	DebugMode: false,
+	// Banner defaults
+	SuppressBanner: false,
+	BannerColor:    false,
+	// Deferred init defaults
+	StopOnDeferredInitFailure: true,
 }
 
 // Log level constants for server configuration.
@@ -311,6 +325,16 @@ func applyEnvVars(config *ServerOptions) *ServerOptions {
 		} else if suppressBanner == "false" || suppressBanner == "0" {
 			config.SuppressBanner = false
 			logger.Debug("Banner suppression disabled from environment variable", "variable", paramSuppressBanner)
+		}
+	}
+	if bannerColor := os.Getenv(paramBannerColor); bannerColor != "" {
+		switch strings.ToLower(strings.TrimSpace(bannerColor)) {
+		case "true", "1", "yes", "on":
+			config.BannerColor = true
+			logger.Debug("Banner color enabled from environment variable", "variable", paramBannerColor)
+		case "false", "0", "no", "off":
+			config.BannerColor = false
+			logger.Debug("Banner color disabled from environment variable", "variable", paramBannerColor)
 		}
 	}
 

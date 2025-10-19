@@ -76,7 +76,7 @@ srv, _ := server.NewServer(
 )
 ```
 
-### Common Middleware
+## Common Middleware
 
 `NewServer` wires in recovery, request logging, and metrics collectors.
 Security middleware (headers, auth, rate limiting) can be enabled per route:
@@ -86,6 +86,25 @@ srv, _ := server.NewServer()
 srv.AddMiddleware("/api", server.RateLimitMiddleware(srv))
 srv.AddMiddlewareStack("/web", server.SecureWeb(srv.Options))
 ```
+
+## Deferred Initialization
+
+Bring the listener up immediately while long-running bootstrap work executes in the background. The server keeps `/healthz` live, returns 503 for application routes, and flips to ready once deferred tasks (and any `WithOnReady` hooks) finish successfully.
+
+```go
+srv, _ := server.NewServer(
+    server.WithDeferredInit(func(ctx context.Context, app *server.Server) error {
+        return warmCaches(ctx) // hydrate databases, load configs, etc.
+    }),
+    server.WithOnReady(func(ctx context.Context, app *server.Server) error {
+        app.HandleFunc("/api/users", usersHandler)
+        return nil
+    }),
+    server.WithBannerColor(true), // optional ANSI color output for the startup banner
+)
+```
+
+Use `server.WithDeferredInitStopOnFailure(false)` to keep serving health checks when a bootstrap failure should not terminate the process.
 
 ## Examples
 

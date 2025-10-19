@@ -178,6 +178,7 @@ const (
 	paramLogLevel             = "HS_LOG_LEVEL"
 	paramDebugMode            = "HS_DEBUG"
 	paramSuppressBanner       = "HS_SUPPRESS_BANNER"
+	paramBannerColor          = "HS_BANNER_COLOR"
 )
 
 // RateLimit limits requests per second that can be requested from the httpServer. Requires to add [RateLimitMiddleware]
@@ -221,11 +222,20 @@ type Server struct {
 	serverStart          time.Time
 	clientLimiters       map[string]*rateLimiterEntry
 	limitersMu           sync.RWMutex
+	routesMu             sync.RWMutex
 	cleanupTicker        *time.Ticker
 	cleanupDone          chan bool
 	staticRoot           *os.Root
 	templateRoot         *os.Root
 	mcpHandler           *MCPHandler
+	deferredInit         func(context.Context, *Server) error
+	deferredInitCancel   context.CancelFunc
+	deferredErrMu        sync.RWMutex
+	deferredInitErr      error
+	lifecycleCtx         context.Context
+	lifecycleCancel      context.CancelFunc
+	bootstrapAllowPaths  map[string]struct{}
+	registeredRoutes     map[string]struct{}
 }
 
 // NewServer creates a new instance of the Server with the given options.
@@ -251,6 +261,15 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 		templatesMu:    sync.Mutex{},
 		clientLimiters: make(map[string]*rateLimiterEntry),
 		cleanupDone:    make(chan bool),
+		bootstrapAllowPaths: map[string]struct{}{
+			"/healthz":  {},
+			"/healthz/": {},
+			"/readyz":   {},
+			"/readyz/":  {},
+			"/livez":    {},
+			"/livez/":   {},
+		},
+		registeredRoutes: make(map[string]struct{}),
 	}
 
 	// Apply log level from configuration before anything else
@@ -284,6 +303,9 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 		if err := opt(srv); err != nil {
 			return nil, err
 		}
+	}
+	if srv.deferredInit == nil && srv.Options.DeferredInit != nil {
+		srv.deferredInit = srv.Options.DeferredInit
 	}
 
 	// Auto-configure MCP if enabled via environment/flags but not already configured programmatically
@@ -387,6 +409,7 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 		}
 
 		// Register unified MCP endpoint
+		srv.registerRoute(srv.Options.MCPEndpoint)
 		srv.mux.Handle(srv.Options.MCPEndpoint, srv.mcpHandler)
 		logger.Debug("MCP handler initialized", "endpoint", srv.Options.MCPEndpoint)
 
@@ -398,7 +421,11 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 	srv.cleanupTicker = time.NewTicker(5 * time.Minute)
 	go srv.cleanupRateLimiters()
 
-	srv.isReady.Store(true)
+	if srv.deferredInit != nil {
+		srv.isReady.Store(false)
+	} else {
+		srv.isReady.Store(true)
+	}
 	return srv, nil
 }
 
@@ -429,6 +456,9 @@ func (srv *Server) Run() error {
 
 	// Check if we're running in stdio mode for MCP
 	if srv.Options.MCPEnabled && srv.Options.MCPTransport == StdioTransport {
+		if srv.deferredInit != nil {
+			logger.Warn("Deferred initialization is not supported in MCP stdio transport; ignoring configuration")
+		}
 		// Run MCP in stdio mode
 		if srv.mcpHandler == nil {
 			return fmt.Errorf("MCP handler not initialized for stdio transport")
@@ -437,13 +467,25 @@ func (srv *Server) Run() error {
 		return srv.mcpHandler.RunStdioLoop()
 	}
 
+	lifecycleCtx, lifecycleCancel := context.WithCancel(context.Background())
+	srv.lifecycleCtx = lifecycleCtx
+	srv.lifecycleCancel = lifecycleCancel
+
+	handler := srv.middleware.applyToMux(srv.mux)
+	if srv.deferredInit != nil {
+		handler = srv.bootstrapReadinessHandler(handler)
+	}
+
 	// initialize the underlying http httpServer for serving requests
 	srv.httpServer = &http.Server{
-		Handler:           srv.mux,
+		Handler:           handler,
 		ReadTimeout:       srv.Options.ReadTimeout,
 		WriteTimeout:      srv.Options.WriteTimeout,
 		IdleTimeout:       srv.Options.IdleTimeout,
 		ReadHeaderTimeout: srv.Options.ReadHeaderTimeout, // Prevent Slowloris attacks
+		BaseContext: func(_ net.Listener) context.Context {
+			return lifecycleCtx
+		},
 	}
 
 	// If ReadHeaderTimeout is not set, default to ReadTimeout
@@ -462,36 +504,61 @@ func (srv *Server) Run() error {
 		}
 	}
 
+	// Channel for server errors
+	serverErr := make(chan error, 1)
+	var deferredErr chan error
+	if srv.deferredInit != nil {
+		deferredErr = make(chan error, 1)
+	}
+
+	var listener net.Listener
+	var listenErr error
+
+	if srv.Options.EnableTLS {
+		if srv.Options.CertFile == "" || srv.Options.KeyFile == "" {
+			listenErr = fmt.Errorf("TLS enabled but no key or cert file provided")
+			logger.Error(listenErr.Error(), "key", srv.Options.KeyFile, "cert", srv.Options.CertFile)
+			return listenErr
+		}
+		// Configure TLS settings
+		srv.httpServer.TLSConfig = srv.tlsConfig()
+		srv.httpServer.Addr = srv.Options.TLSAddr
+		listener, listenErr = net.Listen("tcp", srv.Options.TLSAddr)
+		if listenErr != nil {
+			return fmt.Errorf("failed to listen on %s: %w", srv.Options.TLSAddr, listenErr)
+		}
+	} else {
+		srv.httpServer.Addr = srv.Options.Addr
+		listener, listenErr = net.Listen("tcp", srv.Options.Addr)
+		if listenErr != nil {
+			return fmt.Errorf("failed to listen on %s: %w", srv.Options.Addr, listenErr)
+		}
+	}
+
+	// Run the server in a goroutine
+	go func(enableTLS bool, ln net.Listener) {
+		var serveErr error
+		if enableTLS {
+			tlsListener := tls.NewListener(ln, srv.httpServer.TLSConfig)
+			serveErr = srv.httpServer.Serve(tlsListener)
+		} else {
+			serveErr = srv.httpServer.Serve(ln)
+		}
+		if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			logger.Error("HTTP server encountered an error", "error", serveErr)
+		}
+		serverErr <- serveErr
+	}(srv.Options.EnableTLS, listener)
+
 	// Mark as running only AFTER all servers (http AND health) are initialized
 	srv.isRunning.Store(true)
 
-	// Channel for server errors
-	serverErr := make(chan error, 1)
-
-	// Run the server in a goroutine
-	go func() {
-		if srv.Options.EnableTLS {
-			if srv.Options.CertFile == "" || srv.Options.KeyFile == "" {
-				err := fmt.Errorf("TLS enabled but no key or cert file provided")
-				logger.Error(err.Error(), "key", srv.Options.KeyFile, "cert", srv.Options.CertFile)
-				select {
-				case serverErr <- err:
-				default:
-				}
-				return
-			}
-			// Configure TLS settings
-			srv.httpServer.TLSConfig = srv.tlsConfig()
-			srv.httpServer.Addr = srv.Options.TLSAddr
-			serverErr <- srv.httpServer.ListenAndServeTLS(srv.Options.CertFile, srv.Options.KeyFile)
-		} else {
-			srv.httpServer.Addr = srv.Options.Addr
-			serverErr <- srv.httpServer.ListenAndServe()
-		}
-	}()
+	if srv.deferredInit != nil {
+		srv.startDeferredInit(deferredErr)
+	}
 
 	// Graceful shutdown handling
-	return srv.handleShutdown(serverErr)
+	return srv.handleShutdown(serverErr, deferredErr)
 }
 
 func (srv *Server) logServerMetrics() {
@@ -576,6 +643,11 @@ func (srv *Server) initHealthServer() error {
 	srv.healthMux.HandleFunc("/readyz/", srv.readyzHandler)
 	srv.healthMux.HandleFunc("/livez/", srv.livezHandler)
 
+	baseCtx := srv.lifecycleCtx
+	if baseCtx == nil {
+		baseCtx = context.Background()
+	}
+
 	srv.healthServer = &http.Server{
 		Addr:              srv.Options.HealthAddr,
 		Handler:           srv.healthMux,
@@ -584,7 +656,7 @@ func (srv *Server) initHealthServer() error {
 		IdleTimeout:       srv.Options.IdleTimeout,
 		ReadHeaderTimeout: srv.Options.ReadHeaderTimeout, // Prevent Slowloris attacks
 		BaseContext: func(_ net.Listener) context.Context {
-			return context.WithValue(context.Background(), "health", true)
+			return context.WithValue(baseCtx, "health", true)
 		},
 	}
 	// If ReadHeaderTimeout is not set, default to ReadTimeout
@@ -613,26 +685,245 @@ func (srv *Server) initHealthServer() error {
 	}
 }
 
-func (srv *Server) handleShutdown(serverErr chan error) error {
+func (srv *Server) handleShutdown(serverErr chan error, deferredErr chan error) error {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGKILL)
-	select {
-	case sig := <-quit:
-		logger.Info("Shutting down server.", "reason", sig)
-		srv.isReady.Store(false)
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		srv.isRunning.Store(false)
-		return srv.shutdown(ctx)
-	case err := <-serverErr:
-		srv.isRunning.Store(false)
-		srv.isReady.Store(false)
-		srv.stopCleanup()
-		return err
+	defer signal.Stop(quit)
+
+	deferredChan := deferredErr
+
+	for {
+		select {
+		case sig := <-quit:
+			logger.Info("Shutting down server.", "reason", sig)
+			srv.isReady.Store(false)
+			srv.isRunning.Store(false)
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			err := srv.shutdown(ctx)
+			cancel()
+			return err
+		case err := <-deferredChan:
+			if err == nil {
+				continue
+			}
+			logger.Error("Deferred initialization failed", "error", err)
+			srv.isReady.Store(false)
+			srv.isRunning.Store(false)
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			shutdownErr := srv.shutdown(ctx)
+			cancel()
+			if shutdownErr != nil {
+				return fmt.Errorf("%v; shutdown error: %w", err, shutdownErr)
+			}
+			return err
+		case err := <-serverErr:
+			srv.isRunning.Store(false)
+			srv.isReady.Store(false)
+			if srv.lifecycleCancel != nil {
+				srv.lifecycleCancel()
+			}
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
+				srv.stopCleanup()
+				return err
+			}
+
+			if derr := srv.getDeferredInitError(); derr != nil && !errors.Is(derr, context.Canceled) {
+				srv.stopCleanup()
+				return derr
+			}
+
+			srv.stopCleanup()
+			return err
+		}
 	}
 }
 
+func (srv *Server) startDeferredInit(errChan chan<- error) {
+	ctx := srv.lifecycleCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	initCtx, cancel := context.WithCancel(ctx)
+	srv.deferredInitCancel = cancel
+	srv.isReady.Store(false)
+
+	go func() {
+		defer cancel()
+		logger.Info("Deferred initialization started")
+		if err := srv.deferredInit(initCtx, srv); err != nil {
+			srv.reportDeferredInitError("Deferred initialization failed", err, errChan)
+			return
+		}
+
+		if err := srv.runOnReadyHooks(initCtx); err != nil {
+			srv.reportDeferredInitError("OnReady hook failed", err, errChan)
+			return
+		}
+
+		srv.setDeferredInitError(nil)
+		srv.isReady.Store(true)
+		logger.Info("Deferred initialization completed; server is ready")
+	}()
+}
+
+func (srv *Server) reportDeferredInitError(message string, err error, errChan chan<- error) {
+	if err == nil {
+		return
+	}
+
+	wrapped := fmt.Errorf("%s: %w", message, err)
+	if errors.Is(err, context.Canceled) {
+		logger.Warn(message, "error", err)
+	} else {
+		logger.Error(message, "error", err)
+	}
+
+	srv.setDeferredInitError(wrapped)
+	srv.isReady.Store(false)
+
+	shouldStop := srv.Options.StopOnDeferredInitFailure
+	if errors.Is(err, context.Canceled) {
+		// If context was cancelled because the server is shutting down, always unblock Run.
+		shouldStop = true
+	}
+
+	if !shouldStop {
+		logger.Warn("Deferred initialization failure will keep server in initializing state", "ready", false)
+	}
+
+	if shouldStop && errChan != nil {
+		select {
+		case errChan <- wrapped:
+		default:
+		}
+	}
+}
+
+func (srv *Server) runOnReadyHooks(ctx context.Context) error {
+	if len(srv.Options.OnReadyHooks) == 0 {
+		return nil
+	}
+
+	hookCtx := ctx
+	if hookCtx == nil {
+		hookCtx = context.Background()
+	}
+
+	logger.Info("Executing OnReady hooks", "count", len(srv.Options.OnReadyHooks))
+	for i, hook := range srv.Options.OnReadyHooks {
+		if hook == nil {
+			continue
+		}
+		if hookCtx.Err() != nil {
+			return hookCtx.Err()
+		}
+		if err := hook(hookCtx, srv); err != nil {
+			return fmt.Errorf("on ready hook %d failed: %w", i, err)
+		}
+	}
+	logger.Info("OnReady hooks completed")
+	return nil
+}
+
+func (srv *Server) bootstrapReadinessHandler(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if srv.isReady.Load() {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		if srv.isPathAllowedDuringBootstrap(r.URL.Path) && srv.routeRegisteredFor(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		if srv.serveBootstrapHealth(w, r) {
+			return
+		}
+
+		w.Header().Set("Retry-After", "5")
+		writeErrorResponse(w, http.StatusServiceUnavailable, "service initializing")
+	})
+}
+
+func (srv *Server) serveBootstrapHealth(w http.ResponseWriter, r *http.Request) bool {
+	path := r.URL.Path
+	normalized := strings.TrimSuffix(path, "/")
+	if normalized == "" {
+		normalized = path
+	}
+
+	if _, ok := srv.bootstrapAllowPaths[path]; !ok {
+		if _, ok = srv.bootstrapAllowPaths[normalized]; !ok {
+			return false
+		}
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+
+	switch {
+	case strings.HasPrefix(normalized, "/healthz"):
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	case strings.HasPrefix(normalized, "/readyz"):
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte("initializing"))
+	case strings.HasPrefix(normalized, "/livez"):
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("alive"))
+	default:
+		return false
+	}
+
+	return true
+}
+
+func (srv *Server) routeRegisteredFor(path string) bool {
+	if srv.hasRoute(path) {
+		return true
+	}
+	if strings.HasSuffix(path, "/") {
+		trimmed := strings.TrimSuffix(path, "/")
+		if trimmed == "" {
+			trimmed = "/"
+		}
+		return srv.hasRoute(trimmed)
+	}
+	return srv.hasRoute(path + "/")
+}
+
+func (srv *Server) isPathAllowedDuringBootstrap(path string) bool {
+	if _, ok := srv.bootstrapAllowPaths[path]; ok {
+		return true
+	}
+	normalized := strings.TrimSuffix(path, "/")
+	if normalized == "" {
+		normalized = path
+	}
+	_, ok := srv.bootstrapAllowPaths[normalized]
+	return ok
+}
+
+func (srv *Server) getDeferredInitError() error {
+	srv.deferredErrMu.RLock()
+	defer srv.deferredErrMu.RUnlock()
+	return srv.deferredInitErr
+}
+
+func (srv *Server) setDeferredInitError(err error) {
+	srv.deferredErrMu.Lock()
+	srv.deferredInitErr = err
+	srv.deferredErrMu.Unlock()
+}
+
 func (srv *Server) shutdown(ctx context.Context) error {
+	if srv.deferredInitCancel != nil {
+		srv.deferredInitCancel()
+	}
+	if srv.lifecycleCancel != nil {
+		srv.lifecycleCancel()
+	}
+
 	// Execute shutdown hooks first (before HTTP server shutdown)
 	// Give hooks 5 seconds of the 10-second budget
 	if len(srv.Options.OnShutdownHooks) > 0 {
@@ -793,7 +1084,24 @@ func (srv *Server) WithOutStack(stack MiddlewareStack) error {
 //
 //	srv.Handle("/static", http.FileServer(http.Dir("./static")))
 func (srv *Server) Handle(pattern string, handlerFunc http.HandlerFunc) {
+	srv.registerRoute(pattern)
 	srv.mux.Handle(pattern, handlerFunc)
+}
+
+func (srv *Server) registerRoute(pattern string) {
+	if pattern == "" {
+		return
+	}
+	srv.routesMu.Lock()
+	srv.registeredRoutes[pattern] = struct{}{}
+	srv.routesMu.Unlock()
+}
+
+func (srv *Server) hasRoute(pattern string) bool {
+	srv.routesMu.RLock()
+	_, ok := srv.registeredRoutes[pattern]
+	srv.routesMu.RUnlock()
+	return ok
 }
 
 // HandleFunc registers the handler function for the given pattern.
@@ -822,6 +1130,7 @@ func (srv *Server) Handler() http.Handler {
 }
 
 func (srv *Server) HandleFunc(pattern string, handler http.HandlerFunc) {
+	srv.registerRoute(pattern)
 	srv.mux.HandleFunc(pattern, handler)
 }
 
@@ -833,6 +1142,8 @@ func (srv *Server) HandleFuncDynamic(pattern, tmplName string, dataFunc DataFunc
 		logger.Error("Failed to parse templates", "error", err)
 		return err
 	}
+
+	srv.registerRoute(pattern)
 
 	// Check if the template exists
 	if srv.templates != nil && srv.templates.Lookup(tmplName) == nil {
@@ -876,6 +1187,8 @@ func (srv *Server) HandleStatic(pattern string) {
 			logger.Info("Static root initialized", "dir", srv.Options.StaticDir)
 		}
 	}
+
+	srv.registerRoute(pattern)
 
 	if srv.staticRoot != nil {
 		// Use secure os.Root with custom handler
@@ -935,6 +1248,8 @@ func (srv *Server) HandleTemplate(pattern, t string, data interface{}) error {
 	if err := srv.parseTemplates(); err != nil {
 		return fmt.Errorf("Failed to parse templates. %w", err)
 	}
+
+	srv.registerRoute(pattern)
 
 	// Check if the template exists
 	if srv.templates != nil && srv.templates.Lookup(t) == nil {
@@ -1109,6 +1424,44 @@ func WithDebugMode() ServerOptionFunc {
 func WithSuppressBanner(suppress bool) ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.SuppressBanner = suppress
+		return nil
+	}
+}
+
+// WithBannerColor enables or disables ANSI color output for the startup banner.
+func WithBannerColor(enabled bool) ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.BannerColor = enabled
+		return nil
+	}
+}
+
+// WithDeferredInit registers a callback that runs after the server listener is active but before
+// the server is marked ready. While the callback is executing, non-health endpoints receive 503.
+func WithDeferredInit(fn func(context.Context, *Server) error) ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.DeferredInit = fn
+		srv.deferredInit = fn
+		return nil
+	}
+}
+
+// WithOnReady registers hooks that run after deferred initialization succeeds but before the server
+// is marked ready. Hooks are executed sequentially in the order they were registered.
+func WithOnReady(hook func(context.Context, *Server) error) ServerOptionFunc {
+	return func(srv *Server) error {
+		if hook != nil {
+			srv.Options.OnReadyHooks = append(srv.Options.OnReadyHooks, hook)
+		}
+		return nil
+	}
+}
+
+// WithDeferredInitStopOnFailure configures whether the server should shut down if the deferred
+// initialization callback returns an error. Defaults to true.
+func WithDeferredInitStopOnFailure(stop bool) ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.StopOnDeferredInitFailure = stop
 		return nil
 	}
 }
@@ -1565,14 +1918,21 @@ func (srv *Server) RegisterMCPNamespace(name string, configs ...MCPNamespaceConf
 // printStartupBanner prints the ASCII art and startup information
 func (srv *Server) printStartupBanner() {
 	// ASCII art for hyperserve (without color for terminal compatibility)
-	fmt.Print(`
+	banner := `
  _                                              
 | |__  _   _ _ __   ___ _ __ ___  ___ _ ____   _____
 | '_ \| | | | '_ \ / _ \ '__/ __|/ _ \ '__\ \ / / _ \
 | | | | |_| | |_) |  __/ |  \__ \  __/ |   \ V /  __/
 |_| |_|\__, | .__/ \___|_|  |___/\___|_|    \_/ \___|
        |___/|_|                                      
-`)
+`
+	if srv.Options.BannerColor {
+		const bannerColor = "\033[35m"
+		const reset = "\033[0m"
+		fmt.Print(bannerColor, banner, reset)
+	} else {
+		fmt.Print(banner)
+	}
 
 	// Version and build information
 	fmt.Printf("\nhyperserve %s", Version)

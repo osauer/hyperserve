@@ -56,6 +56,7 @@ func (srv *Server) setupDiscoveryEndpoints() {
 	}
 
 	// Register /.well-known/mcp.json endpoint
+	srv.registerRoute("/.well-known/mcp.json")
 	srv.mux.HandleFunc("/.well-known/mcp.json", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -73,6 +74,7 @@ func (srv *Server) setupDiscoveryEndpoints() {
 	})
 
 	// Register /mcp/discover endpoint
+	srv.registerRoute(srv.Options.MCPEndpoint + "/discover")
 	srv.mux.HandleFunc(srv.Options.MCPEndpoint+"/discover", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
