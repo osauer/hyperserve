@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -221,45 +220,6 @@ func testEndpointStatus(port int, path string, method string, body any) int {
 	defer resp.Body.Close()
 
 	return resp.StatusCode
-}
-
-func fetchResponse(port int, path string, method string, body any) map[string]any {
-	url := fmt.Sprintf("http://localhost:%d%s", port, path)
-
-	var req *http.Request
-	var err error
-
-	if body != nil {
-		jsonBody, _ := json.Marshal(body)
-		req, err = http.NewRequest(method, url, bytes.NewBuffer(jsonBody))
-		req.Header.Set("Content-Type", "application/json")
-	} else {
-		req, err = http.NewRequest(method, url, nil)
-	}
-
-	if err != nil {
-		return nil
-	}
-
-	client := &http.Client{Timeout: timeout}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil
-	}
-	defer resp.Body.Close()
-
-	bodyBytes, _ := io.ReadAll(resp.Body)
-
-	var result map[string]any
-	if err := json.Unmarshal(bodyBytes, &result); err != nil {
-		// Not JSON, return as string
-		return map[string]any{
-			"body":   string(bodyBytes),
-			"status": resp.StatusCode,
-		}
-	}
-
-	return result
 }
 
 func checkMCPAvailable(port int) bool {

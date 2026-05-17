@@ -22,9 +22,7 @@ const (
 
 // Conn represents a WebSocket connection
 type Conn struct {
-	conn         *lowConn
-	pingInterval time.Duration
-	pongTimeout  time.Duration
+	conn *lowConn
 
 	// Handler functions
 	closeHandler func(code int, text string) error

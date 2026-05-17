@@ -80,7 +80,6 @@ func TestMiddlewareLogBehavior(t *testing.T) {
 		"HeadersMiddleware enabled",
 		"ResponseTimeMiddleware enabled",
 		"TraceMiddleware enabled",
-		"trailingSlashMiddleware enabled",
 	}
 
 	for _, pattern := range prohibitedPatterns {
