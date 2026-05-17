@@ -1,40 +1,42 @@
-package server
+package builtin
 
 import (
 	"testing"
+
+	"github.com/osauer/hyperserve/pkg/server"
 )
 
 // TestRouteInspectorTool tests the RouteInspectorTool functionality
 func TestRouteInspectorTool(t *testing.T) {
 	// Create server with MCP support
-	srv, err := NewServer(WithMCPSupport("test", "1.0.0"))
+	srv, err := server.NewServer(server.WithMCPSupport("test", "1.0.0"))
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
 
 	// Add some test routes with middleware
-	srv.AddMiddlewareStack("/api/test", DefaultMiddleware(srv))
-	srv.AddMiddlewareStack("/api/users", SecureAPI(srv))
-	srv.AddMiddlewareStack("/admin", SecureAPI(srv))
-	srv.AddMiddlewareStack("/static", FileServer(srv.Options))
+	srv.AddMiddlewareStack("/api/test", server.DefaultMiddleware(srv))
+	srv.AddMiddlewareStack("/api/users", server.SecureAPI(srv))
+	srv.AddMiddlewareStack("/admin", server.SecureAPI(srv))
+	srv.AddMiddlewareStack("/static", server.FileServer(srv.Options))
 
 	tool := &RouteInspectorTool{server: srv}
 
 	t.Run("basic_functionality", func(t *testing.T) {
 		// Test basic route listing
-		result, err := tool.Execute(map[string]interface{}{})
+		result, err := tool.Execute(map[string]any{})
 		if err != nil {
 			t.Errorf("Execute failed: %v", err)
 		}
 
-		response, ok := result.(map[string]interface{})
+		response, ok := result.(map[string]any)
 		if !ok {
-			t.Errorf("Expected map[string]interface{}, got %T", result)
+			t.Errorf("Expected map[string]any, got %T", result)
 		}
 
-		routes, ok := response["routes"].([]map[string]interface{})
+		routes, ok := response["routes"].([]map[string]any)
 		if !ok {
-			t.Errorf("Expected routes to be []map[string]interface{}, got %T", response["routes"])
+			t.Errorf("Expected routes to be []map[string]any, got %T", response["routes"])
 		}
 
 		// Should have more than the original 5 hardcoded routes
@@ -61,21 +63,21 @@ func TestRouteInspectorTool(t *testing.T) {
 
 	t.Run("pattern_filtering", func(t *testing.T) {
 		// Test route filtering by pattern
-		result, err := tool.Execute(map[string]interface{}{
+		result, err := tool.Execute(map[string]any{
 			"pattern": "/api",
 		})
 		if err != nil {
 			t.Errorf("Execute failed: %v", err)
 		}
 
-		response, ok := result.(map[string]interface{})
+		response, ok := result.(map[string]any)
 		if !ok {
-			t.Errorf("Expected map[string]interface{}, got %T", result)
+			t.Errorf("Expected map[string]any, got %T", result)
 		}
 
-		routes, ok := response["routes"].([]map[string]interface{})
+		routes, ok := response["routes"].([]map[string]any)
 		if !ok {
-			t.Errorf("Expected routes to be []map[string]interface{}, got %T", response["routes"])
+			t.Errorf("Expected routes to be []map[string]any, got %T", response["routes"])
 		}
 
 		// Should only have routes containing "/api"
@@ -93,21 +95,21 @@ func TestRouteInspectorTool(t *testing.T) {
 
 	t.Run("middleware_information", func(t *testing.T) {
 		// Test middleware chain reporting
-		result, err := tool.Execute(map[string]interface{}{
+		result, err := tool.Execute(map[string]any{
 			"include_middleware": true,
 		})
 		if err != nil {
 			t.Errorf("Execute failed: %v", err)
 		}
 
-		response, ok := result.(map[string]interface{})
+		response, ok := result.(map[string]any)
 		if !ok {
-			t.Errorf("Expected map[string]interface{}, got %T", result)
+			t.Errorf("Expected map[string]any, got %T", result)
 		}
 
-		routes, ok := response["routes"].([]map[string]interface{})
+		routes, ok := response["routes"].([]map[string]any)
 		if !ok {
-			t.Errorf("Expected routes to be []map[string]interface{}, got %T", response["routes"])
+			t.Errorf("Expected routes to be []map[string]any, got %T", response["routes"])
 		}
 
 		// Each route should have middleware information
@@ -126,21 +128,21 @@ func TestRouteInspectorTool(t *testing.T) {
 
 	t.Run("no_middleware_information", func(t *testing.T) {
 		// Test when middleware information is disabled
-		result, err := tool.Execute(map[string]interface{}{
+		result, err := tool.Execute(map[string]any{
 			"include_middleware": false,
 		})
 		if err != nil {
 			t.Errorf("Execute failed: %v", err)
 		}
 
-		response, ok := result.(map[string]interface{})
+		response, ok := result.(map[string]any)
 		if !ok {
-			t.Errorf("Expected map[string]interface{}, got %T", result)
+			t.Errorf("Expected map[string]any, got %T", result)
 		}
 
-		routes, ok := response["routes"].([]map[string]interface{})
+		routes, ok := response["routes"].([]map[string]any)
 		if !ok {
-			t.Errorf("Expected routes to be []map[string]interface{}, got %T", response["routes"])
+			t.Errorf("Expected routes to be []map[string]any, got %T", response["routes"])
 		}
 
 		// Routes should not have middleware information
@@ -153,9 +155,9 @@ func TestRouteInspectorTool(t *testing.T) {
 
 	t.Run("health_server_routes", func(t *testing.T) {
 		// Create server with health server enabled
-		srvWithHealth, err := NewServer(
-			WithMCPSupport("test", "1.0.0"),
-			WithHealthServer(),
+		srvWithHealth, err := server.NewServer(
+			server.WithMCPSupport("test", "1.0.0"),
+			server.WithHealthServer(),
 		)
 		if err != nil {
 			t.Fatalf("Failed to create server with health: %v", err)
@@ -163,19 +165,19 @@ func TestRouteInspectorTool(t *testing.T) {
 
 		tool := &RouteInspectorTool{server: srvWithHealth}
 
-		result, err := tool.Execute(map[string]interface{}{})
+		result, err := tool.Execute(map[string]any{})
 		if err != nil {
 			t.Errorf("Execute failed: %v", err)
 		}
 
-		response, ok := result.(map[string]interface{})
+		response, ok := result.(map[string]any)
 		if !ok {
-			t.Errorf("Expected map[string]interface{}, got %T", result)
+			t.Errorf("Expected map[string]any, got %T", result)
 		}
 
-		routes, ok := response["routes"].([]map[string]interface{})
+		routes, ok := response["routes"].([]map[string]any)
 		if !ok {
-			t.Errorf("Expected routes to be []map[string]interface{}, got %T", response["routes"])
+			t.Errorf("Expected routes to be []map[string]any, got %T", response["routes"])
 		}
 
 		// Should have health routes
@@ -197,19 +199,19 @@ func TestRouteInspectorTool(t *testing.T) {
 
 	t.Run("mcp_endpoint_route", func(t *testing.T) {
 		// Test MCP endpoint is included
-		result, err := tool.Execute(map[string]interface{}{})
+		result, err := tool.Execute(map[string]any{})
 		if err != nil {
 			t.Errorf("Execute failed: %v", err)
 		}
 
-		response, ok := result.(map[string]interface{})
+		response, ok := result.(map[string]any)
 		if !ok {
-			t.Errorf("Expected map[string]interface{}, got %T", result)
+			t.Errorf("Expected map[string]any, got %T", result)
 		}
 
-		routes, ok := response["routes"].([]map[string]interface{})
+		routes, ok := response["routes"].([]map[string]any)
 		if !ok {
-			t.Errorf("Expected routes to be []map[string]interface{}, got %T", response["routes"])
+			t.Errorf("Expected routes to be []map[string]any, got %T", response["routes"])
 		}
 
 		// Should have MCP route
@@ -249,9 +251,9 @@ func TestRouteInspectorTool(t *testing.T) {
 			t.Errorf("Expected schema type 'object', got %v", schema["type"])
 		}
 
-		properties, ok := schema["properties"].(map[string]interface{})
+		properties, ok := schema["properties"].(map[string]any)
 		if !ok {
-			t.Error("Expected properties to be map[string]interface{}")
+			t.Error("Expected properties to be map[string]any")
 		}
 
 		// Should have pattern and include_middleware properties
@@ -282,7 +284,7 @@ func stringContains(s, substr string) bool {
 
 // TestServerControlTool tests the ServerControlTool functionality
 func TestServerControlTool(t *testing.T) {
-	srv, err := NewServer(WithMCPSupport("test", "1.0.0"))
+	srv, err := server.NewServer(server.WithMCPSupport("test", "1.0.0"))
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -306,16 +308,16 @@ func TestServerControlTool(t *testing.T) {
 	})
 
 	t.Run("get_status", func(t *testing.T) {
-		result, err := tool.Execute(map[string]interface{}{
+		result, err := tool.Execute(map[string]any{
 			"action": "get_status",
 		})
 		if err != nil {
 			t.Errorf("Execute failed: %v", err)
 		}
 
-		response, ok := result.(map[string]interface{})
+		response, ok := result.(map[string]any)
 		if !ok {
-			t.Errorf("Expected map[string]interface{}, got %T", result)
+			t.Errorf("Expected map[string]any, got %T", result)
 		}
 
 		// Check expected fields
@@ -328,7 +330,7 @@ func TestServerControlTool(t *testing.T) {
 	})
 
 	t.Run("set_log_level", func(t *testing.T) {
-		result, err := tool.Execute(map[string]interface{}{
+		result, err := tool.Execute(map[string]any{
 			"action":    "set_log_level",
 			"log_level": "DEBUG",
 		})
@@ -336,9 +338,9 @@ func TestServerControlTool(t *testing.T) {
 			t.Errorf("Execute failed: %v", err)
 		}
 
-		response, ok := result.(map[string]interface{})
+		response, ok := result.(map[string]any)
 		if !ok {
-			t.Errorf("Expected map[string]interface{}, got %T", result)
+			t.Errorf("Expected map[string]any, got %T", result)
 		}
 
 		if response["status"] != "log_level_changed" {
@@ -351,7 +353,7 @@ func TestServerControlTool(t *testing.T) {
 	})
 
 	t.Run("invalid_action", func(t *testing.T) {
-		_, err := tool.Execute(map[string]interface{}{
+		_, err := tool.Execute(map[string]any{
 			"action": "invalid_action",
 		})
 		if err == nil {
@@ -360,7 +362,7 @@ func TestServerControlTool(t *testing.T) {
 	})
 
 	t.Run("missing_action", func(t *testing.T) {
-		_, err := tool.Execute(map[string]interface{}{})
+		_, err := tool.Execute(map[string]any{})
 		if err == nil {
 			t.Error("Expected error for missing action")
 		}
@@ -369,7 +371,7 @@ func TestServerControlTool(t *testing.T) {
 
 // TestRequestDebuggerTool tests the RequestDebuggerTool functionality
 func TestRequestDebuggerTool(t *testing.T) {
-	srv, err := NewServer(WithMCPSupport("test", "1.0.0"))
+	srv, err := server.NewServer(server.WithMCPSupport("test", "1.0.0"))
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -393,21 +395,21 @@ func TestRequestDebuggerTool(t *testing.T) {
 	})
 
 	t.Run("list_empty", func(t *testing.T) {
-		result, err := tool.Execute(map[string]interface{}{
+		result, err := tool.Execute(map[string]any{
 			"action": "list",
 		})
 		if err != nil {
 			t.Errorf("Execute failed: %v", err)
 		}
 
-		response, ok := result.(map[string]interface{})
+		response, ok := result.(map[string]any)
 		if !ok {
-			t.Errorf("Expected map[string]interface{}, got %T", result)
+			t.Errorf("Expected map[string]any, got %T", result)
 		}
 
-		requests, ok := response["requests"].([]map[string]interface{})
+		requests, ok := response["requests"].([]map[string]any)
 		if !ok {
-			t.Errorf("Expected requests to be []map[string]interface{}, got %T", response["requests"])
+			t.Errorf("Expected requests to be []map[string]any, got %T", response["requests"])
 		}
 
 		if len(requests) != 0 {
@@ -416,16 +418,16 @@ func TestRequestDebuggerTool(t *testing.T) {
 	})
 
 	t.Run("clear", func(t *testing.T) {
-		result, err := tool.Execute(map[string]interface{}{
+		result, err := tool.Execute(map[string]any{
 			"action": "clear",
 		})
 		if err != nil {
 			t.Errorf("Execute failed: %v", err)
 		}
 
-		response, ok := result.(map[string]interface{})
+		response, ok := result.(map[string]any)
 		if !ok {
-			t.Errorf("Expected map[string]interface{}, got %T", result)
+			t.Errorf("Expected map[string]any, got %T", result)
 		}
 
 		if response["status"] != "cleared" {
@@ -434,7 +436,7 @@ func TestRequestDebuggerTool(t *testing.T) {
 	})
 
 	t.Run("invalid_action", func(t *testing.T) {
-		_, err := tool.Execute(map[string]interface{}{
+		_, err := tool.Execute(map[string]any{
 			"action": "invalid_action",
 		})
 		if err == nil {
@@ -445,7 +447,7 @@ func TestRequestDebuggerTool(t *testing.T) {
 
 // TestDevGuideTool tests the DevGuideTool functionality
 func TestDevGuideTool(t *testing.T) {
-	srv, err := NewServer(WithMCPSupport("test", "1.0.0"))
+	srv, err := server.NewServer(server.WithMCPSupport("test", "1.0.0"))
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -469,16 +471,16 @@ func TestDevGuideTool(t *testing.T) {
 	})
 
 	t.Run("overview", func(t *testing.T) {
-		result, err := tool.Execute(map[string]interface{}{
+		result, err := tool.Execute(map[string]any{
 			"topic": "overview",
 		})
 		if err != nil {
 			t.Errorf("Execute failed: %v", err)
 		}
 
-		response, ok := result.(map[string]interface{})
+		response, ok := result.(map[string]any)
 		if !ok {
-			t.Errorf("Expected map[string]interface{}, got %T", result)
+			t.Errorf("Expected map[string]any, got %T", result)
 		}
 
 		// Check expected fields
@@ -492,14 +494,14 @@ func TestDevGuideTool(t *testing.T) {
 
 	t.Run("default_topic", func(t *testing.T) {
 		// Test that default topic is overview
-		result, err := tool.Execute(map[string]interface{}{})
+		result, err := tool.Execute(map[string]any{})
 		if err != nil {
 			t.Errorf("Execute failed: %v", err)
 		}
 
-		response, ok := result.(map[string]interface{})
+		response, ok := result.(map[string]any)
 		if !ok {
-			t.Errorf("Expected map[string]interface{}, got %T", result)
+			t.Errorf("Expected map[string]any, got %T", result)
 		}
 
 		// Should have overview fields
@@ -509,7 +511,7 @@ func TestDevGuideTool(t *testing.T) {
 	})
 
 	t.Run("invalid_topic", func(t *testing.T) {
-		_, err := tool.Execute(map[string]interface{}{
+		_, err := tool.Execute(map[string]any{
 			"topic": "invalid_topic",
 		})
 		if err == nil {

@@ -1,18 +1,16 @@
 # HyperServe Product Vision
 
-## Elevator Pitch
+## Pitch
 
-HyperServe is the Go server that lets humans and AI assistants co-manage the same production workload. It combines a zero-dependency, high-performance HTTP core with native Model Context Protocol (MCP) control surfaces so operations teams can automate safely without surrendering the Go standard library ergonomics they expect.
+A Go HTTP framework with built-in MCP. `net/http` plus one transitive dependency
+(`golang.org/x/time`), and an in-tree MCP server so AI assistants can introspect
+and operate the same binary that serves traffic.
 
-## Unique Value Proposition
+## Differentiation
 
-HyperServe is the Go server for AI-augmented operations. It gives teams:
-
-- **AI-native control plane** – Model Context Protocol is built-in, so assistants can discover, introspect, and operate the server without custom glue code.
-- **Security-first defaults** – Hardened headers, os.Root sandboxing, optional FIPS/TLS-ECH, and zero third‑party dependencies keep regulated environments comfortable.
-- **Operational ergonomics** – Health/readiness servers, graceful shutdown, templating, and connection pooling are available out of the box, making the same binary viable from laptop to production.
-
-Together these priorities let teams ship services that humans and AI co-manage with minimal surface area and minimal supply-chain risk.
+- **MCP in-process.** Tools, resources, namespaces, discovery — no out-of-process bridge or third-party SDK.
+- **Two-line `go.sum`.** For teams where supply-chain review is a real meeting, this is the headline. Gin's transitive tree is sizable; HyperServe's is one package.
+- **Standard-library WebSocket + JSON-RPC + os.Root static serving.** None of these are individually unusual; the combination without dependencies is.
 
 ## Near-Term Roadmap (High-Impact, Moderate Effort)
 

@@ -1,4 +1,4 @@
-package server
+package mcp
 
 import (
 	"encoding/json"
@@ -10,10 +10,10 @@ type mockStringTool struct{}
 
 func (t *mockStringTool) Name() string        { return "string_tool" }
 func (t *mockStringTool) Description() string { return "Returns a string" }
-func (t *mockStringTool) Schema() map[string]interface{} {
-	return map[string]interface{}{"type": "object"}
+func (t *mockStringTool) Schema() map[string]any {
+	return map[string]any{"type": "object"}
 }
-func (t *mockStringTool) Execute(params map[string]interface{}) (interface{}, error) {
+func (t *mockStringTool) Execute(params map[string]any) (any, error) {
 	return "Hello, World!", nil
 }
 
@@ -21,11 +21,11 @@ type mockMapTool struct{}
 
 func (t *mockMapTool) Name() string        { return "map_tool" }
 func (t *mockMapTool) Description() string { return "Returns a map" }
-func (t *mockMapTool) Schema() map[string]interface{} {
-	return map[string]interface{}{"type": "object"}
+func (t *mockMapTool) Schema() map[string]any {
+	return map[string]any{"type": "object"}
 }
-func (t *mockMapTool) Execute(params map[string]interface{}) (interface{}, error) {
-	return map[string]interface{}{
+func (t *mockMapTool) Execute(params map[string]any) (any, error) {
+	return map[string]any{
 		"status":  "success",
 		"value":   42,
 		"message": "Operation completed",
@@ -36,12 +36,12 @@ type mockMCPFormattedTool struct{}
 
 func (t *mockMCPFormattedTool) Name() string        { return "mcp_formatted_tool" }
 func (t *mockMCPFormattedTool) Description() string { return "Returns MCP-formatted response" }
-func (t *mockMCPFormattedTool) Schema() map[string]interface{} {
-	return map[string]interface{}{"type": "object"}
+func (t *mockMCPFormattedTool) Schema() map[string]any {
+	return map[string]any{"type": "object"}
 }
-func (t *mockMCPFormattedTool) Execute(params map[string]interface{}) (interface{}, error) {
-	return map[string]interface{}{
-		"content": []map[string]interface{}{
+func (t *mockMCPFormattedTool) Execute(params map[string]any) (any, error) {
+	return map[string]any{
+		"content": []map[string]any{
 			{
 				"type": "text",
 				"text": "Pre-formatted response",
@@ -58,13 +58,13 @@ type mockErrorTool struct{}
 
 func (t *mockErrorTool) Name() string        { return "error_tool" }
 func (t *mockErrorTool) Description() string { return "Returns an error response" }
-func (t *mockErrorTool) Schema() map[string]interface{} {
-	return map[string]interface{}{"type": "object"}
+func (t *mockErrorTool) Schema() map[string]any {
+	return map[string]any{"type": "object"}
 }
-func (t *mockErrorTool) Execute(params map[string]interface{}) (interface{}, error) {
-	return map[string]interface{}{
+func (t *mockErrorTool) Execute(params map[string]any) (any, error) {
+	return map[string]any{
 		"isError": true,
-		"content": []map[string]interface{}{
+		"content": []map[string]any{
 			{
 				"type": "text",
 				"text": "An error occurred",
@@ -77,29 +77,29 @@ type mockArrayTool struct{}
 
 func (t *mockArrayTool) Name() string        { return "array_tool" }
 func (t *mockArrayTool) Description() string { return "Returns an array" }
-func (t *mockArrayTool) Schema() map[string]interface{} {
-	return map[string]interface{}{"type": "object"}
+func (t *mockArrayTool) Schema() map[string]any {
+	return map[string]any{"type": "object"}
 }
-func (t *mockArrayTool) Execute(params map[string]interface{}) (interface{}, error) {
-	return []interface{}{"item1", "item2", "item3"}, nil
+func (t *mockArrayTool) Execute(params map[string]any) (any, error) {
+	return []any{"item1", "item2", "item3"}, nil
 }
 
 func TestMCPHandler_ToolResponseFormatting(t *testing.T) {
-	handler := NewMCPHandler(MCPServerInfo{Name: "test", Version: "1.0"})
+	handler := NewHandler(ServerInfo{Name: "test", Version: "1.0"})
 
 	tests := []struct {
 		name           string
-		tool           MCPTool
+		tool           Tool
 		expectedType   string
-		validateResult func(t *testing.T, result interface{})
+		validateResult func(t *testing.T, result any)
 	}{
 		{
 			name:         "string response",
 			tool:         &mockStringTool{},
 			expectedType: "text",
-			validateResult: func(t *testing.T, result interface{}) {
-				response := result.(map[string]interface{})
-				content := response["content"].([]map[string]interface{})
+			validateResult: func(t *testing.T, result any) {
+				response := result.(map[string]any)
+				content := response["content"].([]map[string]any)
 				if len(content) == 0 {
 					t.Fatal("Expected at least one content item")
 				}
@@ -116,9 +116,9 @@ func TestMCPHandler_ToolResponseFormatting(t *testing.T) {
 			name:         "map response",
 			tool:         &mockMapTool{},
 			expectedType: "text",
-			validateResult: func(t *testing.T, result interface{}) {
-				response := result.(map[string]interface{})
-				content := response["content"].([]map[string]interface{})
+			validateResult: func(t *testing.T, result any) {
+				response := result.(map[string]any)
+				content := response["content"].([]map[string]any)
 				if len(content) == 0 {
 					t.Fatal("Expected at least one content item")
 				}
@@ -127,7 +127,7 @@ func TestMCPHandler_ToolResponseFormatting(t *testing.T) {
 					t.Errorf("Expected type 'text', got %v", firstItem["type"])
 				}
 				// Verify it's valid JSON
-				var parsed map[string]interface{}
+				var parsed map[string]any
 				if err := json.Unmarshal([]byte(firstItem["text"].(string)), &parsed); err != nil {
 					t.Errorf("Failed to parse JSON response: %v", err)
 				}
@@ -140,9 +140,9 @@ func TestMCPHandler_ToolResponseFormatting(t *testing.T) {
 			name:         "MCP formatted response",
 			tool:         &mockMCPFormattedTool{},
 			expectedType: "text",
-			validateResult: func(t *testing.T, result interface{}) {
-				response := result.(map[string]interface{})
-				content := response["content"].([]map[string]interface{})
+			validateResult: func(t *testing.T, result any) {
+				response := result.(map[string]any)
+				content := response["content"].([]map[string]any)
 				if len(content) != 2 {
 					t.Errorf("Expected 2 content items, got %d", len(content))
 				}
@@ -156,12 +156,12 @@ func TestMCPHandler_ToolResponseFormatting(t *testing.T) {
 			name:         "error response",
 			tool:         &mockErrorTool{},
 			expectedType: "text",
-			validateResult: func(t *testing.T, result interface{}) {
-				response := result.(map[string]interface{})
+			validateResult: func(t *testing.T, result any) {
+				response := result.(map[string]any)
 				if !response["isError"].(bool) {
 					t.Error("Expected isError to be true")
 				}
-				content := response["content"].([]map[string]interface{})
+				content := response["content"].([]map[string]any)
 				if len(content) == 0 {
 					t.Fatal("Expected at least one content item")
 				}
@@ -175,9 +175,9 @@ func TestMCPHandler_ToolResponseFormatting(t *testing.T) {
 			name:         "array response",
 			tool:         &mockArrayTool{},
 			expectedType: "text",
-			validateResult: func(t *testing.T, result interface{}) {
-				response := result.(map[string]interface{})
-				content := response["content"].([]map[string]interface{})
+			validateResult: func(t *testing.T, result any) {
+				response := result.(map[string]any)
+				content := response["content"].([]map[string]any)
 				if len(content) == 0 {
 					t.Fatal("Expected at least one content item")
 				}
@@ -186,7 +186,7 @@ func TestMCPHandler_ToolResponseFormatting(t *testing.T) {
 					t.Errorf("Expected type 'text', got %v", firstItem["type"])
 				}
 				// Verify it's valid JSON array
-				var parsed []interface{}
+				var parsed []any
 				if err := json.Unmarshal([]byte(firstItem["text"].(string)), &parsed); err != nil {
 					t.Errorf("Failed to parse JSON array response: %v", err)
 				}
@@ -202,9 +202,9 @@ func TestMCPHandler_ToolResponseFormatting(t *testing.T) {
 			handler.RegisterTool(tt.tool)
 
 			// Call the tool through the handler
-			params := map[string]interface{}{
+			params := map[string]any{
 				"name":      tt.tool.Name(),
-				"arguments": map[string]interface{}{},
+				"arguments": map[string]any{},
 			}
 
 			result, err := handler.handleToolsCall(params)
@@ -219,15 +219,15 @@ func TestMCPHandler_ToolResponseFormatting(t *testing.T) {
 
 // Test that tools can return complex content types
 func TestMCPHandler_ComplexContentTypes(t *testing.T) {
-	handler := NewMCPHandler(MCPServerInfo{Name: "test", Version: "1.0"})
+	handler := NewHandler(ServerInfo{Name: "test", Version: "1.0"})
 
 	// Mock tool that returns different content types
 	complexTool := &mockComplexContentTool{}
 	handler.RegisterTool(complexTool)
 
-	params := map[string]interface{}{
+	params := map[string]any{
 		"name":      "complex_content_tool",
-		"arguments": map[string]interface{}{},
+		"arguments": map[string]any{},
 	}
 
 	result, err := handler.handleToolsCall(params)
@@ -235,8 +235,8 @@ func TestMCPHandler_ComplexContentTypes(t *testing.T) {
 		t.Fatalf("Tool call failed: %v", err)
 	}
 
-	response := result.(map[string]interface{})
-	content := response["content"].([]map[string]interface{})
+	response := result.(map[string]any)
+	content := response["content"].([]map[string]any)
 
 	if len(content) != 3 {
 		t.Fatalf("Expected 3 content items, got %d", len(content))
@@ -268,24 +268,24 @@ type mockComplexContentTool struct{}
 
 func (t *mockComplexContentTool) Name() string        { return "complex_content_tool" }
 func (t *mockComplexContentTool) Description() string { return "Returns multiple content types" }
-func (t *mockComplexContentTool) Schema() map[string]interface{} {
-	return map[string]interface{}{"type": "object"}
+func (t *mockComplexContentTool) Schema() map[string]any {
+	return map[string]any{"type": "object"}
 }
-func (t *mockComplexContentTool) Execute(params map[string]interface{}) (interface{}, error) {
-	return map[string]interface{}{
-		"content": []interface{}{
-			map[string]interface{}{
+func (t *mockComplexContentTool) Execute(params map[string]any) (any, error) {
+	return map[string]any{
+		"content": []any{
+			map[string]any{
 				"type": "text",
 				"text": "Here's some text",
 			},
-			map[string]interface{}{
+			map[string]any{
 				"type":     "image",
 				"data":     "base64encodeddata",
 				"mimeType": "image/png",
 			},
-			map[string]interface{}{
+			map[string]any{
 				"type": "resource",
-				"resource": map[string]interface{}{
+				"resource": map[string]any{
 					"uri":  "file://example.txt",
 					"name": "Example File",
 				},

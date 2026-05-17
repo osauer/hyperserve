@@ -5,48 +5,24 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
-
-	"github.com/osauer/hyperserve/internal/ws"
 )
 
-// WebSocket message types
+// WebSocket message-type aliases. The wire-level Opcode* constants live in
+// frame.go; these names are the public, gorilla-compatible API.
 const (
-	TextMessage   = ws.OpcodeText
-	BinaryMessage = ws.OpcodeBinary
-	CloseMessage  = ws.OpcodeClose
-	PingMessage   = ws.OpcodePing
-	PongMessage   = ws.OpcodePong
-)
-
-// WebSocket close codes
-const (
-	CloseNormalClosure           = ws.CloseNormalClosure
-	CloseGoingAway               = ws.CloseGoingAway
-	CloseProtocolError           = ws.CloseProtocolError
-	CloseUnsupportedData         = ws.CloseUnsupportedData
-	CloseNoStatusReceived        = ws.CloseNoStatusReceived
-	CloseAbnormalClosure         = ws.CloseAbnormalClosure
-	CloseInvalidFramePayloadData = ws.CloseInvalidFramePayloadData
-	ClosePolicyViolation         = ws.ClosePolicyViolation
-	CloseMessageTooBig           = ws.CloseMessageTooBig
-	CloseMandatoryExtension      = ws.CloseMandatoryExtension
-	CloseInternalServerError     = ws.CloseInternalServerError
-	CloseServiceRestart          = ws.CloseServiceRestart
-	CloseTryAgainLater           = ws.CloseTryAgainLater
-	CloseTLSHandshake            = ws.CloseTLSHandshake
-)
-
-// WebSocket errors
-var (
-	ErrNotWebSocket = ws.ErrNotWebSocket
-	ErrBadHandshake = ws.ErrBadHandshake
+	TextMessage   = OpcodeText
+	BinaryMessage = OpcodeBinary
+	CloseMessage  = OpcodeClose
+	PingMessage   = OpcodePing
+	PongMessage   = OpcodePong
 )
 
 // Conn represents a WebSocket connection
 type Conn struct {
-	conn         *ws.Conn
+	conn         *lowConn
 	pingInterval time.Duration
 	pongTimeout  time.Duration
 
@@ -119,20 +95,20 @@ func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeade
 	}
 
 	// Create handshake options
-	opts := &ws.HandshakeOptions{
+	opts := &HandshakeOptions{
 		CheckOrigin:   checkOrigin,
 		Subprotocols:  u.Subprotocols,
 		BeforeUpgrade: u.BeforeUpgrade,
 	}
 
 	// Perform handshake
-	netConn, buf, err := ws.PerformHandshake(w, r, opts)
+	netConn, buf, err := PerformHandshake(w, r, opts)
 	if err != nil {
 		if u.Error != nil {
 			status := http.StatusBadRequest
-			if errors.Is(err, ws.ErrBadHandshake) {
+			if errors.Is(err, ErrBadHandshake) {
 				status = http.StatusForbidden
-			} else if errors.Is(err, ws.ErrUnsupportedVersion) {
+			} else if errors.Is(err, ErrUnsupportedVersion) {
 				status = http.StatusBadRequest
 				w.Header().Set("Sec-WebSocket-Version", "13")
 			}
@@ -161,7 +137,7 @@ func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeade
 	}
 
 	// Create WebSocket connection
-	wsConn := ws.NewConn(netConn, buf, true, maxMessageSize)
+	wsConn := newLowConn(netConn, buf, true, maxMessageSize)
 
 	c := &Conn{
 		conn: wsConn,
@@ -363,7 +339,7 @@ func (c *Conn) RemoteAddr() net.Addr {
 }
 
 // WriteJSON writes a JSON-encoded message to the connection
-func (c *Conn) WriteJSON(v interface{}) error {
+func (c *Conn) WriteJSON(v any) error {
 	data, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -372,7 +348,7 @@ func (c *Conn) WriteJSON(v interface{}) error {
 }
 
 // ReadJSON reads a JSON-encoded message from the connection
-func (c *Conn) ReadJSON(v interface{}) error {
+func (c *Conn) ReadJSON(v any) error {
 	_, data, err := c.ReadMessage()
 	if err != nil {
 		return err
@@ -386,14 +362,9 @@ func IsUnexpectedCloseError(err error, expectedCodes ...int) bool {
 		return false
 	}
 
-	var closeErr *ws.CloseError
+	var closeErr *closeError
 	if errors.As(err, &closeErr) {
-		for _, code := range expectedCodes {
-			if closeErr.Code == code {
-				return false
-			}
-		}
-		return true
+		return !slices.Contains(expectedCodes, closeErr.Code)
 	}
 
 	return false
@@ -401,12 +372,10 @@ func IsUnexpectedCloseError(err error, expectedCodes ...int) bool {
 
 // IsCloseError returns true if the error is a close error with one of the specified codes
 func IsCloseError(err error, codes ...int) bool {
-	var closeErr *ws.CloseError
+	var closeErr *closeError
 	if errors.As(err, &closeErr) {
-		for _, code := range codes {
-			if closeErr.Code == code {
-				return true
-			}
+		if slices.Contains(codes, closeErr.Code) {
+			return true
 		}
 	}
 	return false

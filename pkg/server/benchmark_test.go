@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/osauer/hyperserve/pkg/mcp"
 )
 
 // BenchmarkBaseline measures the raw performance of a minimal HyperServe handler
@@ -25,9 +27,8 @@ func BenchmarkBaseline(b *testing.B) {
 
 	req := httptest.NewRequest("GET", "/", nil)
 
-	b.ResetTimer()
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		w := httptest.NewRecorder()
 		srv.mux.ServeHTTP(w, req)
 	}
@@ -59,9 +60,8 @@ func BenchmarkSecureAPI(b *testing.B) {
 	req := httptest.NewRequest("GET", "/api/data", nil)
 	req.Header.Set("Authorization", "Bearer test-token")
 
-	b.ResetTimer()
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		w := httptest.NewRecorder()
 		srv.mux.ServeHTTP(w, req)
 	}
@@ -148,9 +148,8 @@ func BenchmarkStaticFile(b *testing.B) {
 	srv.HandleStatic("/static/")
 	req := httptest.NewRequest("GET", "/static/test.txt", nil)
 
-	b.ResetTimer()
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		w := httptest.NewRecorder()
 		srv.mux.ServeHTTP(w, req)
 	}
@@ -164,15 +163,15 @@ func BenchmarkJSON(b *testing.B) {
 	}
 
 	type Response struct {
-		Status string                 `json:"status"`
-		Data   map[string]interface{} `json:"data"`
+		Status string         `json:"status"`
+		Data   map[string]any `json:"data"`
 	}
 
 	srv.HandleFunc("/json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		resp := Response{
 			Status: "success",
-			Data: map[string]interface{}{
+			Data: map[string]any{
 				"id":     12345,
 				"name":   "Test User",
 				"email":  "test@example.com",
@@ -188,9 +187,8 @@ func BenchmarkJSON(b *testing.B) {
 
 	req := httptest.NewRequest("GET", "/json", nil)
 
-	b.ResetTimer()
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		w := httptest.NewRecorder()
 		srv.mux.ServeHTTP(w, req)
 	}
@@ -207,7 +205,7 @@ func BenchmarkMCPJSONRPCProcessing(b *testing.B) {
 	}
 
 	// Simple ping request
-	request := map[string]interface{}{
+	request := map[string]any{
 		"jsonrpc": "2.0",
 		"method":  "ping",
 		"id":      1,
@@ -221,9 +219,8 @@ func BenchmarkMCPJSONRPCProcessing(b *testing.B) {
 	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(requestData))
 	req.Header.Set("Content-Type", "application/json")
 
-	b.ResetTimer()
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		w := httptest.NewRecorder()
 		srv.mcpHandler.ServeHTTP(w, req)
 	}
@@ -250,16 +247,16 @@ func BenchmarkMCPToolExecution(b *testing.B) {
 
 	tests := []struct {
 		name    string
-		request map[string]interface{}
+		request map[string]any
 	}{
 		{
 			name: "Calculator",
-			request: map[string]interface{}{
+			request: map[string]any{
 				"jsonrpc": "2.0",
 				"method":  "tools/call",
-				"params": map[string]interface{}{
+				"params": map[string]any{
 					"name": "mcp__hyperserve__calculator",
-					"arguments": map[string]interface{}{
+					"arguments": map[string]any{
 						"operation": "multiply",
 						"a":         123.456,
 						"b":         789.123,
@@ -270,12 +267,12 @@ func BenchmarkMCPToolExecution(b *testing.B) {
 		},
 		{
 			name: "FileRead",
-			request: map[string]interface{}{
+			request: map[string]any{
 				"jsonrpc": "2.0",
 				"method":  "tools/call",
-				"params": map[string]interface{}{
+				"params": map[string]any{
 					"name": "mcp__hyperserve__read_file",
-					"arguments": map[string]interface{}{
+					"arguments": map[string]any{
 						"path": "benchmark.txt",
 					},
 				},
@@ -284,12 +281,12 @@ func BenchmarkMCPToolExecution(b *testing.B) {
 		},
 		{
 			name: "ListDirectory",
-			request: map[string]interface{}{
+			request: map[string]any{
 				"jsonrpc": "2.0",
 				"method":  "tools/call",
-				"params": map[string]interface{}{
+				"params": map[string]any{
 					"name": "mcp__hyperserve__list_directory",
-					"arguments": map[string]interface{}{
+					"arguments": map[string]any{
 						"path": ".",
 					},
 				},
@@ -298,12 +295,12 @@ func BenchmarkMCPToolExecution(b *testing.B) {
 		},
 		{
 			name: "HTTPRequest",
-			request: map[string]interface{}{
+			request: map[string]any{
 				"jsonrpc": "2.0",
 				"method":  "tools/call",
-				"params": map[string]interface{}{
+				"params": map[string]any{
 					"name": "mcp__hyperserve__http_request",
-					"arguments": map[string]interface{}{
+					"arguments": map[string]any{
 						"url":    "https://httpbin.org/json",
 						"method": "GET",
 					},
@@ -371,10 +368,10 @@ func BenchmarkMCPResourceAccess(b *testing.B) {
 
 	for _, tt := range tests {
 		b.Run(tt.name, func(b *testing.B) {
-			request := map[string]interface{}{
+			request := map[string]any{
 				"jsonrpc": "2.0",
 				"method":  "resources/read",
-				"params": map[string]interface{}{
+				"params": map[string]any{
 					"uri": tt.uri,
 				},
 				"id": 1,
@@ -408,13 +405,13 @@ func BenchmarkMCPInitializeHandshake(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	request := map[string]interface{}{
+	request := map[string]any{
 		"jsonrpc": "2.0",
 		"method":  "initialize",
-		"params": map[string]interface{}{
-			"protocolVersion": MCPVersion,
-			"capabilities":    map[string]interface{}{},
-			"clientInfo": map[string]interface{}{
+		"params": map[string]any{
+			"protocolVersion": mcp.ProtocolVersion,
+			"capabilities":    map[string]any{},
+			"clientInfo": map[string]any{
 				"name":    "benchmark-client",
 				"version": "1.0.0",
 			},
@@ -430,9 +427,8 @@ func BenchmarkMCPInitializeHandshake(b *testing.B) {
 	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(requestData))
 	req.Header.Set("Content-Type", "application/json")
 
-	b.ResetTimer()
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		w := httptest.NewRecorder()
 		srv.mcpHandler.ServeHTTP(w, req)
 	}
@@ -457,7 +453,7 @@ func BenchmarkMCPWithMiddleware(b *testing.B) {
 	srv.AddMiddleware("/mcp", RateLimitMiddleware(srv))
 	srv.AddMiddleware("/mcp", AuthMiddleware(srv.Options))
 
-	request := map[string]interface{}{
+	request := map[string]any{
 		"jsonrpc": "2.0",
 		"method":  "tools/list",
 		"id":      1,
@@ -472,9 +468,8 @@ func BenchmarkMCPWithMiddleware(b *testing.B) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer benchmark-token")
 
-	b.ResetTimer()
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		w := httptest.NewRecorder()
 		handler := srv.middleware.applyToMux(srv.mux)
 		handler.ServeHTTP(w, req)
@@ -492,18 +487,18 @@ func BenchmarkMCPLargePayload(b *testing.B) {
 	}
 
 	// Create large arguments for calculator (realistic but large payload)
-	largeArgs := make(map[string]interface{})
-	for i := 0; i < 1000; i++ {
+	largeArgs := make(map[string]any)
+	for i := range 1000 {
 		largeArgs[fmt.Sprintf("param_%d", i)] = float64(i) * 1.23456789
 	}
 	largeArgs["operation"] = "add"
 	largeArgs["a"] = 10.0
 	largeArgs["b"] = 20.0
 
-	request := map[string]interface{}{
+	request := map[string]any{
 		"jsonrpc": "2.0",
 		"method":  "tools/call",
-		"params": map[string]interface{}{
+		"params": map[string]any{
 			"name":      "calculator",
 			"arguments": largeArgs,
 		},
@@ -518,9 +513,8 @@ func BenchmarkMCPLargePayload(b *testing.B) {
 	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(requestData))
 	req.Header.Set("Content-Type", "application/json")
 
-	b.ResetTimer()
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		w := httptest.NewRecorder()
 		srv.mcpHandler.ServeHTTP(w, req)
 	}

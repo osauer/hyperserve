@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"github.com/osauer/hyperserve/pkg/mcp"
 	"log/slog"
 	"strings"
 	"testing"
@@ -25,7 +26,7 @@ func TestMCPProgrammaticConfigurationNoDoubleWarning(t *testing.T) {
 	}
 
 	// Configure MCP with dev mode (like HF_DAW does)
-	mcpConfigs := []MCPTransportConfig{MCPDev()}
+	mcpConfigs := []mcp.TransportConfig{MCPDev()}
 	serverOpts = append(serverOpts, WithMCPSupport("TestApp", "1.0.0", mcpConfigs...))
 
 	// Create server
@@ -60,7 +61,7 @@ func TestMCPProgrammaticConfigurationNoDoubleWarning(t *testing.T) {
 	}
 
 	// Verify developer mode was applied
-	if !srv.Options.mcpTransportOpts.developerMode {
+	if !srv.Options.mcpTransportOpts.DeveloperMode {
 		t.Error("Developer mode should be enabled in transport options")
 	}
 }
@@ -139,10 +140,10 @@ func TestMCPMixedConfiguration(t *testing.T) {
 	}
 
 	// Should have observability mode, not dev mode
-	if srv.Options.mcpTransportOpts.developerMode {
+	if srv.Options.mcpTransportOpts.DeveloperMode {
 		t.Error("Should not have developer mode when configured with observability")
 	}
-	if !srv.Options.mcpTransportOpts.observabilityMode {
+	if !srv.Options.mcpTransportOpts.ObservabilityMode {
 		t.Error("Should have observability mode")
 	}
 }

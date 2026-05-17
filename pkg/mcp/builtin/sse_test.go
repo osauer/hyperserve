@@ -1,4 +1,4 @@
-package server
+package builtin
 
 import (
 	"bufio"
@@ -9,17 +9,18 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/osauer/hyperserve/pkg/server"
 )
 
 func TestMCPSSEEndpoint(t *testing.T) {
 	// Create a server with MCP enabled
-	srv, err := NewServer(
-		WithMCPSupport("test-server", "1.0.0"),
-		WithMCPBuiltinTools(true),
+	srv, err := server.NewServer(
+		server.WithMCPSupport("test-server", "1.0.0"),
+		server.WithMCPBuiltinTools(true),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -31,17 +32,17 @@ func TestMCPSSEEndpoint(t *testing.T) {
 		return
 	}
 
-	server := &http.Server{Handler: srv.mux}
+	httpSrv := &http.Server{Handler: srv.Mux()}
 	done := make(chan struct{})
 	go func() {
-		_ = server.Serve(listener)
+		_ = httpSrv.Serve(listener)
 		close(done)
 	}()
 	baseURL := fmt.Sprintf("http://%s", listener.Addr().String())
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
-		_ = server.Shutdown(ctx)
+		_ = httpSrv.Shutdown(ctx)
 		<-done
 	}()
 
@@ -53,7 +54,7 @@ func TestMCPSSEEndpoint(t *testing.T) {
 
 		// Debug: Check MCP endpoint
 		t.Logf("MCP endpoint: %s", srv.Options.MCPEndpoint)
-		t.Logf("MCP handler: %v", srv.mcpHandler)
+		t.Logf("MCP handler: %v", srv.MCPHandler())
 
 		// First test base MCP endpoint
 		baseResp, err := http.Get(baseURL + "/mcp")
@@ -99,15 +100,15 @@ func TestMCPSSEEndpoint(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if strings.HasPrefix(line, "data: ") {
-				eventData = strings.TrimPrefix(line, "data: ")
+			if after, ok := strings.CutPrefix(line, "data: "); ok {
+				eventData = after
 				eventData = strings.TrimSpace(eventData)
 				break
 			}
 		}
 
 		// Parse connection event
-		var connEvent map[string]interface{}
+		var connEvent map[string]any
 		if err := json.Unmarshal([]byte(eventData), &connEvent); err != nil {
 			t.Fatalf("Failed to parse connection event: %v", err)
 		}
@@ -145,11 +146,11 @@ func TestMCPSSEEndpoint(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if strings.HasPrefix(line, "data: ") {
-				eventData := strings.TrimPrefix(line, "data: ")
+			if after, ok := strings.CutPrefix(line, "data: "); ok {
+				eventData := after
 				eventData = strings.TrimSpace(eventData)
 
-				var connEvent map[string]interface{}
+				var connEvent map[string]any
 				if err := json.Unmarshal([]byte(eventData), &connEvent); err == nil {
 					if id, ok := connEvent["clientId"].(string); ok {
 						clientID = id
@@ -179,138 +180,6 @@ func TestMCPSSEEndpoint(t *testing.T) {
 		if resp2.StatusCode != http.StatusAccepted {
 			body, _ := io.ReadAll(resp2.Body)
 			t.Errorf("Expected status 202, got %d: %s", resp2.StatusCode, body)
-		}
-	})
-}
-
-func TestSSEManager(t *testing.T) {
-	manager := NewSSEManager()
-
-	t.Run("Client Management", func(t *testing.T) {
-		// Mock response writer and flusher
-		w := httptest.NewRecorder()
-		flusher := &mockFlusher{w: w}
-
-		client := newSSEClient("test-client-1", w, flusher)
-
-		// Add client
-		manager.addClient("test-client-1", client)
-
-		// Check client count
-		if count := manager.GetClientCount(); count != 1 {
-			t.Errorf("Expected 1 client, got %d", count)
-		}
-
-		// Send message to client
-		response := &JSONRPCResponse{
-			JSONRPC: "2.0",
-			Result:  map[string]interface{}{"message": "test"},
-			ID:      1,
-		}
-
-		err := manager.SendToClient("test-client-1", response)
-		if err != nil {
-			t.Errorf("Failed to send to client: %v", err)
-		}
-
-		// Remove client
-		manager.removeClient("test-client-1")
-
-		// Check client count
-		if count := manager.GetClientCount(); count != 0 {
-			t.Errorf("Expected 0 clients, got %d", count)
-		}
-	})
-
-	t.Run("Broadcast", func(t *testing.T) {
-		// Add multiple clients
-		for i := 0; i < 3; i++ {
-			w := httptest.NewRecorder()
-			flusher := &mockFlusher{w: w}
-			client := newSSEClient(fmt.Sprintf("client-%d", i), w, flusher)
-			manager.addClient(fmt.Sprintf("client-%d", i), client)
-		}
-
-		// Broadcast message
-		response := &JSONRPCResponse{
-			JSONRPC: "2.0",
-			Result:  map[string]interface{}{"broadcast": "test"},
-			ID:      nil,
-		}
-
-		manager.BroadcastToAll(response)
-
-		// Clean up
-		for i := 0; i < 3; i++ {
-			manager.removeClient(fmt.Sprintf("client-%d", i))
-		}
-	})
-}
-
-// mockFlusher implements http.Flusher for testing
-type mockFlusher struct {
-	w       *httptest.ResponseRecorder
-	flushed bool
-}
-
-func (f *mockFlusher) Flush() {
-	f.flushed = true
-}
-
-func TestSSEClientLifecycle(t *testing.T) {
-	w := httptest.NewRecorder()
-	flusher := &mockFlusher{w: w}
-	client := newSSEClient("test-client", w, flusher)
-
-	t.Run("State Transitions", func(t *testing.T) {
-		// Initially not ready
-		if client.IsReady() {
-			t.Error("Client should not be ready initially")
-		}
-
-		// Set initialized
-		client.SetInitialized()
-		if !client.initialized {
-			t.Error("Client should be initialized")
-		}
-
-		// Set ready
-		client.SetReady()
-		if !client.IsReady() {
-			t.Error("Client should be ready")
-		}
-	})
-
-	t.Run("Message Sending", func(t *testing.T) {
-		response := &JSONRPCResponse{
-			JSONRPC: "2.0",
-			Result:  "test",
-			ID:      1,
-		}
-
-		err := client.Send(response)
-		if err != nil {
-			t.Errorf("Failed to send message: %v", err)
-		}
-
-		// Try to receive from channel
-		select {
-		case msg := <-client.messageChan:
-			if msg.ID != 1 {
-				t.Errorf("Expected message ID 1, got %v", msg.ID)
-			}
-		case <-time.After(100 * time.Millisecond):
-			t.Error("Message not received in channel")
-		}
-	})
-
-	t.Run("Close", func(t *testing.T) {
-		client.Close()
-
-		// Try to send after close
-		err := client.Send(&JSONRPCResponse{})
-		if err == nil {
-			t.Error("Expected error when sending to closed client")
 		}
 	})
 }

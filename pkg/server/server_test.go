@@ -101,8 +101,8 @@ func TestHandleFuncDynamicValidTemplate(t *testing.T) {
 	}
 
 	// Test valid dynamic template rendering
-	err = srv.HandleFuncDynamic("/time", "time.html", func(r *http.Request) interface{} {
-		return map[string]interface{}{
+	err = srv.HandleFuncDynamic("/time", "time.html", func(r *http.Request) any {
+		return map[string]any{
 			"timestamp": "2024-01-01 00:00:00",
 		}
 	})
@@ -140,8 +140,8 @@ func TestHandleFuncDynamicMissingTemplate(t *testing.T) {
 	}
 
 	// Test missing template file - HandleFuncDynamic should fail
-	err = srv.HandleFuncDynamic("/missing", "missing.html", func(r *http.Request) interface{} {
-		return map[string]interface{}{
+	err = srv.HandleFuncDynamic("/missing", "missing.html", func(r *http.Request) any {
+		return map[string]any{
 			"timestamp": "2024-01-01 00:00:00",
 		}
 	})
@@ -224,23 +224,6 @@ func TestRunReturnsErrorWhenTLSMisconfigured(t *testing.T) {
 	}
 	if srv.isRunning.Load() {
 		t.Fatal("expected server to be marked as not running after TLS startup failure")
-	}
-}
-
-func TestEncryptedClientHello(t *testing.T) {
-	t.Parallel()
-	echKey := []byte("test-ech-key")
-	srv, err := NewServer(WithEncryptedClientHello(echKey))
-	if err != nil {
-		t.Fatalf("failed to create server with ECH: %v", err)
-	}
-
-	if !srv.Options.EnableECH {
-		t.Error("expected ECH to be enabled")
-	}
-
-	if len(srv.Options.ECHKeys) != 1 {
-		t.Errorf("expected 1 ECH key, got %d", len(srv.Options.ECHKeys))
 	}
 }
 
@@ -366,8 +349,8 @@ func TestHandleFuncDynamicTemplateErrors(t *testing.T) {
 	}
 
 	// Test that invalid template syntax is caught during HandleFuncDynamic
-	err = srv.HandleFuncDynamic("/invalid", "invalid.html", func(r *http.Request) interface{} {
-		return map[string]interface{}{"test": "data"}
+	err = srv.HandleFuncDynamic("/invalid", "invalid.html", func(r *http.Request) any {
+		return map[string]any{"test": "data"}
 	})
 	if err == nil {
 		t.Error("expected error for invalid template syntax")
@@ -394,8 +377,8 @@ func TestHandleFuncDynamicNonExistentTemplate(t *testing.T) {
 	}
 
 	// Test that non-existent template is caught during HandleFuncDynamic
-	err = srv.HandleFuncDynamic("/missing", "missing.html", func(r *http.Request) interface{} {
-		return map[string]interface{}{"test": "data"}
+	err = srv.HandleFuncDynamic("/missing", "missing.html", func(r *http.Request) any {
+		return map[string]any{"test": "data"}
 	})
 	if err == nil {
 		t.Error("expected error for non-existent template")

@@ -1,6 +1,7 @@
 package scaffold
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -35,9 +36,7 @@ func (o *Options) normalize() error {
 		o.ServiceName = parts[len(parts)-1]
 	}
 
-	if o.OutputDir == "" {
-		o.OutputDir = o.ServiceName
-	}
+	o.OutputDir = cmp.Or(o.OutputDir, o.ServiceName)
 
 	if !filepath.IsAbs(o.OutputDir) {
 		abs, err := filepath.Abs(o.OutputDir)
@@ -65,8 +64,5 @@ func slugify(value string) string {
 	)
 	value = replacer.Replace(value)
 	value = strings.Trim(value, "-")
-	if value == "" {
-		return "service"
-	}
-	return value
+	return cmp.Or(value, "service")
 }

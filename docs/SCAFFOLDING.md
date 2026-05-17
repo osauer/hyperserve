@@ -1,6 +1,8 @@
 # HyperServe Scaffolding
 
-`hyperserve-init` bootstraps a production-grade HyperServe service with hardened defaults, MCP tooling enabled, and batteries-included middleware.
+`hyperserve-init` generates a runnable HyperServe service: `cmd/server`, a config
+loader, security headers + rate limit middleware applied per route, MCP enabled by
+default, and a Distroless Dockerfile. The output compiles and `go test ./...` passes.
 
 ## Install the CLI
 

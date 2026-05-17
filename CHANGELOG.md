@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.0] - 2026-05-17
+
+Pre-1.0 cleanup release. This is a breaking-API change: import paths and several
+exported names have moved. See the migration notes below.
+
+### Added
+- New package `pkg/mcp` — the MCP protocol surface (Handler, transports, discovery, namespaces, metrics, builders) now lives in its own package, depending only on `net/http`, `log/slog`, and `pkg/jsonrpc`.
+- New package `pkg/mcp/builtin` — opt-in built-in MCP tools (Calculator, FileRead, HTTPRequest, ListDirectory) and resources (Config, Metrics, System, ServerLog, ServerHealth) plus the dev-mode toolkit (ServerControl, RouteInspector, RequestDebugger, DevGuide). Blank-import this package to wire `WithMCPBuiltinTools/Resources(true)` and the `MCPDev()` / `MCPObservability()` presets.
+- `examples/deferred-init/` — end-to-end demo of `WithDeferredInit` + `WithOnReady` + `WithDeferredInitStopOnFailure`.
+- `make check` — runs `vet`, `staticcheck`, `modernize`, `govulncheck`; installs each lazily on first use with pinned versions.
+- Several test/observation accessors on `*server.Server`: `MCPHandler()`, `IsRunning()`, `IsReady()`, `ServerStart()`, `TotalRequests()`, `TotalResponseTime()`, `ClientLimiterCount()`, `MiddlewareRoutes()`, `Mux()`, `SetMetrics()`, `AddMetrics()` — required by tests and the builtin package now that they live outside `pkg/server`.
+
+### Changed
+- Minimum Go version bumped to **1.25** (was 1.24). Unlocks `sync.WaitGroup.Go(...)`, `testing/synctest`, and container-aware `GOMAXPROCS`. See [ADR-0006](docs/0006-go-1-25-minimum-version.md).
+- `Server` struct shrunk from 33 fields to 22; deferred-init lifecycle fields extracted into `deferredLifecycle` sub-struct; rate-limiter pool fields extracted into `rateLimiterPool` sub-struct.
+- `pkg/websocket` collapsed `internal/ws` back into the public package — the internal/external split was unnecessary indirection. (Subagent task.)
+- README, ARCHITECTURE.md, PROJECT_STRUCTURE.md, SCAFFOLDING.md, PRODUCT_VISION.md, MIGRATION_GUIDE.md, RELEASE_NOTES.md, LESSONS_LEARNED.md, and ADR-0006/0009 rewritten to remove AI-generated stylistic tells (adjective stacks, emoji ladders, hollow superlatives) and to reflect the new package layout.
+
+### Removed
+- `WithEncryptedClientHello`, `Options.EnableECH`, `Options.ECHKeys` — the option captured keys but never installed them on `tls.Config.EncryptedClientHelloKeys`. Advertised security feature that did nothing. (Reintroduce with a real handshake test when needed.)
+- `ChaosMode` / `ChaosMaxLatency` / `ChaosMinLatency` / `ChaosErrorRate` / `ChaosThrottleRate` / `ChaosPanicRate` fields, `ChaosMiddleware`, and `examples/chaos/` — no `WithChaos*` setter ever existed, so the feature was unreachable via the supported API.
+- Deprecated MCP options: `WithMCPToolsDisabled()`, `WithMCPResourcesDisabled()`, `WithMCPServerInfo()` — zero callers; superseded by `WithMCPBuiltinTools(bool)`, `WithMCPBuiltinResources(bool)`, and the `name`/`version` args of `WithMCPSupport`.
+- `LogResource` + `NewLogResource` + `AddLogEntry` — dead twin of `ServerLogResource` that was the version registered in MCP standard mode. The standard-mode log resource (`logs://server/recent`) now returns the working `ServerLogResource` payload.
+- `pkg/server/jsonrpc_facade.go` — internal alias file with no external importers. All MCP code in `pkg/mcp` now imports `pkg/jsonrpc` directly.
+- `pkg/server/websocket_facade.go` — internal alias file with one external example caller that already imported `pkg/websocket` directly. (Subagent task.)
+- `internal/ws/` directory — merged into `pkg/websocket`. (Subagent task.)
+- 10 MB tracked Mach-O binary at the repo root.
+
+### Fixed
+- Standard-mode MCP `logs://server/recent` resource is now wired to the working log buffer; previously always returned empty.
+- Pre-existing race in `TestMiddlewareWithWebSocket` (handler-call atomic was asserted before the server goroutine could store it) — added a short bounded wait.
+
+### Migration
+
+1. **Imports.** Any code referencing `server.MCPHandler`, `server.MCPTool`, `server.MCPResource`, `server.NewMCPExtension`, `server.NewTool`, `server.NewResource`, etc. should import `mcp "github.com/osauer/hyperserve/pkg/mcp"` and use `mcp.Handler`, `mcp.Tool`, `mcp.Resource`, `mcp.NewExtension`, `mcp.NewTool`, `mcp.NewResource`. The full rename table is in the CHANGELOG history of `pkg/mcp/types.go` and in the migration guide.
+2. **Built-in MCP tools.** Add `_ "github.com/osauer/hyperserve/pkg/mcp/builtin"` to your `main` package so the `WithMCPBuiltinTools(true)` / `MCPDev()` / `MCPObservability()` hooks fire. Without the blank import, the option calls are no-ops.
+3. **Extension API.** `mcp.Extension.Configure` now takes `*mcp.Handler` instead of `*server.Server`. If your extension needs `*Server` access, refactor it to read the handler off the server (`srv.MCPHandler()`) at registration time.
+4. **Removed surface.** Replace `WithMCPServerInfo(name, version)` with `WithMCPSupport(name, version)`; drop calls to `WithMCPToolsDisabled()` / `WithMCPResourcesDisabled()` (defaults are already off); remove any `WithEncryptedClientHello(...)` calls and any reliance on `Options.EnableECH/ECHKeys`; drop `ChaosMode` references.
+
 ## [0.24.0] - 2025-10-19
 
 ### Added

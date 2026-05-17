@@ -1,8 +1,12 @@
-package server
+package builtin
 
 import (
+	"slices"
+
 	"bytes"
 	"encoding/json"
+	jsonrpc "github.com/osauer/hyperserve/pkg/jsonrpc"
+	"github.com/osauer/hyperserve/pkg/mcp"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,77 +14,77 @@ import (
 )
 
 func TestMCPHandler_NewMCPHandler(t *testing.T) {
-	serverInfo := MCPServerInfo{
+	serverInfo := mcp.ServerInfo{
 		Name:    "test-server",
 		Version: "1.0.0",
 	}
 
-	handler := NewMCPHandler(serverInfo)
+	handler := mcp.NewHandler(serverInfo)
 	if handler == nil {
-		t.Fatal("NewMCPHandler returned nil")
+		t.Fatal("mcp.NewHandler returned nil")
 	}
 
-	if handler.serverInfo.Name != "test-server" {
-		t.Errorf("Expected server name 'test-server', got %s", handler.serverInfo.Name)
+	if handler.ServerInfo().Name != "test-server" {
+		t.Errorf("Expected server name 'test-server', got %s", handler.ServerInfo().Name)
 	}
 
-	if handler.serverInfo.Version != "1.0.0" {
-		t.Errorf("Expected server version '1.0.0', got %s", handler.serverInfo.Version)
+	if handler.ServerInfo().Version != "1.0.0" {
+		t.Errorf("Expected server version '1.0.0', got %s", handler.ServerInfo().Version)
 	}
 
-	if handler.tools == nil {
-		t.Error("Tools map is nil")
+	if handler.GetRegisteredTools() == nil {
+		t.Error("Tools list is nil")
 	}
 
-	if handler.resources == nil {
-		t.Error("Resources map is nil")
+	if handler.GetRegisteredResources() == nil {
+		t.Error("Resources list is nil")
 	}
 
-	if handler.rpcEngine == nil {
+	if handler.RPCEngine() == nil {
 		t.Error("RPC engine is nil")
 	}
 }
 
 func TestMCPHandler_RegisterTool(t *testing.T) {
-	handler := NewMCPHandler(MCPServerInfo{Name: "test", Version: "1.0"})
+	handler := mcp.NewHandler(mcp.ServerInfo{Name: "test", Version: "1.0"})
 
 	tool := NewCalculatorTool()
 	handler.RegisterTool(tool)
 
-	if len(handler.tools) != 1 {
-		t.Errorf("Expected 1 tool, got %d", len(handler.tools))
+	if handler.ToolCount() != 1 {
+		t.Errorf("Expected 1 tool, got %d", handler.ToolCount())
 	}
 
-	if _, exists := handler.tools[tool.Name()]; !exists {
+	if !handler.HasTool(tool.Name()) {
 		t.Error("Tool not found in handler tools map")
 	}
 }
 
 func TestMCPHandler_RegisterResource(t *testing.T) {
-	handler := NewMCPHandler(MCPServerInfo{Name: "test", Version: "1.0"})
+	handler := mcp.NewHandler(mcp.ServerInfo{Name: "test", Version: "1.0"})
 
 	resource := NewSystemResource()
 	handler.RegisterResource(resource)
 
-	if len(handler.resources) != 1 {
-		t.Errorf("Expected 1 resource, got %d", len(handler.resources))
+	if handler.ResourceCount() != 1 {
+		t.Errorf("Expected 1 resource, got %d", handler.ResourceCount())
 	}
 
-	if _, exists := handler.resources[resource.URI()]; !exists {
+	if !handler.HasResource(resource.URI()) {
 		t.Error("Resource not found in handler resources map")
 	}
 }
 
 func TestMCPHandler_Initialize(t *testing.T) {
-	handler := NewMCPHandler(MCPServerInfo{Name: "test-server", Version: "1.0.0"})
+	handler := mcp.NewHandler(mcp.ServerInfo{Name: "test-server", Version: "1.0.0"})
 
-	request := map[string]interface{}{
+	request := map[string]any{
 		"jsonrpc": "2.0",
 		"method":  "initialize",
-		"params": map[string]interface{}{
-			"protocolVersion": MCPVersion,
-			"capabilities":    map[string]interface{}{},
-			"clientInfo": map[string]interface{}{
+		"params": map[string]any{
+			"protocolVersion": mcp.ProtocolVersion,
+			"capabilities":    map[string]any{},
+			"clientInfo": map[string]any{
 				"name":    "test-client",
 				"version": "1.0.0",
 			},
@@ -91,7 +95,7 @@ func TestMCPHandler_Initialize(t *testing.T) {
 	requestData, _ := json.Marshal(request)
 	responseData := handler.ProcessRequest(requestData)
 
-	var response JSONRPCResponse
+	var response jsonrpc.Response
 	if err := json.Unmarshal(responseData, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -100,16 +104,16 @@ func TestMCPHandler_Initialize(t *testing.T) {
 		t.Errorf("Expected no error, got %+v", response.Error)
 	}
 
-	result, ok := response.Result.(map[string]interface{})
+	result, ok := response.Result.(map[string]any)
 	if !ok {
 		t.Fatalf("Expected result to be a map, got %T", response.Result)
 	}
 
-	if result["protocolVersion"] != MCPVersion {
-		t.Errorf("Expected protocol version %s, got %v", MCPVersion, result["protocolVersion"])
+	if result["protocolVersion"] != mcp.ProtocolVersion {
+		t.Errorf("Expected protocol version %s, got %v", mcp.ProtocolVersion, result["protocolVersion"])
 	}
 
-	serverInfo, ok := result["serverInfo"].(map[string]interface{})
+	serverInfo, ok := result["serverInfo"].(map[string]any)
 	if !ok {
 		t.Fatal("serverInfo not found or not a map")
 	}
@@ -120,13 +124,13 @@ func TestMCPHandler_Initialize(t *testing.T) {
 }
 
 func TestMCPHandler_ToolsList(t *testing.T) {
-	handler := NewMCPHandler(MCPServerInfo{Name: "test", Version: "1.0"})
+	handler := mcp.NewHandler(mcp.ServerInfo{Name: "test", Version: "1.0"})
 
 	// Register a test tool
 	calculator := NewCalculatorTool()
 	handler.RegisterTool(calculator)
 
-	request := map[string]interface{}{
+	request := map[string]any{
 		"jsonrpc": "2.0",
 		"method":  "tools/list",
 		"id":      1,
@@ -135,7 +139,7 @@ func TestMCPHandler_ToolsList(t *testing.T) {
 	requestData, _ := json.Marshal(request)
 	responseData := handler.ProcessRequest(requestData)
 
-	var response JSONRPCResponse
+	var response jsonrpc.Response
 	if err := json.Unmarshal(responseData, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -144,12 +148,12 @@ func TestMCPHandler_ToolsList(t *testing.T) {
 		t.Errorf("Expected no error, got %+v", response.Error)
 	}
 
-	result, ok := response.Result.(map[string]interface{})
+	result, ok := response.Result.(map[string]any)
 	if !ok {
 		t.Fatalf("Expected result to be a map, got %T", response.Result)
 	}
 
-	tools, ok := result["tools"].([]interface{})
+	tools, ok := result["tools"].([]any)
 	if !ok {
 		t.Fatal("tools not found or not a slice")
 	}
@@ -158,25 +162,25 @@ func TestMCPHandler_ToolsList(t *testing.T) {
 		t.Errorf("Expected 1 tool, got %d", len(tools))
 	}
 
-	tool := tools[0].(map[string]interface{})
+	tool := tools[0].(map[string]any)
 	if tool["name"] != calculator.Name() {
 		t.Errorf("Expected tool name %s, got %v", calculator.Name(), tool["name"])
 	}
 }
 
 func TestMCPHandler_ToolsCall(t *testing.T) {
-	handler := NewMCPHandler(MCPServerInfo{Name: "test", Version: "1.0"})
+	handler := mcp.NewHandler(mcp.ServerInfo{Name: "test", Version: "1.0"})
 
 	// Register calculator tool
 	calculator := NewCalculatorTool()
 	handler.RegisterTool(calculator)
 
-	request := map[string]interface{}{
+	request := map[string]any{
 		"jsonrpc": "2.0",
 		"method":  "tools/call",
-		"params": map[string]interface{}{
+		"params": map[string]any{
 			"name": "calculator",
-			"arguments": map[string]interface{}{
+			"arguments": map[string]any{
 				"operation": "add",
 				"a":         5.0,
 				"b":         3.0,
@@ -188,7 +192,7 @@ func TestMCPHandler_ToolsCall(t *testing.T) {
 	requestData, _ := json.Marshal(request)
 	responseData := handler.ProcessRequest(requestData)
 
-	var response JSONRPCResponse
+	var response jsonrpc.Response
 	if err := json.Unmarshal(responseData, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -197,12 +201,12 @@ func TestMCPHandler_ToolsCall(t *testing.T) {
 		t.Errorf("Expected no error, got %+v", response.Error)
 	}
 
-	result, ok := response.Result.(map[string]interface{})
+	result, ok := response.Result.(map[string]any)
 	if !ok {
 		t.Fatalf("Expected result to be a map, got %T", response.Result)
 	}
 
-	content, ok := result["content"].([]interface{})
+	content, ok := result["content"].([]any)
 	if !ok {
 		t.Fatal("content not found or not a slice")
 	}
@@ -213,13 +217,13 @@ func TestMCPHandler_ToolsCall(t *testing.T) {
 }
 
 func TestMCPHandler_ResourcesList(t *testing.T) {
-	handler := NewMCPHandler(MCPServerInfo{Name: "test", Version: "1.0"})
+	handler := mcp.NewHandler(mcp.ServerInfo{Name: "test", Version: "1.0"})
 
 	// Register a test resource
 	systemResource := NewSystemResource()
 	handler.RegisterResource(systemResource)
 
-	request := map[string]interface{}{
+	request := map[string]any{
 		"jsonrpc": "2.0",
 		"method":  "resources/list",
 		"id":      1,
@@ -228,7 +232,7 @@ func TestMCPHandler_ResourcesList(t *testing.T) {
 	requestData, _ := json.Marshal(request)
 	responseData := handler.ProcessRequest(requestData)
 
-	var response JSONRPCResponse
+	var response jsonrpc.Response
 	if err := json.Unmarshal(responseData, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -237,12 +241,12 @@ func TestMCPHandler_ResourcesList(t *testing.T) {
 		t.Errorf("Expected no error, got %+v", response.Error)
 	}
 
-	result, ok := response.Result.(map[string]interface{})
+	result, ok := response.Result.(map[string]any)
 	if !ok {
 		t.Fatalf("Expected result to be a map, got %T", response.Result)
 	}
 
-	resources, ok := result["resources"].([]interface{})
+	resources, ok := result["resources"].([]any)
 	if !ok {
 		t.Fatal("resources not found or not a slice")
 	}
@@ -251,23 +255,23 @@ func TestMCPHandler_ResourcesList(t *testing.T) {
 		t.Errorf("Expected 1 resource, got %d", len(resources))
 	}
 
-	resource := resources[0].(map[string]interface{})
+	resource := resources[0].(map[string]any)
 	if resource["uri"] != systemResource.URI() {
 		t.Errorf("Expected resource URI %s, got %v", systemResource.URI(), resource["uri"])
 	}
 }
 
 func TestMCPHandler_ResourcesRead(t *testing.T) {
-	handler := NewMCPHandler(MCPServerInfo{Name: "test", Version: "1.0"})
+	handler := mcp.NewHandler(mcp.ServerInfo{Name: "test", Version: "1.0"})
 
 	// Register a test resource
 	systemResource := NewSystemResource()
 	handler.RegisterResource(systemResource)
 
-	request := map[string]interface{}{
+	request := map[string]any{
 		"jsonrpc": "2.0",
 		"method":  "resources/read",
-		"params": map[string]interface{}{
+		"params": map[string]any{
 			"uri": systemResource.URI(),
 		},
 		"id": 1,
@@ -276,7 +280,7 @@ func TestMCPHandler_ResourcesRead(t *testing.T) {
 	requestData, _ := json.Marshal(request)
 	responseData := handler.ProcessRequest(requestData)
 
-	var response JSONRPCResponse
+	var response jsonrpc.Response
 	if err := json.Unmarshal(responseData, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -285,12 +289,12 @@ func TestMCPHandler_ResourcesRead(t *testing.T) {
 		t.Errorf("Expected no error, got %+v", response.Error)
 	}
 
-	result, ok := response.Result.(map[string]interface{})
+	result, ok := response.Result.(map[string]any)
 	if !ok {
 		t.Fatalf("Expected result to be a map, got %T", response.Result)
 	}
 
-	contents, ok := result["contents"].([]interface{})
+	contents, ok := result["contents"].([]any)
 	if !ok {
 		t.Fatal("contents not found or not a slice")
 	}
@@ -299,14 +303,14 @@ func TestMCPHandler_ResourcesRead(t *testing.T) {
 		t.Fatal("Expected at least one content item")
 	}
 
-	content := contents[0].(map[string]interface{})
+	content := contents[0].(map[string]any)
 	if content["uri"] != systemResource.URI() {
 		t.Errorf("Expected content URI %s, got %v", systemResource.URI(), content["uri"])
 	}
 }
 
 func TestMCPHandler_ResourcesRead_Validation(t *testing.T) {
-	handler := NewMCPHandler(MCPServerInfo{Name: "test", Version: "1.0"})
+	handler := mcp.NewHandler(mcp.ServerInfo{Name: "test", Version: "1.0"})
 
 	// Register a test resource
 	systemResource := NewSystemResource()
@@ -314,37 +318,37 @@ func TestMCPHandler_ResourcesRead_Validation(t *testing.T) {
 
 	testCases := []struct {
 		name        string
-		params      map[string]interface{}
+		params      map[string]any
 		expectError bool
 		errorMsg    string
 	}{
 		{
 			name:        "empty params",
-			params:      map[string]interface{}{},
+			params:      map[string]any{},
 			expectError: true,
 			errorMsg:    "uri parameter is required",
 		},
 		{
 			name:        "empty uri",
-			params:      map[string]interface{}{"uri": ""},
+			params:      map[string]any{"uri": ""},
 			expectError: true,
 			errorMsg:    "uri parameter is required",
 		},
 		{
 			name:        "arguments param instead of uri",
-			params:      map[string]interface{}{"arguments": map[string]interface{}{}},
+			params:      map[string]any{"arguments": map[string]any{}},
 			expectError: true,
 			errorMsg:    "expects 'uri' parameter, not 'arguments'",
 		},
 		{
 			name:        "valid uri",
-			params:      map[string]interface{}{"uri": systemResource.URI()},
+			params:      map[string]any{"uri": systemResource.URI()},
 			expectError: false,
 			errorMsg:    "",
 		},
 		{
 			name:        "nonexistent resource",
-			params:      map[string]interface{}{"uri": "nonexistent://resource"},
+			params:      map[string]any{"uri": "nonexistent://resource"},
 			expectError: true,
 			errorMsg:    "resource not found",
 		},
@@ -352,7 +356,7 @@ func TestMCPHandler_ResourcesRead_Validation(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			request := map[string]interface{}{
+			request := map[string]any{
 				"jsonrpc": "2.0",
 				"method":  "resources/read",
 				"params":  tc.params,
@@ -362,7 +366,7 @@ func TestMCPHandler_ResourcesRead_Validation(t *testing.T) {
 			requestData, _ := json.Marshal(request)
 			responseData := handler.ProcessRequest(requestData)
 
-			var response JSONRPCResponse
+			var response jsonrpc.Response
 			if err := json.Unmarshal(responseData, &response); err != nil {
 				t.Fatalf("Failed to unmarshal response: %v", err)
 			}
@@ -392,11 +396,11 @@ func TestMCPHandler_ResourcesRead_Validation(t *testing.T) {
 }
 
 func TestMCPHandler_ResourcesRead_InvalidParams(t *testing.T) {
-	handler := NewMCPHandler(MCPServerInfo{Name: "test", Version: "1.0"})
+	handler := mcp.NewHandler(mcp.ServerInfo{Name: "test", Version: "1.0"})
 
 	testCases := []struct {
 		name        string
-		params      interface{}
+		params      any
 		expectError bool
 		errorMsg    string
 	}{
@@ -422,7 +426,7 @@ func TestMCPHandler_ResourcesRead_InvalidParams(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			request := map[string]interface{}{
+			request := map[string]any{
 				"jsonrpc": "2.0",
 				"method":  "resources/read",
 				"params":  tc.params,
@@ -432,7 +436,7 @@ func TestMCPHandler_ResourcesRead_InvalidParams(t *testing.T) {
 			requestData, _ := json.Marshal(request)
 			responseData := handler.ProcessRequest(requestData)
 
-			var response JSONRPCResponse
+			var response jsonrpc.Response
 			if err := json.Unmarshal(responseData, &response); err != nil {
 				t.Fatalf("Failed to unmarshal response: %v", err)
 			}
@@ -462,9 +466,9 @@ func TestMCPHandler_ResourcesRead_InvalidParams(t *testing.T) {
 }
 
 func TestMCPHandler_Ping(t *testing.T) {
-	handler := NewMCPHandler(MCPServerInfo{Name: "test", Version: "1.0"})
+	handler := mcp.NewHandler(mcp.ServerInfo{Name: "test", Version: "1.0"})
 
-	request := map[string]interface{}{
+	request := map[string]any{
 		"jsonrpc": "2.0",
 		"method":  "ping",
 		"id":      1,
@@ -473,7 +477,7 @@ func TestMCPHandler_Ping(t *testing.T) {
 	requestData, _ := json.Marshal(request)
 	responseData := handler.ProcessRequest(requestData)
 
-	var response JSONRPCResponse
+	var response jsonrpc.Response
 	if err := json.Unmarshal(responseData, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -482,7 +486,7 @@ func TestMCPHandler_Ping(t *testing.T) {
 		t.Errorf("Expected no error, got %+v", response.Error)
 	}
 
-	result, ok := response.Result.(map[string]interface{})
+	result, ok := response.Result.(map[string]any)
 	if !ok {
 		t.Fatalf("Expected result to be a map, got %T", response.Result)
 	}
@@ -493,10 +497,10 @@ func TestMCPHandler_Ping(t *testing.T) {
 }
 
 func TestMCPHandler_ServeHTTP(t *testing.T) {
-	handler := NewMCPHandler(MCPServerInfo{Name: "test", Version: "1.0"})
+	handler := mcp.NewHandler(mcp.ServerInfo{Name: "test", Version: "1.0"})
 
 	// Test valid POST request
-	request := map[string]interface{}{
+	request := map[string]any{
 		"jsonrpc": "2.0",
 		"method":  "ping",
 		"id":      1,
@@ -513,7 +517,7 @@ func TestMCPHandler_ServeHTTP(t *testing.T) {
 		t.Errorf("Expected status 200, got %d", w.Code)
 	}
 
-	var response JSONRPCResponse
+	var response jsonrpc.Response
 	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -524,7 +528,7 @@ func TestMCPHandler_ServeHTTP(t *testing.T) {
 }
 
 func TestMCPHandler_ServeHTTP_MethodNotAllowed(t *testing.T) {
-	handler := NewMCPHandler(MCPServerInfo{Name: "test", Version: "1.0"})
+	handler := mcp.NewHandler(mcp.ServerInfo{Name: "test", Version: "1.0"})
 
 	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
 	w := httptest.NewRecorder()
@@ -543,7 +547,7 @@ func TestMCPHandler_ServeHTTP_MethodNotAllowed(t *testing.T) {
 }
 
 func TestMCPHandler_ServeHTTP_InvalidContentType(t *testing.T) {
-	handler := NewMCPHandler(MCPServerInfo{Name: "test", Version: "1.0"})
+	handler := mcp.NewHandler(mcp.ServerInfo{Name: "test", Version: "1.0"})
 
 	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader([]byte(`{}`)))
 	req.Header.Set("Content-Type", "text/plain")
@@ -557,7 +561,7 @@ func TestMCPHandler_ServeHTTP_InvalidContentType(t *testing.T) {
 }
 
 func TestMCPHandler_MultipleNamespaces(t *testing.T) {
-	handler := NewMCPHandler(MCPServerInfo{Name: "testserver", Version: "1.0"})
+	handler := mcp.NewHandler(mcp.ServerInfo{Name: "testserver", Version: "1.0"})
 
 	// Create test tools for different namespaces
 	calcTool := NewCalculatorTool()
@@ -578,34 +582,34 @@ func TestMCPHandler_MultipleNamespaces(t *testing.T) {
 		"calculator",             // backward compatible tool (no prefix)
 	}
 
-	if len(handler.tools) != 3 {
-		t.Errorf("Expected 3 tools, got %d", len(handler.tools))
+	if handler.ToolCount() != 3 {
+		t.Errorf("Expected 3 tools, got %d", handler.ToolCount())
 	}
 
 	for _, expectedTool := range expectedTools {
-		if _, exists := handler.tools[expectedTool]; !exists {
+		if !handler.HasTool(expectedTool) {
 			t.Errorf("Expected tool %s not found", expectedTool)
 		}
 	}
 
 	// Test tools/list returns prefixed names
-	listRequest := &JSONRPCRequest{
+	listRequest := &jsonrpc.Request{
 		JSONRPC: "2.0",
 		Method:  "tools/list",
 		ID:      1,
 	}
 
-	response := handler.rpcEngine.ProcessRequestDirect(listRequest)
+	response := handler.RPCEngine().ProcessRequestDirect(listRequest)
 	if response.Error != nil {
 		t.Fatalf("tools/list failed: %v", response.Error)
 	}
 
-	result, ok := response.Result.(map[string]interface{})
+	result, ok := response.Result.(map[string]any)
 	if !ok {
 		t.Fatalf("Expected result to be a map, got %T", response.Result)
 	}
 
-	tools, ok := result["tools"].([]map[string]interface{})
+	tools, ok := result["tools"].([]map[string]any)
 	if !ok {
 		t.Fatal("tools not found or not a slice")
 	}
@@ -621,25 +625,19 @@ func TestMCPHandler_MultipleNamespaces(t *testing.T) {
 	}
 
 	for _, expectedTool := range expectedTools {
-		found := false
-		for _, toolName := range toolNames {
-			if toolName == expectedTool {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(toolNames, expectedTool)
 		if !found {
 			t.Errorf("Expected tool %s not found in tools/list response", expectedTool)
 		}
 	}
 
 	// Test that tools can be called with their registered names
-	callRequest := &JSONRPCRequest{
+	callRequest := &jsonrpc.Request{
 		JSONRPC: "2.0",
 		Method:  "tools/call",
-		Params: map[string]interface{}{
+		Params: map[string]any{
 			"name": "mcp__math__calculator", // Use the namespace-prefixed tool
-			"arguments": map[string]interface{}{
+			"arguments": map[string]any{
 				"operation": "add",
 				"a":         5.0,
 				"b":         3.0,
@@ -648,13 +646,13 @@ func TestMCPHandler_MultipleNamespaces(t *testing.T) {
 		ID: 2,
 	}
 
-	response = handler.rpcEngine.ProcessRequestDirect(callRequest)
+	response = handler.RPCEngine().ProcessRequestDirect(callRequest)
 	if response.Error != nil {
 		t.Errorf("tools/call failed: %v", response.Error)
 	}
 
 	// The result should contain the calculation result
-	resultMap, ok := response.Result.(map[string]interface{})
+	resultMap, ok := response.Result.(map[string]any)
 	if !ok {
 		t.Fatalf("Expected result to be a map, got %T", response.Result)
 	}
@@ -665,7 +663,7 @@ func TestMCPHandler_MultipleNamespaces(t *testing.T) {
 }
 
 func TestMCPNamespace_RegisterNamespace(t *testing.T) {
-	handler := NewMCPHandler(MCPServerInfo{Name: "testserver", Version: "1.0"})
+	handler := mcp.NewHandler(mcp.ServerInfo{Name: "testserver", Version: "1.0"})
 
 	// Create test tools
 	calc1 := NewCalculatorTool()
@@ -673,14 +671,14 @@ func TestMCPNamespace_RegisterNamespace(t *testing.T) {
 
 	// Register a namespace with multiple tools
 	err := handler.RegisterNamespace("analytics",
-		WithNamespaceTools(calc1, calc2),
+		mcp.WithNamespaceTools(calc1, calc2),
 	)
 	if err != nil {
 		t.Fatalf("Failed to register namespace: %v", err)
 	}
 
 	// Verify namespace was registered
-	if _, exists := handler.namespaces["analytics"]; !exists {
+	if !handler.HasNamespace("analytics") {
 		t.Error("Expected namespace 'analytics' to be registered")
 	}
 
@@ -690,7 +688,7 @@ func TestMCPNamespace_RegisterNamespace(t *testing.T) {
 	// Note: Since both calc tools have the same name, the second one overwrites the first
 	// This is expected behavior
 	toolCount := 0
-	for toolName := range handler.tools {
+	for _, toolName := range handler.GetRegisteredTools() {
 		if strings.HasPrefix(toolName, "mcp__analytics__") {
 			toolCount++
 		}
@@ -702,10 +700,10 @@ func TestMCPNamespace_RegisterNamespace(t *testing.T) {
 }
 
 func TestMCPNamespace_EmptyNamespace(t *testing.T) {
-	handler := NewMCPHandler(MCPServerInfo{Name: "testserver", Version: "1.0"})
+	handler := mcp.NewHandler(mcp.ServerInfo{Name: "testserver", Version: "1.0"})
 
 	// Try to register namespace with empty name
-	err := handler.RegisterNamespace("", WithNamespaceTools())
+	err := handler.RegisterNamespace("", mcp.WithNamespaceTools())
 	if err == nil {
 		t.Error("Expected error when registering namespace with empty name")
 	}
@@ -716,7 +714,7 @@ func TestMCPNamespace_EmptyNamespace(t *testing.T) {
 }
 
 func TestMCPHandler_ServeHTTP_AcceptJSON(t *testing.T) {
-	handler := NewMCPHandler(MCPServerInfo{Name: "test", Version: "1.0"})
+	handler := mcp.NewHandler(mcp.ServerInfo{Name: "test", Version: "1.0"})
 
 	tests := []struct {
 		name   string
@@ -751,7 +749,7 @@ func TestMCPHandler_ServeHTTP_AcceptJSON(t *testing.T) {
 			}
 
 			// Verify JSON structure
-			var response map[string]interface{}
+			var response map[string]any
 			if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
 				t.Errorf("Failed to unmarshal JSON response: %v", err)
 			}
@@ -781,7 +779,7 @@ func TestMCPHandler_ServeHTTP_AcceptJSON(t *testing.T) {
 }
 
 func TestMCPHandler_ServeHTTP_AcceptHTML(t *testing.T) {
-	handler := NewMCPHandler(MCPServerInfo{Name: "test", Version: "1.0"})
+	handler := mcp.NewHandler(mcp.ServerInfo{Name: "test", Version: "1.0"})
 
 	tests := []struct {
 		name   string
@@ -826,7 +824,7 @@ func TestMCPHandler_ServeHTTP_AcceptHTML(t *testing.T) {
 }
 
 func TestMCPHandler_GetCapabilities_Consistency(t *testing.T) {
-	handler := NewMCPHandler(MCPServerInfo{Name: "test", Version: "1.0"})
+	handler := mcp.NewHandler(mcp.ServerInfo{Name: "test", Version: "1.0"})
 
 	// Get capabilities from GET request
 	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
@@ -834,16 +832,22 @@ func TestMCPHandler_GetCapabilities_Consistency(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	var getResponse map[string]interface{}
+	var getResponse map[string]any
 	json.Unmarshal(w.Body.Bytes(), &getResponse)
 	getCaps := getResponse["capabilities"]
 
-	// Get capabilities from initialize
-	initResult, _ := handler.handleInitialize(map[string]interface{}{
-		"protocolVersion": "2024-11-05",
-		"clientInfo":      map[string]interface{}{"name": "test", "version": "1.0"},
-	})
-	initResponse := initResult.(map[string]interface{})
+	// Get capabilities from initialize via JSON-RPC
+	initReq := &jsonrpc.Request{
+		JSONRPC: jsonrpc.Version,
+		Method:  "initialize",
+		Params: map[string]any{
+			"protocolVersion": "2024-11-05",
+			"clientInfo":      map[string]any{"name": "test", "version": "1.0"},
+		},
+		ID: 1,
+	}
+	initRPCResp := handler.RPCEngine().ProcessRequestDirect(initReq)
+	initResponse := initRPCResp.Result.(map[string]any)
 	initCaps := initResponse["capabilities"]
 
 	// Both should be the same when marshaled to JSON
@@ -857,7 +861,7 @@ func TestMCPHandler_GetCapabilities_Consistency(t *testing.T) {
 	}
 
 	// Parse both JSON back to maps for comparison (to normalize field order)
-	var getCapsParsed, initCapsParsed map[string]interface{}
+	var getCapsParsed, initCapsParsed map[string]any
 	json.Unmarshal(getCapsJSON, &getCapsParsed)
 	json.Unmarshal(initCapsJSON, &initCapsParsed)
 
@@ -873,7 +877,7 @@ func TestMCPHandler_GetCapabilities_Consistency(t *testing.T) {
 }
 
 func TestMCPHandler_AcceptHeader_EdgeCases(t *testing.T) {
-	handler := NewMCPHandler(MCPServerInfo{Name: "test", Version: "1.0"})
+	handler := mcp.NewHandler(mcp.ServerInfo{Name: "test", Version: "1.0"})
 
 	tests := []struct {
 		name        string

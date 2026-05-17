@@ -43,7 +43,7 @@ func TestMiddlewareLogBehavior(t *testing.T) {
 
 	// Make multiple requests
 	httpHandler := srv.middleware.applyToMux(srv.mux)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		req := httptest.NewRequest("GET", "/api/test", nil)
 		req.Header.Set("Authorization", "Bearer test-token")
 		rec := httptest.NewRecorder()
@@ -80,7 +80,6 @@ func TestMiddlewareLogBehavior(t *testing.T) {
 		"HeadersMiddleware enabled",
 		"ResponseTimeMiddleware enabled",
 		"TraceMiddleware enabled",
-		"ChaosMiddleware enabled",
 		"trailingSlashMiddleware enabled",
 	}
 
@@ -136,7 +135,7 @@ func TestMiddlewareOnlyLogsOncePerRoute(t *testing.T) {
 	httpHandler.ServeHTTP(rec2, req2)
 
 	// Multiple requests to same route
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		req := httptest.NewRequest("GET", "/", nil)
 		rec := httptest.NewRecorder()
 		httpHandler.ServeHTTP(rec, req)

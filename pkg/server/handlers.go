@@ -20,7 +20,7 @@ func writeErrorResponse(w http.ResponseWriter, status int, message string) {
 }
 
 // templateHandler serves HTML templates with dynamic content.
-func (srv *Server) templateHandler(templateName string, data interface{}) http.HandlerFunc {
+func (srv *Server) templateHandler(templateName string, data any) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 

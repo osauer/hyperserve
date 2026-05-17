@@ -32,8 +32,6 @@ import (
 	"crypto/subtle"
 	"fmt"
 	"io"
-	"log"
-	"math/rand"
 	"net"
 	"net/http"
 	"reflect"
@@ -227,11 +225,11 @@ func AuthMiddleware(options *ServerOptions) MiddlewareFunc {
 			authHeader := r.Header.Get(authorizationHeader)
 
 			// check if header has bearer token
-			if !strings.HasPrefix(authHeader, bearerTokenPrefix) {
+			token, ok := strings.CutPrefix(authHeader, bearerTokenPrefix)
+			if !ok {
 				http.Error(w, "Unauthorized: Bearer token required", http.StatusUnauthorized)
 				return
 			}
-			token := strings.TrimPrefix(authHeader, bearerTokenPrefix)
 			if token == "" {
 				http.Error(w, "Unauthorized: Bearer token invalid", http.StatusUnauthorized)
 				return
@@ -337,28 +335,28 @@ func RateLimitMiddleware(srv *Server) MiddlewareFunc {
 			ip, _, _ := net.SplitHostPort(r.RemoteAddr)
 
 			// Try to get existing limiter with read lock (fast path)
-			srv.limitersMu.RLock()
-			entry, exists := srv.clientLimiters[ip]
-			srv.limitersMu.RUnlock()
+			srv.rateLimiters.mu.RLock()
+			entry, exists := srv.rateLimiters.clients[ip]
+			srv.rateLimiters.mu.RUnlock()
 
 			if !exists {
 				// Create new limiter with write lock
-				srv.limitersMu.Lock()
+				srv.rateLimiters.mu.Lock()
 				// Double-check in case another goroutine created it
-				entry, exists = srv.clientLimiters[ip]
+				entry, exists = srv.rateLimiters.clients[ip]
 				if !exists {
 					entry = &rateLimiterEntry{
 						limiter:    rate.NewLimiter(srv.Options.RateLimit, srv.Options.Burst),
 						lastAccess: time.Now(),
 					}
-					srv.clientLimiters[ip] = entry
+					srv.rateLimiters.clients[ip] = entry
 				}
-				srv.limitersMu.Unlock()
+				srv.rateLimiters.mu.Unlock()
 			} else {
 				// Update last access time
-				srv.limitersMu.Lock()
+				srv.rateLimiters.mu.Lock()
 				entry.lastAccess = time.Now()
-				srv.limitersMu.Unlock()
+				srv.rateLimiters.mu.Unlock()
 			}
 
 			if entry.limiter.Allow() {
@@ -510,67 +508,13 @@ func addVaryHeader(w http.ResponseWriter, value string) {
 	}
 	existing := w.Header().Values("Vary")
 	for _, header := range existing {
-		for _, token := range strings.Split(header, ",") {
+		for token := range strings.SplitSeq(header, ",") {
 			if strings.EqualFold(strings.TrimSpace(token), value) {
 				return
 			}
 		}
 	}
 	w.Header().Add("Vary", value)
-}
-
-// ChaosMiddleware returns a middleware handler that simulates random failures for chaos engineering.
-// When chaos mode is enabled, can inject random latency, errors, throttling, and panics.
-// Useful for testing application resilience and error handling.
-func ChaosMiddleware(options *ServerOptions) MiddlewareFunc {
-	return func(next http.Handler) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
-			if !options.ChaosMode {
-				// Pass through if Chaos Mode is not enabled
-				next.ServeHTTP(w, r)
-				return
-			}
-			logger.Warn("Chaos Mode enabled")
-			// Random latency
-
-			if options.ChaosMaxLatency > 0 && options.ChaosMinLatency < options.ChaosMaxLatency {
-				latency := time.Duration(rand.Int63n(int64(options.ChaosMaxLatency-options.
-					ChaosMinLatency))) + options.ChaosMinLatency
-				log.Printf("[CHAOS] Adding latency: %v\n", latency)
-				time.Sleep(latency)
-			}
-
-			// Random error response
-			if rand.Float64() < options.ChaosErrorRate {
-				statusCodes := []int{500, 503, 502}
-				errorCode := statusCodes[rand.Intn(len(statusCodes))]
-				log.Printf("[CHAOS] Returning error: %d\n", errorCode)
-				http.Error(w, http.StatusText(errorCode), errorCode)
-				return
-			}
-
-			// Random throttling
-			if rand.Float64() < options.ChaosThrottleRate {
-				log.Printf("[CHAOS] Simulating throttling (429 Too Many Requests)\n")
-				http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
-				return
-			}
-
-			// Random panic (gracefully recovered)
-			if rand.Float64() < options.ChaosPanicRate {
-				log.Printf("[CHAOS] Simulating panic\n")
-				defer func() {
-					if err := recover(); err != nil {
-						log.Printf("[CHAOS] Recovered from panic: %v\n", err)
-					}
-				}()
-				panic("Simulated Chaos Mode Panic")
-			}
-
-			// Proceed with normal handler
-			next.ServeHTTP(w, r)
-		}
-	}
 }
 
 // TraceMiddleware returns a middleware function that adds trace IDs to requests.

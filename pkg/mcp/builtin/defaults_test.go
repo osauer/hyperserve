@@ -1,8 +1,10 @@
-package server
+package builtin
 
 import (
 	"bytes"
 	"encoding/json"
+	jsonrpc "github.com/osauer/hyperserve/pkg/jsonrpc"
+	"github.com/osauer/hyperserve/pkg/server"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,15 +14,15 @@ import (
 func TestMCPBuiltinDefaults(t *testing.T) {
 	t.Run("BuiltinToolsDisabledByDefault", func(t *testing.T) {
 		// Create server with MCP support but no explicit tool enabling
-		srv, err := NewServer(
-			WithMCPSupport("test-server", "1.0.0"),
+		srv, err := server.NewServer(
+			server.WithMCPSupport("test-server", "1.0.0"),
 		)
 		if err != nil {
 			t.Fatalf("Failed to create server: %v", err)
 		}
 
 		// List tools
-		request := map[string]interface{}{
+		request := map[string]any{
 			"jsonrpc": "2.0",
 			"method":  "tools/list",
 			"id":      1,
@@ -34,12 +36,12 @@ func TestMCPBuiltinDefaults(t *testing.T) {
 		}
 
 		// Parse result
-		result, ok := response.Result.(map[string]interface{})
+		result, ok := response.Result.(map[string]any)
 		if !ok {
 			t.Fatal("Expected result to be a map")
 		}
 
-		tools, ok := result["tools"].([]interface{})
+		tools, ok := result["tools"].([]any)
 		if !ok {
 			t.Fatal("Expected tools to be an array")
 		}
@@ -52,15 +54,15 @@ func TestMCPBuiltinDefaults(t *testing.T) {
 
 	t.Run("BuiltinResourcesDisabledByDefault", func(t *testing.T) {
 		// Create server with MCP support but no explicit resource enabling
-		srv, err := NewServer(
-			WithMCPSupport("test-server", "1.0.0"),
+		srv, err := server.NewServer(
+			server.WithMCPSupport("test-server", "1.0.0"),
 		)
 		if err != nil {
 			t.Fatalf("Failed to create server: %v", err)
 		}
 
 		// List resources
-		request := map[string]interface{}{
+		request := map[string]any{
 			"jsonrpc": "2.0",
 			"method":  "resources/list",
 			"id":      1,
@@ -74,12 +76,12 @@ func TestMCPBuiltinDefaults(t *testing.T) {
 		}
 
 		// Parse result
-		result, ok := response.Result.(map[string]interface{})
+		result, ok := response.Result.(map[string]any)
 		if !ok {
 			t.Fatal("Expected result to be a map")
 		}
 
-		resources, ok := result["resources"].([]interface{})
+		resources, ok := result["resources"].([]any)
 		if !ok {
 			t.Fatal("Expected resources to be an array")
 		}
@@ -92,16 +94,16 @@ func TestMCPBuiltinDefaults(t *testing.T) {
 
 	t.Run("BuiltinToolsEnabledExplicitly", func(t *testing.T) {
 		// Create server with MCP support and explicitly enable tools
-		srv, err := NewServer(
-			WithMCPSupport("test-server", "1.0.0"),
-			WithMCPBuiltinTools(true),
+		srv, err := server.NewServer(
+			server.WithMCPSupport("test-server", "1.0.0"),
+			server.WithMCPBuiltinTools(true),
 		)
 		if err != nil {
 			t.Fatalf("Failed to create server: %v", err)
 		}
 
 		// List tools
-		request := map[string]interface{}{
+		request := map[string]any{
 			"jsonrpc": "2.0",
 			"method":  "tools/list",
 			"id":      1,
@@ -115,12 +117,12 @@ func TestMCPBuiltinDefaults(t *testing.T) {
 		}
 
 		// Parse result
-		result, ok := response.Result.(map[string]interface{})
+		result, ok := response.Result.(map[string]any)
 		if !ok {
 			t.Fatal("Expected result to be a map")
 		}
 
-		tools, ok := result["tools"].([]interface{})
+		tools, ok := result["tools"].([]any)
 		if !ok {
 			t.Fatal("Expected tools to be an array")
 		}
@@ -133,7 +135,7 @@ func TestMCPBuiltinDefaults(t *testing.T) {
 		// Check for specific tools
 		toolNames := make(map[string]bool)
 		for _, tool := range tools {
-			toolMap, ok := tool.(map[string]interface{})
+			toolMap, ok := tool.(map[string]any)
 			if ok {
 				if name, ok := toolMap["name"].(string); ok {
 					toolNames[name] = true
@@ -152,16 +154,16 @@ func TestMCPBuiltinDefaults(t *testing.T) {
 
 	t.Run("BuiltinResourcesEnabledExplicitly", func(t *testing.T) {
 		// Create server with MCP support and explicitly enable resources
-		srv, err := NewServer(
-			WithMCPSupport("test-server", "1.0.0"),
-			WithMCPBuiltinResources(true),
+		srv, err := server.NewServer(
+			server.WithMCPSupport("test-server", "1.0.0"),
+			server.WithMCPBuiltinResources(true),
 		)
 		if err != nil {
 			t.Fatalf("Failed to create server: %v", err)
 		}
 
 		// List resources
-		request := map[string]interface{}{
+		request := map[string]any{
 			"jsonrpc": "2.0",
 			"method":  "resources/list",
 			"id":      1,
@@ -175,12 +177,12 @@ func TestMCPBuiltinDefaults(t *testing.T) {
 		}
 
 		// Parse result
-		result, ok := response.Result.(map[string]interface{})
+		result, ok := response.Result.(map[string]any)
 		if !ok {
 			t.Fatal("Expected result to be a map")
 		}
 
-		resources, ok := result["resources"].([]interface{})
+		resources, ok := result["resources"].([]any)
 		if !ok {
 			t.Fatal("Expected resources to be an array")
 		}
@@ -193,7 +195,7 @@ func TestMCPBuiltinDefaults(t *testing.T) {
 		// Check for specific resources
 		resourceURIs := make(map[string]bool)
 		for _, resource := range resources {
-			resourceMap, ok := resource.(map[string]interface{})
+			resourceMap, ok := resource.(map[string]any)
 			if ok {
 				if uri, ok := resourceMap["uri"].(string); ok {
 					resourceURIs[uri] = true
@@ -213,8 +215,8 @@ func TestMCPBuiltinDefaults(t *testing.T) {
 
 // TestMCPGetRequest verifies that GET requests return helpful documentation
 func TestMCPGetRequest(t *testing.T) {
-	srv, err := NewServer(
-		WithMCPSupport("test-server", "1.0.0"),
+	srv, err := server.NewServer(
+		server.WithMCPSupport("test-server", "1.0.0"),
 	)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
@@ -223,7 +225,7 @@ func TestMCPGetRequest(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
 	w := httptest.NewRecorder()
 
-	srv.mcpHandler.ServeHTTP(w, req)
+	srv.MCPHandler().ServeHTTP(w, req)
 
 	// Should return 200 OK with HTML content
 	if w.Code != http.StatusOK {
@@ -245,7 +247,7 @@ func TestMCPGetRequest(t *testing.T) {
 }
 
 // Helper function to make MCP request to a server
-func makeMCPRequestToServer(t *testing.T, srv *Server, request map[string]interface{}) JSONRPCResponse {
+func makeMCPRequestToServer(t *testing.T, srv *server.Server, request map[string]any) jsonrpc.Response {
 	requestData, err := json.Marshal(request)
 	if err != nil {
 		t.Fatalf("Failed to marshal request: %v", err)
@@ -255,14 +257,14 @@ func makeMCPRequestToServer(t *testing.T, srv *Server, request map[string]interf
 	req.Header.Set("Content-Type", "application/json")
 
 	w := httptest.NewRecorder()
-	srv.mcpHandler.ServeHTTP(w, req)
+	srv.MCPHandler().ServeHTTP(w, req)
 
 	// Should return 200 OK
 	if w.Code != http.StatusOK {
 		t.Fatalf("Expected status 200, got %d", w.Code)
 	}
 
-	var response JSONRPCResponse
+	var response jsonrpc.Response
 	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}

@@ -108,8 +108,8 @@ func renderTemplates(dest string, data templateData) error {
 
 		output := buf.Bytes()
 		destPath := filepath.Join(dest, relPath)
-		if strings.HasSuffix(destPath, ".tmpl") {
-			destPath = strings.TrimSuffix(destPath, ".tmpl")
+		if before, ok := strings.CutSuffix(destPath, ".tmpl"); ok {
+			destPath = before
 		}
 
 		if strings.HasSuffix(destPath, ".go") {

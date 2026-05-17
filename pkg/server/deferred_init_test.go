@@ -112,7 +112,7 @@ func TestDeferredInitLifecycle(t *testing.T) {
 	}
 	defer srv.stopCleanup()
 
-	srv.lifecycleCtx, srv.lifecycleCancel = context.WithCancel(context.Background())
+	srv.deferred.ctx, srv.deferred.cancel = context.WithCancel(context.Background())
 	errChan := make(chan error, 1)
 	srv.startDeferredInit(errChan)
 
@@ -207,7 +207,7 @@ func TestDeferredInitFailureWithoutShutdown(t *testing.T) {
 	}
 	defer srv.stopCleanup()
 
-	srv.lifecycleCtx, srv.lifecycleCancel = context.WithCancel(context.Background())
+	srv.deferred.ctx, srv.deferred.cancel = context.WithCancel(context.Background())
 	errChan := make(chan error, 1)
 	srv.startDeferredInit(errChan)
 
@@ -269,7 +269,7 @@ func TestCompleteDeferredInitAllowsManualRecovery(t *testing.T) {
 	}
 	defer srv.stopCleanup()
 
-	srv.lifecycleCtx, srv.lifecycleCancel = context.WithCancel(context.Background())
+	srv.deferred.ctx, srv.deferred.cancel = context.WithCancel(context.Background())
 	srv.startDeferredInit(nil)
 	time.Sleep(50 * time.Millisecond)
 

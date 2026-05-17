@@ -50,9 +50,9 @@ Graceful Shutdown with Hooks:
 		}),
 	)
 
-WebSocket Support:
+WebSocket Support (import websocket "github.com/osauer/hyperserve/pkg/websocket"):
 
-	upgrader := server.Upgrader{
+	upgrader := websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
 			return true // Configure based on your needs
 		},
@@ -87,6 +87,7 @@ import (
 	"html/template"
 	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -100,6 +101,9 @@ import (
 	"time"
 
 	"golang.org/x/time/rate"
+
+	"github.com/osauer/hyperserve/pkg/mcp"
+	"github.com/osauer/hyperserve/pkg/websocket"
 )
 
 func init() {
@@ -220,24 +224,36 @@ type Server struct {
 	totalResponseTime    atomic.Int64
 	websocketConnections atomic.Uint64
 	serverStart          time.Time
-	clientLimiters       map[string]*rateLimiterEntry
-	limitersMu           sync.RWMutex
 	routesMu             sync.RWMutex
-	cleanupTicker        *time.Ticker
-	cleanupDone          chan bool
 	staticRoot           *os.Root
 	templateRoot         *os.Root
-	mcpHandler           *MCPHandler
-	deferredInit         func(context.Context, *Server) error
-	deferredInitCancel   context.CancelFunc
-	deferredErrMu        sync.RWMutex
-	deferredInitErr      error
-	lifecycleCtx         context.Context
-	lifecycleCancel      context.CancelFunc
-	bootstrapAllowPaths  map[string]struct{}
-	registeredRoutes     map[string]struct{}
-	onReadyMu            sync.Mutex
-	onReadyExecuted      atomic.Bool
+	mcpHandler           *mcp.Handler
+	rateLimiters         rateLimiterPool
+	deferred             deferredLifecycle
+}
+
+// rateLimiterPool owns the per-client rate limiter map and its cleanup ticker.
+type rateLimiterPool struct {
+	clients       map[string]*rateLimiterEntry
+	mu            sync.RWMutex
+	cleanupTicker *time.Ticker
+	cleanupDone   chan bool
+}
+
+// deferredLifecycle tracks the state machine for WithDeferredInit / WithOnReady:
+// before the listener flips to ready, application handlers return 503 and only
+// bootstrap-allowed paths (e.g. /healthz) serve traffic.
+type deferredLifecycle struct {
+	init            func(context.Context, *Server) error
+	initCancel      context.CancelFunc
+	errMu           sync.RWMutex
+	initErr         error
+	ctx             context.Context
+	cancel          context.CancelFunc
+	bootstrapAllow  map[string]struct{}
+	routes          map[string]struct{}
+	onReadyMu       sync.Mutex
+	onReadyExecuted atomic.Bool
 }
 
 // NewServer creates a new instance of the Server with the given options.
@@ -257,18 +273,22 @@ type Server struct {
 func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 	// init new httpServer
 	srv := &Server{
-		mux:            http.NewServeMux(),
-		Options:        NewServerOptions(),
-		templates:      nil,
-		templatesMu:    sync.Mutex{},
-		clientLimiters: make(map[string]*rateLimiterEntry),
-		cleanupDone:    make(chan bool),
-		bootstrapAllowPaths: map[string]struct{}{
-			"/healthz": {},
-			"/readyz":  {},
-			"/livez":   {},
+		mux:         http.NewServeMux(),
+		Options:     NewServerOptions(),
+		templates:   nil,
+		templatesMu: sync.Mutex{},
+		rateLimiters: rateLimiterPool{
+			clients:     make(map[string]*rateLimiterEntry),
+			cleanupDone: make(chan bool),
 		},
-		registeredRoutes: make(map[string]struct{}),
+		deferred: deferredLifecycle{
+			bootstrapAllow: map[string]struct{}{
+				"/healthz": {},
+				"/readyz":  {},
+				"/livez":   {},
+			},
+			routes: make(map[string]struct{}),
+		},
 	}
 
 	// Apply log level from configuration before anything else
@@ -303,23 +323,23 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 			return nil, err
 		}
 	}
-	if srv.deferredInit == nil && srv.Options.DeferredInit != nil {
-		srv.deferredInit = srv.Options.DeferredInit
+	if srv.deferred.init == nil && srv.Options.DeferredInit != nil {
+		srv.deferred.init = srv.Options.DeferredInit
 	}
 
 	// Auto-configure MCP if enabled via environment/flags but not already configured programmatically
 	if srv.Options.MCPEnabled && srv.Options.MCPServerName != "" && srv.mcpHandler == nil {
 		// Check if MCP was already configured programmatically (via WithMCPSupport)
-		if srv.Options.mcpTransportOpts.developerMode || srv.Options.mcpTransportOpts.observabilityMode {
+		if srv.Options.mcpTransportOpts.DeveloperMode || srv.Options.mcpTransportOpts.ObservabilityMode {
 			// MCP was already configured with specific modes, skip auto-configuration
 			logger.Debug("MCP already configured programmatically, skipping auto-configuration")
 		} else if srv.Options.MCPDev || srv.Options.MCPObservability {
 			// Auto-configure from environment/flags
-			var mcpConfigs []MCPTransportConfig
+			var mcpConfigs []mcp.TransportConfig
 
 			// Set transport
-			if srv.Options.MCPTransport == StdioTransport {
-				mcpConfigs = append(mcpConfigs, MCPOverStdio())
+			if srv.Options.MCPTransport == mcp.StdioTransport {
+				mcpConfigs = append(mcpConfigs, mcp.OverStdio())
 			}
 			// HTTP is the default, no need to explicitly add
 
@@ -359,51 +379,32 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 
 	// Initialize MCP handler if enabled
 	if srv.Options.MCPEnabled {
-		serverInfo := MCPServerInfo{
+		serverInfo := mcp.ServerInfo{
 			Name:    srv.Options.MCPServerName,
 			Version: srv.Options.MCPServerVersion,
 		}
-		srv.mcpHandler = NewMCPHandler(serverInfo)
+		srv.mcpHandler = mcp.NewHandler(serverInfo)
 
-		// Register built-in tools if enabled
-		if srv.Options.MCPToolsEnabled {
-			// File tools
-			fileReadTool, err := NewFileReadTool(srv.Options.MCPFileToolRoot)
-			if err != nil {
-				logger.Warn("Failed to create file read tool", "error", err)
-			} else {
-				srv.mcpHandler.RegisterToolInNamespace(fileReadTool, "hyperserve")
-			}
-
-			listDirTool, err := NewListDirectoryTool(srv.Options.MCPFileToolRoot)
-			if err != nil {
-				logger.Warn("Failed to create list directory tool", "error", err)
-			} else {
-				srv.mcpHandler.RegisterToolInNamespace(listDirTool, "hyperserve")
-			}
-
-			// HTTP request tool
-			srv.mcpHandler.RegisterToolInNamespace(NewHTTPRequestTool(), "hyperserve")
-
-			// Calculator tool
-			srv.mcpHandler.RegisterToolInNamespace(NewCalculatorTool(), "hyperserve")
+		// Built-in tools/resources are registered by pkg/mcp/builtin via the
+		// preset hooks below. The hooks are installed when pkg/mcp/builtin
+		// is imported (typically transitively, when the user picks a preset).
+		// pkg/server does not import builtin to avoid a circular dependency.
+		if srv.Options.mcpTransportOpts.DeveloperMode {
+			logger.Warn("⚠️  MCP DEVELOPER MODE ENABLED ⚠️",
+				"warning", "This mode allows server restart and configuration changes",
+				"security", "Only use in development environments")
 		}
-
-		// Register built-in resources if enabled
+		if srv.Options.MCPToolsEnabled && builtinToolsHook != nil {
+			builtinToolsHook(srv)
+		}
 		if srv.Options.MCPResourcesEnabled {
-			// Check preset mode
-			if srv.Options.mcpTransportOpts.observabilityMode {
-				// Observability mode: minimal monitoring resources only
-				srv.RegisterObservabilityMCPResources()
-			} else if srv.Options.mcpTransportOpts.developerMode {
-				// Developer mode: development tools and resources
-				srv.RegisterDeveloperMCPTools()
-			} else {
-				// Standard mode: full set of built-in resources
-				srv.mcpHandler.RegisterResource(NewConfigResource(srv.Options))
-				srv.mcpHandler.RegisterResource(NewMetricsResource(srv))
-				srv.mcpHandler.RegisterResource(NewSystemResource())
-				srv.mcpHandler.RegisterResource(NewLogResource(srv.Options.MCPLogResourceSize))
+			switch {
+			case srv.Options.mcpTransportOpts.ObservabilityMode && builtinObservabilityHook != nil:
+				builtinObservabilityHook(srv)
+			case srv.Options.mcpTransportOpts.DeveloperMode && builtinDeveloperHook != nil:
+				builtinDeveloperHook(srv)
+			case builtinStandardResourcesHook != nil:
+				builtinStandardResourcesHook(srv)
 			}
 		}
 
@@ -417,10 +418,10 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 	}
 
 	// Start cleanup ticker for rate limiters (run every 5 minutes)
-	srv.cleanupTicker = time.NewTicker(5 * time.Minute)
+	srv.rateLimiters.cleanupTicker = time.NewTicker(5 * time.Minute)
 	go srv.cleanupRateLimiters()
 
-	if srv.deferredInit != nil {
+	if srv.deferred.init != nil {
 		srv.isReady.Store(false)
 	} else {
 		srv.isReady.Store(true)
@@ -446,7 +447,7 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 //	}
 func (srv *Server) Run() error {
 	// Print ASCII art on startup (skip in stdio mode or if suppressed)
-	if srv.Options.MCPTransport != StdioTransport && !srv.Options.SuppressBanner {
+	if srv.Options.MCPTransport != mcp.StdioTransport && !srv.Options.SuppressBanner {
 		srv.printStartupBanner()
 	}
 
@@ -454,8 +455,8 @@ func (srv *Server) Run() error {
 	srv.serverStart = time.Now()
 
 	// Check if we're running in stdio mode for MCP
-	if srv.Options.MCPEnabled && srv.Options.MCPTransport == StdioTransport {
-		if srv.deferredInit != nil {
+	if srv.Options.MCPEnabled && srv.Options.MCPTransport == mcp.StdioTransport {
+		if srv.deferred.init != nil {
 			logger.Warn("Deferred initialization is not supported in MCP stdio transport; ignoring configuration")
 		}
 		// Run MCP in stdio mode
@@ -467,11 +468,11 @@ func (srv *Server) Run() error {
 	}
 
 	lifecycleCtx, lifecycleCancel := context.WithCancel(context.Background())
-	srv.lifecycleCtx = lifecycleCtx
-	srv.lifecycleCancel = lifecycleCancel
+	srv.deferred.ctx = lifecycleCtx
+	srv.deferred.cancel = lifecycleCancel
 
 	baseHandler := srv.middleware.applyToMux(srv.mux)
-	if srv.deferredInit != nil {
+	if srv.deferred.init != nil {
 		baseHandler = srv.bootstrapReadinessHandler(baseHandler)
 	}
 
@@ -503,7 +504,7 @@ func (srv *Server) Run() error {
 	// Channel for server errors
 	serverErr := make(chan error, 1)
 	var deferredErr chan error
-	if srv.deferredInit != nil {
+	if srv.deferred.init != nil {
 		deferredErr = make(chan error, 1)
 	}
 
@@ -549,7 +550,7 @@ func (srv *Server) Run() error {
 	// Mark as running only AFTER all servers (http AND health) are initialized
 	srv.isRunning.Store(true)
 
-	if srv.deferredInit != nil {
+	if srv.deferred.init != nil {
 		srv.startDeferredInit(deferredErr)
 	}
 
@@ -608,13 +609,6 @@ func (srv *Server) tlsConfig() *tls.Config {
 		config.CurvePreferences = nil
 	}
 
-	// Enable Encrypted Client Hello if configured
-	if srv.Options.EnableECH && len(srv.Options.ECHKeys) > 0 {
-		// ECH configuration will be automatically handled by Go 1.24's crypto/tls
-		// when ECH keys are provided in the Config
-		logger.Info("Encrypted Client Hello (ECH) enabled")
-	}
-
 	return config
 }
 
@@ -639,7 +633,7 @@ func (srv *Server) initHealthServer() error {
 	srv.healthMux.HandleFunc("/readyz/", srv.readyzHandler)
 	srv.healthMux.HandleFunc("/livez/", srv.livezHandler)
 
-	baseCtx := srv.lifecycleCtx
+	baseCtx := srv.deferred.ctx
 	if baseCtx == nil {
 		baseCtx = context.Background()
 	}
@@ -709,14 +703,14 @@ func (srv *Server) handleShutdown(serverErr chan error, deferredErr chan error) 
 			shutdownErr := srv.shutdown(ctx)
 			cancel()
 			if shutdownErr != nil {
-				return fmt.Errorf("%v; shutdown error: %w", err, shutdownErr)
+				return errors.Join(err, fmt.Errorf("shutdown error: %w", shutdownErr))
 			}
 			return err
 		case err := <-serverErr:
 			srv.isRunning.Store(false)
 			srv.isReady.Store(false)
-			if srv.lifecycleCancel != nil {
-				srv.lifecycleCancel()
+			if srv.deferred.cancel != nil {
+				srv.deferred.cancel()
 			}
 			if err != nil && !errors.Is(err, http.ErrServerClosed) {
 				srv.stopCleanup()
@@ -735,18 +729,18 @@ func (srv *Server) handleShutdown(serverErr chan error, deferredErr chan error) 
 }
 
 func (srv *Server) startDeferredInit(errChan chan<- error) {
-	ctx := srv.lifecycleCtx
+	ctx := srv.deferred.ctx
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	initCtx, cancel := context.WithCancel(ctx)
-	srv.deferredInitCancel = cancel
+	srv.deferred.initCancel = cancel
 	srv.isReady.Store(false)
 
 	go func() {
 		defer cancel()
 		logger.Info("Deferred initialization started")
-		if err := srv.deferredInit(initCtx, srv); err != nil {
+		if err := srv.deferred.init(initCtx, srv); err != nil {
 			srv.completeDeferredInit(initCtx, err, errChan)
 			return
 		}
@@ -821,13 +815,13 @@ func (srv *Server) runOnReadyOnce(ctx context.Context) error {
 		return nil
 	}
 
-	if srv.onReadyExecuted.Load() {
+	if srv.deferred.onReadyExecuted.Load() {
 		return nil
 	}
 
-	srv.onReadyMu.Lock()
-	defer srv.onReadyMu.Unlock()
-	if srv.onReadyExecuted.Load() {
+	srv.deferred.onReadyMu.Lock()
+	defer srv.deferred.onReadyMu.Unlock()
+	if srv.deferred.onReadyExecuted.Load() {
 		return nil
 	}
 
@@ -835,7 +829,7 @@ func (srv *Server) runOnReadyOnce(ctx context.Context) error {
 		return err
 	}
 
-	srv.onReadyExecuted.Store(true)
+	srv.deferred.onReadyExecuted.Store(true)
 	return nil
 }
 
@@ -846,7 +840,7 @@ func (srv *Server) completeDeferredInit(ctx context.Context, initErr error, errC
 	}
 
 	if ctx == nil {
-		ctx = srv.lifecycleCtx
+		ctx = srv.deferred.ctx
 	}
 
 	if err := srv.runOnReadyOnce(ctx); err != nil {
@@ -910,8 +904,8 @@ func (srv *Server) routeRegisteredFor(path string) bool {
 	if srv.hasRoute(path) {
 		return true
 	}
-	if strings.HasSuffix(path, "/") {
-		trimmed := strings.TrimSuffix(path, "/")
+	if before, ok := strings.CutSuffix(path, "/"); ok {
+		trimmed := before
 		if trimmed == "" {
 			trimmed = "/"
 		}
@@ -925,7 +919,7 @@ func (srv *Server) isPathAllowedDuringBootstrap(path string) bool {
 	if normalized == "" {
 		return false
 	}
-	_, ok := srv.bootstrapAllowPaths[normalized]
+	_, ok := srv.deferred.bootstrapAllow[normalized]
 	return ok
 }
 
@@ -947,23 +941,23 @@ func normalizeHealthPath(path string) string {
 }
 
 func (srv *Server) getDeferredInitError() error {
-	srv.deferredErrMu.RLock()
-	defer srv.deferredErrMu.RUnlock()
-	return srv.deferredInitErr
+	srv.deferred.errMu.RLock()
+	defer srv.deferred.errMu.RUnlock()
+	return srv.deferred.initErr
 }
 
 func (srv *Server) setDeferredInitError(err error) {
-	srv.deferredErrMu.Lock()
-	srv.deferredInitErr = err
-	srv.deferredErrMu.Unlock()
+	srv.deferred.errMu.Lock()
+	srv.deferred.initErr = err
+	srv.deferred.errMu.Unlock()
 }
 
 func (srv *Server) shutdown(ctx context.Context) error {
-	if srv.deferredInitCancel != nil {
-		srv.deferredInitCancel()
+	if srv.deferred.initCancel != nil {
+		srv.deferred.initCancel()
 	}
-	if srv.lifecycleCancel != nil {
-		srv.lifecycleCancel()
+	if srv.deferred.cancel != nil {
+		srv.deferred.cancel()
 	}
 
 	// Execute shutdown hooks first (before HTTP server shutdown)
@@ -1014,44 +1008,37 @@ func (srv *Server) shutdown(ctx context.Context) error {
 
 	// Shutdown health server if it's running
 	if srv.Options.RunHealthServer && srv.healthServer != nil {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			logger.Info("Shutting down health server.")
 			if err := srv.healthServer.Shutdown(ctx); err != nil && err != http.ErrServerClosed {
 				logger.Error("Error during health server shutdown.", "error", err)
 				errChan <- fmt.Errorf("health server shutdown error: %w", err)
 			}
-		}()
+		})
 	}
 
 	// Shutdown http server
 	if srv.httpServer != nil {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			logger.Info("Shutting down http server.")
 			if err := srv.httpServer.Shutdown(ctx); err != nil && err != http.ErrServerClosed {
 				logger.Error("Error during main server shutdown.", "error", err)
 				errChan <- fmt.Errorf("main server shutdown error: %w", err)
 			}
-		}()
+		})
 	}
 
 	// Wait for both shutdowns to complete
 	wg.Wait()
 	close(errChan)
 
-	// Collect errors
-	var shutdownErr error
+	// Collect errors. errors.Join preserves the full wrap chain of every
+	// component error so callers can errors.Is/As against any of them.
+	var shutdownErrs []error
 	for err := range errChan {
-		if shutdownErr == nil {
-			shutdownErr = err
-		} else {
-			// Combine errors
-			shutdownErr = fmt.Errorf("%v; %w", shutdownErr, err)
-		}
+		shutdownErrs = append(shutdownErrs, err)
 	}
+	shutdownErr := errors.Join(shutdownErrs...)
 
 	// Clean up resources
 	srv.stopCleanup()
@@ -1074,11 +1061,11 @@ func (srv *Server) shutdown(ctx context.Context) error {
 // WebSocketUpgrader returns a WebSocket upgrader that tracks connections in server telemetry.
 // Use this instead of creating a standalone Upgrader to ensure WebSocket connections are counted
 // in the server's request metrics.
-func (srv *Server) WebSocketUpgrader() *Upgrader {
-	return &Upgrader{
+func (srv *Server) WebSocketUpgrader() *websocket.Upgrader {
+	return &websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
 			// Default to same-origin policy
-			return DefaultCheckOrigin(r)
+			return websocket.DefaultCheckOrigin(r)
 		},
 		BeforeUpgrade: func(w http.ResponseWriter, r *http.Request) error {
 			// Track WebSocket upgrade as a request
@@ -1143,13 +1130,13 @@ func (srv *Server) registerRoute(pattern string) {
 		return
 	}
 	srv.routesMu.Lock()
-	srv.registeredRoutes[pattern] = struct{}{}
+	srv.deferred.routes[pattern] = struct{}{}
 	srv.routesMu.Unlock()
 }
 
 func (srv *Server) hasRoute(pattern string) bool {
 	srv.routesMu.RLock()
-	_, ok := srv.registeredRoutes[pattern]
+	_, ok := srv.deferred.routes[pattern]
 	srv.routesMu.RUnlock()
 	return ok
 }
@@ -1294,7 +1281,7 @@ func (srv *Server) rootFileServer() http.Handler {
 // HandleTemplate registers a handler that renders a specific template with static data.
 // Unlike HandleFuncDynamic, the data is provided once at registration time.
 // Returns an error if template parsing fails.
-func (srv *Server) HandleTemplate(pattern, t string, data interface{}) error {
+func (srv *Server) HandleTemplate(pattern, t string, data any) error {
 	if err := srv.parseTemplates(); err != nil {
 		return fmt.Errorf("Failed to parse templates. %w", err)
 	}
@@ -1382,7 +1369,7 @@ func (srv *Server) parseTemplates() error {
 
 // DataFunc is a function type that generates data for template rendering.
 // It receives the current HTTP request and returns data to be passed to the template.
-type DataFunc func(r *http.Request) interface{}
+type DataFunc func(r *http.Request) any
 
 // listTemplateFiles lists all files in the template root directory
 func (srv *Server) listTemplateFiles() ([]string, error) {
@@ -1491,7 +1478,7 @@ func WithBannerColor(enabled bool) ServerOptionFunc {
 func WithDeferredInit(fn func(context.Context, *Server) error) ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.DeferredInit = fn
-		srv.deferredInit = fn
+		srv.deferred.init = fn
 		return nil
 	}
 }
@@ -1684,26 +1671,12 @@ func WithHardenedMode() ServerOptionFunc {
 	}
 }
 
-// WithEncryptedClientHello enables Encrypted Client Hello (ECH) for enhanced privacy.
-// ECH encrypts the SNI in TLS handshakes to prevent eavesdropping on the server name.
-func WithEncryptedClientHello(echKeys ...[]byte) ServerOptionFunc {
-	return func(srv *Server) error {
-		if len(echKeys) == 0 {
-			return fmt.Errorf("ECH requires at least one key")
-		}
-		srv.Options.EnableECH = true
-		srv.Options.ECHKeys = echKeys
-		logger.Info("Encrypted Client Hello enabled", "keyCount", len(echKeys))
-		return nil
-	}
-}
-
 // WithMCPSupport enables MCP (Model Context Protocol) support on the server.
 // This allows AI assistants to connect and use tools/resources provided by the server.
 // Server name and version are required as they identify your server to MCP clients.
 // By default, MCP uses HTTP transport on the "/mcp" endpoint.
 // Example: WithMCPSupport("MyServer", "1.0.0")
-func WithMCPSupport(name, version string, configs ...MCPTransportConfig) ServerOptionFunc {
+func WithMCPSupport(name, version string, configs ...mcp.TransportConfig) ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.MCPEnabled = true
 		srv.Options.MCPServerName = name
@@ -1712,33 +1685,33 @@ func WithMCPSupport(name, version string, configs ...MCPTransportConfig) ServerO
 		// Apply transport configurations
 		if len(configs) == 0 {
 			// Default to HTTP transport on /mcp
-			srv.Options.MCPTransport = HTTPTransport
-			srv.Options.mcpTransportOpts.transport = HTTPTransport
-			srv.Options.mcpTransportOpts.endpoint = srv.Options.MCPEndpoint
+			srv.Options.MCPTransport = mcp.HTTPTransport
+			srv.Options.mcpTransportOpts.Transport = mcp.HTTPTransport
+			srv.Options.mcpTransportOpts.Endpoint = srv.Options.MCPEndpoint
 		} else {
 			// Apply all transport configurations
 			for _, cfg := range configs {
 				cfg(&srv.Options.mcpTransportOpts)
 			}
-			srv.Options.MCPTransport = srv.Options.mcpTransportOpts.transport
-			if srv.Options.mcpTransportOpts.endpoint != "" {
-				srv.Options.MCPEndpoint = srv.Options.mcpTransportOpts.endpoint
+			srv.Options.MCPTransport = srv.Options.mcpTransportOpts.Transport
+			if srv.Options.mcpTransportOpts.Endpoint != "" {
+				srv.Options.MCPEndpoint = srv.Options.mcpTransportOpts.Endpoint
 			}
 		}
 
 		// Handle presets
-		if srv.Options.mcpTransportOpts.observabilityMode {
+		if srv.Options.mcpTransportOpts.ObservabilityMode {
 			// Observability: minimal resources only for production monitoring
 			srv.Options.MCPResourcesEnabled = true
 			srv.Options.MCPToolsEnabled = false
-		} else if srv.Options.mcpTransportOpts.developerMode {
+		} else if srv.Options.mcpTransportOpts.DeveloperMode {
 			// Developer mode: enable everything needed for development
 			srv.Options.MCPResourcesEnabled = true
 			srv.Options.MCPToolsEnabled = true
 		}
 
 		transportName := "HTTP"
-		if srv.Options.MCPTransport == StdioTransport {
+		if srv.Options.MCPTransport == mcp.StdioTransport {
 			transportName = "stdio"
 		}
 		logger.Debug("MCP (Model Context Protocol) support enabled",
@@ -1746,8 +1719,8 @@ func WithMCPSupport(name, version string, configs ...MCPTransportConfig) ServerO
 			"version", version,
 			"transport", transportName,
 			"endpoint", srv.Options.MCPEndpoint,
-			"observabilityMode", srv.Options.mcpTransportOpts.observabilityMode,
-			"developerMode", srv.Options.mcpTransportOpts.developerMode,
+			"observabilityMode", srv.Options.mcpTransportOpts.ObservabilityMode,
+			"developerMode", srv.Options.mcpTransportOpts.DeveloperMode,
 		)
 		return nil
 	}
@@ -1755,9 +1728,9 @@ func WithMCPSupport(name, version string, configs ...MCPTransportConfig) ServerO
 
 // WithMCPNamespace registers an additional MCP namespace with tools and resources.
 // This allows you to logically separate tools by domain within a single server instance.
-// Example: WithMCPNamespace("daw", WithNamespaceTools(playTool, stopTool))
-// This creates tools accessible as "mcp__daw__play" and "mcp__daw__stop"
-func WithMCPNamespace(name string, configs ...MCPNamespaceConfig) ServerOptionFunc {
+// Example: WithMCPNamespace("daw", mcp.WithNamespaceTools(playTool, stopTool))
+// This creates tools accessible as "mcp__daw__play" and "mcp__daw__stop".
+func WithMCPNamespace(name string, configs ...mcp.NamespaceConfig) ServerOptionFunc {
 	return func(srv *Server) error {
 		if !srv.Options.MCPEnabled {
 			return fmt.Errorf("MCP support must be enabled before registering namespaces. Use WithMCPSupport() first")
@@ -1787,35 +1760,12 @@ func WithMCPEndpoint(endpoint string) ServerOptionFunc {
 	}
 }
 
-// WithMCPServerInfo configures the MCP server identification.
-// This information is returned to MCP clients during initialization.
-// Deprecated: Use WithMCPSupport(WithServerInfo(name, version)) instead for a more concise API.
-func WithMCPServerInfo(name, version string) ServerOptionFunc {
-	return func(srv *Server) error {
-		srv.Options.MCPServerName = name
-		srv.Options.MCPServerVersion = version
-		logger.Debug("MCP server info configured", "name", name, "version", version)
-		return nil
-	}
-}
-
 // WithMCPFileToolRoot configures a root directory for MCP file operations.
 // If specified, file tools will be restricted to this directory using os.Root for security.
 func WithMCPFileToolRoot(rootDir string) ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.MCPFileToolRoot = rootDir
 		logger.Debug("MCP file tool root configured", "root", rootDir)
-		return nil
-	}
-}
-
-// WithMCPToolsDisabled disables MCP tools.
-// Resources will still be available if enabled.
-// Deprecated: Use WithMCPBuiltinTools(false) instead
-func WithMCPToolsDisabled() ServerOptionFunc {
-	return func(srv *Server) error {
-		srv.Options.MCPToolsEnabled = false
-		logger.Debug("MCP tools disabled")
 		return nil
 	}
 }
@@ -1848,17 +1798,6 @@ func WithMCPBuiltinResources(enabled bool) ServerOptionFunc {
 	}
 }
 
-// WithMCPResourcesDisabled disables MCP resources.
-// Tools will still be available if enabled.
-// Deprecated: Use WithMCPBuiltinResources(false) instead
-func WithMCPResourcesDisabled() ServerOptionFunc {
-	return func(srv *Server) error {
-		srv.Options.MCPResourcesEnabled = false
-		logger.Debug("MCP resources disabled")
-		return nil
-	}
-}
-
 // WithCSPWebWorkerSupport enables Content Security Policy support for Web Workers using blob: URLs.
 // This is required for modern web applications that use libraries like Tone.js, PDF.js, or other
 // libraries that create Web Workers with blob: URLs for performance optimization.
@@ -1874,25 +1813,25 @@ func WithCSPWebWorkerSupport() ServerOptionFunc {
 // cleanupRateLimiters runs periodically to clean up old rate limiters
 // This prevents memory leaks from accumulating client IP rate limiters
 func (srv *Server) cleanupRateLimiters() {
-	ticker := srv.cleanupTicker
+	ticker := srv.rateLimiters.cleanupTicker
 	if ticker == nil {
 		return
 	}
 
-	done := srv.cleanupDone
+	done := srv.rateLimiters.cleanupDone
 	for {
 		select {
 		case <-ticker.C:
 			now := time.Now()
-			srv.limitersMu.Lock()
+			srv.rateLimiters.mu.Lock()
 			// Clean up rate limiters that haven't been used in the last 10 minutes
-			for ip, entry := range srv.clientLimiters {
+			for ip, entry := range srv.rateLimiters.clients {
 				if now.Sub(entry.lastAccess) > 10*time.Minute {
-					delete(srv.clientLimiters, ip)
+					delete(srv.rateLimiters.clients, ip)
 					logger.Debug("Cleaned up rate limiter", "ip", ip)
 				}
 			}
-			srv.limitersMu.Unlock()
+			srv.rateLimiters.mu.Unlock()
 		case <-done:
 			return
 		}
@@ -1901,68 +1840,76 @@ func (srv *Server) cleanupRateLimiters() {
 
 // stopCleanup stops the rate limiter cleanup goroutine
 func (srv *Server) stopCleanup() {
-	if srv.cleanupTicker != nil {
-		srv.cleanupTicker.Stop()
-		srv.cleanupTicker = nil
+	if srv.rateLimiters.cleanupTicker != nil {
+		srv.rateLimiters.cleanupTicker.Stop()
+		srv.rateLimiters.cleanupTicker = nil
 	}
-	if srv.cleanupDone != nil {
-		close(srv.cleanupDone)
-		srv.cleanupDone = nil
+	if srv.rateLimiters.cleanupDone != nil {
+		close(srv.rateLimiters.cleanupDone)
+		srv.rateLimiters.cleanupDone = nil
 	}
 }
 
-// MCPEnabled returns true if MCP support is enabled
-func (srv *Server) MCPEnabled() bool {
-	return srv.Options.MCPEnabled && srv.mcpHandler != nil
+// =============================================================================
+// Accessors for the builtin MCP tools/resources package
+// =============================================================================
+//
+// pkg/mcp/builtin lives outside this package but needs read access to
+// server runtime state to surface it via MCP. These accessors keep the
+// internals encapsulated.
+
+// IsRunning reports whether the server is currently running.
+func (srv *Server) IsRunning() bool { return srv.isRunning.Load() }
+
+// IsReady reports whether the server is ready to accept traffic.
+func (srv *Server) IsReady() bool { return srv.isReady.Load() }
+
+// ServerStart returns the timestamp when the server began serving.
+func (srv *Server) ServerStart() time.Time { return srv.serverStart }
+
+// TotalRequests returns the total number of requests served so far.
+func (srv *Server) TotalRequests() uint64 { return srv.totalRequests.Load() }
+
+// TotalResponseTime returns the cumulative response time in microseconds.
+func (srv *Server) TotalResponseTime() int64 { return srv.totalResponseTime.Load() }
+
+// SetMetrics is a test affordance: it overrides the request count and
+// cumulative response time. Production code should never call this; metrics
+// are populated by the request-handling middleware.
+func (srv *Server) SetMetrics(totalRequests uint64, totalResponseTime int64) {
+	srv.totalRequests.Store(totalRequests)
+	srv.totalResponseTime.Store(totalResponseTime)
 }
 
-// RegisterMCPTool registers a custom MCP tool
-// This must be called after server creation but before Run()
-func (srv *Server) RegisterMCPTool(tool MCPTool) error {
-	if !srv.MCPEnabled() {
-		return fmt.Errorf("MCP is not enabled on this server")
-	}
-	srv.mcpHandler.RegisterTool(tool)
-	return nil
+// AddMetrics is a test affordance: it bumps the request count by one and
+// adds to the cumulative response time. See SetMetrics.
+func (srv *Server) AddMetrics(deltaRequests uint64, deltaResponseTime int64) {
+	srv.totalRequests.Add(deltaRequests)
+	srv.totalResponseTime.Add(deltaResponseTime)
 }
 
-// RegisterMCPResource registers a custom MCP resource
-// This must be called after server creation but before Run()
-func (srv *Server) RegisterMCPResource(resource MCPResource) error {
-	if !srv.MCPEnabled() {
-		return fmt.Errorf("MCP is not enabled on this server")
-	}
-	srv.mcpHandler.RegisterResource(resource)
-	return nil
+// ClientLimiterCount returns the number of active per-client rate limiters.
+func (srv *Server) ClientLimiterCount() int {
+	srv.rateLimiters.mu.RLock()
+	defer srv.rateLimiters.mu.RUnlock()
+	return len(srv.rateLimiters.clients)
 }
 
-// RegisterMCPToolInNamespace registers a custom MCP tool in the specified namespace
-// This must be called after server creation but before Run()
-func (srv *Server) RegisterMCPToolInNamespace(tool MCPTool, namespace string) error {
-	if !srv.MCPEnabled() {
-		return fmt.Errorf("MCP is not enabled on this server")
-	}
-	srv.mcpHandler.RegisterToolInNamespace(tool, namespace)
-	return nil
-}
+// Mux returns the server's underlying http.ServeMux. Exposed so tests can
+// mount the server's handler in an httptest server without going through
+// (*Server).Run.
+func (srv *Server) Mux() *http.ServeMux { return srv.mux }
 
-// RegisterMCPResourceInNamespace registers a custom MCP resource in the specified namespace
-// This must be called after server creation but before Run()
-func (srv *Server) RegisterMCPResourceInNamespace(resource MCPResource, namespace string) error {
-	if !srv.MCPEnabled() {
-		return fmt.Errorf("MCP is not enabled on this server")
+// MiddlewareRoutes returns a snapshot of the registered route-to-middleware
+// mapping. The returned map is a shallow copy; mutating it does not affect the
+// server.
+func (srv *Server) MiddlewareRoutes() map[string]MiddlewareStack {
+	if srv.middleware == nil {
+		return nil
 	}
-	srv.mcpHandler.RegisterResourceInNamespace(resource, namespace)
-	return nil
-}
-
-// RegisterMCPNamespace registers an entire MCP namespace with its tools and resources
-// This must be called after server creation but before Run()
-func (srv *Server) RegisterMCPNamespace(name string, configs ...MCPNamespaceConfig) error {
-	if !srv.MCPEnabled() {
-		return fmt.Errorf("MCP is not enabled on this server")
-	}
-	return srv.mcpHandler.RegisterNamespace(name, configs...)
+	out := make(map[string]MiddlewareStack, len(srv.middleware.middleware))
+	maps.Copy(out, srv.middleware.middleware)
+	return out
 }
 
 // printStartupBanner prints the ASCII art and startup information
@@ -2011,7 +1958,7 @@ func (srv *Server) printStartupBanner() {
 
 	if srv.Options.MCPEnabled {
 		fmt.Printf("MCP:       %s (unified HTTP/SSE endpoint)\n", srv.Options.MCPEndpoint)
-		if srv.Options.mcpTransportOpts.developerMode {
+		if srv.Options.mcpTransportOpts.DeveloperMode {
 			// Make MCP more discoverable for AI assistants
 			fmt.Printf("\n🤖 MCP ENABLED: AI assistants connect via unified endpoint:\n")
 			fmt.Printf("   SSE: GET %s://%s%s with Accept: text/event-stream\n", protocol, addr, srv.Options.MCPEndpoint)

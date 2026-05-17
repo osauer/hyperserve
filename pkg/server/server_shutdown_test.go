@@ -253,7 +253,7 @@ func TestShutdownHookReceivesParentContext(t *testing.T) {
 
 	var (
 		mu       sync.Mutex
-		captured interface{}
+		captured any
 	)
 
 	hook := func(ctx context.Context) error {

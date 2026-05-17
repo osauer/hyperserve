@@ -18,7 +18,7 @@ func TestNewEngine(t *testing.T) {
 
 func TestRegisterMethod(t *testing.T) {
 	engine := NewEngine(nil)
-	engine.RegisterMethod("test", func(params interface{}) (interface{}, error) { return "ok", nil })
+	engine.RegisterMethod("test", func(params any) (any, error) { return "ok", nil })
 
 	methods := engine.GetRegisteredMethods()
 	if len(methods) != 1 || methods[0] != "test" {
@@ -28,7 +28,7 @@ func TestRegisterMethod(t *testing.T) {
 
 func TestProcessRequestValid(t *testing.T) {
 	engine := NewEngine(nil)
-	engine.RegisterMethod("echo", func(params interface{}) (interface{}, error) { return params, nil })
+	engine.RegisterMethod("echo", func(params any) (any, error) { return params, nil })
 
 	payload := Request{JSONRPC: Version, Method: "echo", Params: map[string]string{"k": "v"}, ID: 1}
 	raw, err := json.Marshal(payload)
@@ -79,7 +79,7 @@ func TestProcessRequestMethodNotFound(t *testing.T) {
 
 func TestProcessRequestMethodError(t *testing.T) {
 	engine := NewEngine(nil)
-	engine.RegisterMethod("boom", func(params interface{}) (interface{}, error) { return nil, assertError("fail") })
+	engine.RegisterMethod("boom", func(params any) (any, error) { return nil, assertError("fail") })
 
 	payload := Request{JSONRPC: Version, Method: "boom", ID: 1}
 	raw, _ := json.Marshal(payload)

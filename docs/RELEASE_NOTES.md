@@ -66,7 +66,6 @@ Relative middleware costs:
 - Enables compliance logging for audit trails
 
 #### Enhanced Security
-- **Encrypted Client Hello (ECH)**: Added `WithEncryptedClientHello()` to encrypt SNI in TLS handshakes
 - **Post-Quantum Cryptography**: Automatically enables X25519MLKEM768 key exchange when not in FIPS mode
 - **Timing Attack Protection**: Authentication now uses `crypto/subtle.WithDataIndependentTiming`
 - **Secure File Serving**: Implemented `os.Root` for sandboxed directory access, preventing traversal attacks
@@ -86,7 +85,6 @@ Relative middleware costs:
 ```go
 // New server options
 WithFIPSMode() ServerOptionFunc
-WithEncryptedClientHello(echKeys ...[]byte) ServerOptionFunc
 
 // New server method
 Stop() error  // Graceful shutdown with 10s timeout
@@ -100,7 +98,7 @@ Stop() error  // Graceful shutdown with 10s timeout
 
 ### 📝 Documentation Updates
 - Updated README with Go 1.24 features section
-- Added comprehensive examples for FIPS mode and ECH
+- Added comprehensive examples for FIPS mode
 - Documented performance optimizations
 - Added security best practices
 
@@ -140,7 +138,6 @@ Stop() error  // Graceful shutdown with 10s timeout
    ```go
    srv, err := server.NewServer(
        server.WithFIPSMode(),  // For FIPS compliance
-       server.WithEncryptedClientHello(echKeys...),  // For ECH
    )
    ```
 

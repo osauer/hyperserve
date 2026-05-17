@@ -63,13 +63,6 @@ Production-ready authentication with multiple methods.
 - Comprehensive audit logging
 - **Run:** `go run examples/auth/main.go`
 
-#### [chaos](chaos/) ⭐⭐⭐
-Test your application's resilience with chaos engineering.
-- Simulated failures and latency
-- Load testing with concurrent clients
-- Observability during chaos
-- **Run:** `go run examples/chaos/main.go`
-
 ### Advanced Examples
 
 #### [htmx-dynamic](htmx-dynamic/) ⭐⭐⭐
@@ -89,7 +82,6 @@ Real-time updates with Server-Sent Events.
 #### [enterprise](enterprise/) ⭐⭐⭐⭐⭐
 Enterprise-grade security features (Go 1.24+ required).
 - FIPS 140-3 compliance
-- TLS with ECH (Encrypted Client Hello)
 - Post-quantum cryptography
 - Full security middleware stack
 - **Setup:** See [enterprise/README.md](enterprise/README.md) for certificate generation

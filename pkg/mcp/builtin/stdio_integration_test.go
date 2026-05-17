@@ -1,8 +1,10 @@
-package server
+package builtin
 
 import (
 	"bytes"
 	"encoding/json"
+	jsonrpc "github.com/osauer/hyperserve/pkg/jsonrpc"
+	"github.com/osauer/hyperserve/pkg/mcp"
 	"io"
 	"log/slog"
 	"strconv"
@@ -18,18 +20,18 @@ func TestMCPHandler_ProcessRequestWithTransport(t *testing.T) {
 	var inputBuf bytes.Buffer
 
 	// Create MCP handler
-	serverInfo := MCPServerInfo{
+	serverInfo := mcp.ServerInfo{
 		Name:    "test-server",
 		Version: "1.0.0",
 	}
-	handler := NewMCPHandler(serverInfo)
-	handler.logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	handler := mcp.NewHandler(serverInfo)
+	handler.SetLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	// Register a test tool
 	handler.RegisterTool(NewCalculatorTool())
 
 	// Create transport
-	transport := NewStdioTransportWithIO(&inputBuf, &outputBuf, handler.logger)
+	transport := mcp.NewStdioTransportWithIO(&inputBuf, &outputBuf, handler.Logger())
 
 	// Test requests
 	tests := []struct {
@@ -68,7 +70,7 @@ func TestMCPHandler_ProcessRequestWithTransport(t *testing.T) {
 			}
 
 			// Verify response
-			var response JSONRPCResponse
+			var response jsonrpc.Response
 			if err := json.Unmarshal(outputBuf.Bytes(), &response); err != nil {
 				t.Fatalf("Failed to unmarshal response: %v", err)
 			}
@@ -87,18 +89,18 @@ func TestMCPHandler_StdioLoopErrorHandling(t *testing.T) {
 	var inputBuf bytes.Buffer
 
 	// Create MCP handler
-	serverInfo := MCPServerInfo{
+	serverInfo := mcp.ServerInfo{
 		Name:    "test-server",
 		Version: "1.0.0",
 	}
-	handler := NewMCPHandler(serverInfo)
-	handler.logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	handler := mcp.NewHandler(serverInfo)
+	handler.SetLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	// Test invalid method
 	inputBuf.WriteString(`{"jsonrpc":"2.0","method":"nonexistent/method","params":{},"id":1}` + "\n")
 
 	// Create custom transport
-	transport := NewStdioTransportWithIO(&inputBuf, &outputBuf, handler.logger)
+	transport := mcp.NewStdioTransportWithIO(&inputBuf, &outputBuf, handler.Logger())
 
 	// Process request - should succeed but return error in response
 	err := handler.ProcessRequestWithTransport(transport)
@@ -107,7 +109,7 @@ func TestMCPHandler_StdioLoopErrorHandling(t *testing.T) {
 	}
 
 	// Verify error response was sent
-	var errorResp JSONRPCResponse
+	var errorResp jsonrpc.Response
 	outputData := outputBuf.Bytes()
 	if len(outputData) == 0 {
 		t.Fatal("No error response sent")
@@ -121,8 +123,8 @@ func TestMCPHandler_StdioLoopErrorHandling(t *testing.T) {
 		t.Error("Expected error in response")
 	}
 
-	if errorResp.Error.Code != ErrorCodeMethodNotFound {
-		t.Errorf("Expected method not found error code %d, got %d", ErrorCodeMethodNotFound, errorResp.Error.Code)
+	if errorResp.Error.Code != jsonrpc.ErrorCodeMethodNotFound {
+		t.Errorf("Expected method not found error code %d, got %d", jsonrpc.ErrorCodeMethodNotFound, errorResp.Error.Code)
 	}
 }
 
@@ -136,15 +138,15 @@ func TestMCPHandler_StdioLoopInvalidJSON(t *testing.T) {
 	inputBuf.WriteString("invalid json\n")
 
 	// Create MCP handler
-	serverInfo := MCPServerInfo{
+	serverInfo := mcp.ServerInfo{
 		Name:    "test-server",
 		Version: "1.0.0",
 	}
-	handler := NewMCPHandler(serverInfo)
-	handler.logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	handler := mcp.NewHandler(serverInfo)
+	handler.SetLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	// Create custom transport
-	transport := NewStdioTransportWithIO(&inputBuf, &outputBuf, handler.logger)
+	transport := mcp.NewStdioTransportWithIO(&inputBuf, &outputBuf, handler.Logger())
 
 	// Use RunStdioLoop to test the actual error handling
 	// Create a modified version that processes one request
@@ -168,21 +170,21 @@ func TestMCPHandler_StdioLoopConcurrency(t *testing.T) {
 	var mu sync.Mutex
 
 	// Create MCP handler
-	serverInfo := MCPServerInfo{
+	serverInfo := mcp.ServerInfo{
 		Name:    "test-server",
 		Version: "1.0.0",
 	}
-	handler := NewMCPHandler(serverInfo)
-	handler.logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	handler := mcp.NewHandler(serverInfo)
+	handler.SetLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	// Register calculator tool
 	handler.RegisterTool(NewCalculatorTool())
 
 	// Create multiple concurrent requests
 	numRequests := 10
-	for i := 0; i < numRequests; i++ {
-		req := JSONRPCRequest{
-			JSONRPC: JSONRPCVersion,
+	for i := range numRequests {
+		req := jsonrpc.Request{
+			JSONRPC: jsonrpc.Version,
 			Method:  "tools/call",
 			Params: json.RawMessage(`{
 				"name": "calculator",
@@ -199,10 +201,10 @@ func TestMCPHandler_StdioLoopConcurrency(t *testing.T) {
 	}
 
 	// Process requests
-	transport := NewStdioTransportWithIO(&inputBuf, &outputBuf, handler.logger)
+	transport := mcp.NewStdioTransportWithIO(&inputBuf, &outputBuf, handler.Logger())
 	processedCount := 0
 
-	for i := 0; i < numRequests; i++ {
+	for i := range numRequests {
 		err := handler.ProcessRequestWithTransport(transport)
 		if err != nil && err != io.EOF {
 			t.Errorf("Error processing request %d: %v", i, err)

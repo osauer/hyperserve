@@ -1,9 +1,10 @@
-package server
+package mcp
 
 import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	jsonrpc "github.com/osauer/hyperserve/pkg/jsonrpc"
 	"io"
 	"log/slog"
 	"strconv"
@@ -37,8 +38,8 @@ func TestStdioTransport_SendReceive(t *testing.T) {
 	}
 
 	// Test Send
-	response := &JSONRPCResponse{
-		JSONRPC: JSONRPCVersion,
+	response := &jsonrpc.Response{
+		JSONRPC: jsonrpc.Version,
 		Result:  json.RawMessage(`{"success":true}`),
 		ID:      float64(1),
 	}
@@ -49,7 +50,7 @@ func TestStdioTransport_SendReceive(t *testing.T) {
 	}
 
 	// Verify output
-	var sentResponse JSONRPCResponse
+	var sentResponse jsonrpc.Response
 	if err := json.Unmarshal(outputBuf.Bytes(), &sentResponse); err != nil {
 		t.Fatalf("Failed to unmarshal sent response: %v", err)
 	}
@@ -96,8 +97,8 @@ func TestStdioTransport_SendError(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	transport := NewStdioTransportWithIO(strings.NewReader(""), failWriter, logger)
 
-	response := &JSONRPCResponse{
-		JSONRPC: JSONRPCVersion,
+	response := &jsonrpc.Response{
+		JSONRPC: jsonrpc.Version,
 		Result:  json.RawMessage(`{"test":true}`),
 	}
 
@@ -119,12 +120,12 @@ func TestStdioTransport_ConcurrentSend(t *testing.T) {
 
 	// Send multiple responses concurrently
 	done := make(chan bool, 3)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		go func(id int) {
 			result := map[string]int{"id": id}
 			resultJSON, _ := json.Marshal(result)
-			response := &JSONRPCResponse{
-				JSONRPC: JSONRPCVersion,
+			response := &jsonrpc.Response{
+				JSONRPC: jsonrpc.Version,
 				Result:  json.RawMessage(resultJSON),
 				ID:      float64(id),
 			}
@@ -136,7 +137,7 @@ func TestStdioTransport_ConcurrentSend(t *testing.T) {
 	}
 
 	// Wait for all sends to complete
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		<-done
 	}
 
@@ -164,7 +165,7 @@ func TestCreateErrorResponse(t *testing.T) {
 		name    string
 		code    int
 		message string
-		data    interface{}
+		data    any
 		wantErr bool
 	}{
 		{
@@ -191,8 +192,8 @@ func TestCreateErrorResponse(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			response := createErrorResponse(tt.code, tt.message, tt.data)
 
-			if response.JSONRPC != JSONRPCVersion {
-				t.Errorf("Expected JSONRPC version %s, got %s", JSONRPCVersion, response.JSONRPC)
+			if response.JSONRPC != jsonrpc.Version {
+				t.Errorf("Expected JSONRPC version %s, got %s", jsonrpc.Version, response.JSONRPC)
 			}
 
 			if response.Error == nil {
@@ -235,13 +236,13 @@ func TestCreateErrorResponse(t *testing.T) {
 func TestStdioTransport_LargeInput(t *testing.T) {
 	// Create a large JSON payload (900KB, under the 1MB limit)
 	largeData := make(map[string]string)
-	for i := 0; i < 9000; i++ {
+	for i := range 9000 {
 		key := "field_" + strconv.Itoa(i)
 		largeData[key] = strings.Repeat("x", 100) // 100 chars per value
 	}
 
-	request := JSONRPCRequest{
-		JSONRPC: JSONRPCVersion,
+	request := jsonrpc.Request{
+		JSONRPC: jsonrpc.Version,
 		Method:  "test_large",
 		Params:  largeData,
 		ID:      float64(1),

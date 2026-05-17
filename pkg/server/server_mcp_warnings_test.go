@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"github.com/osauer/hyperserve/pkg/mcp"
 	"log"
 	"log/slog"
 	"strings"
@@ -33,7 +34,7 @@ func TestMCPDevModeWarnings(t *testing.T) {
 				defer log.SetOutput(oldLogOutput)
 
 				// Simulate HF_DAW's approach
-				mcpConfigs := []MCPTransportConfig{MCPDev()}
+				mcpConfigs := []mcp.TransportConfig{MCPDev()}
 				log.Println("⚠️  MCP Developer Mode enabled - use for development only!") // HF_DAW's warning
 
 				srv, _ := NewServer(

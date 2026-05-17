@@ -1,4 +1,4 @@
-package ws
+package websocket
 
 import (
 	"bufio"
@@ -38,29 +38,29 @@ const (
 
 // Frame errors
 var (
-	ErrInvalidFrame       = errors.New("invalid frame")
-	ErrControlFrameTooBig = errors.New("control frame too big")
-	ErrFragmentedControl  = errors.New("fragmented control frame")
+	ErrInvalidFrame           = errors.New("invalid frame")
+	ErrControlFrameTooBig     = errors.New("control frame too big")
+	ErrFragmentedControl      = errors.New("fragmented control frame")
 	ErrUnexpectedContinuation = errors.New("unexpected continuation frame")
-	ErrInvalidCloseCode   = errors.New("invalid close code")
-	ErrInvalidUTF8        = errors.New("invalid UTF-8 in text frame")
+	ErrInvalidCloseCode       = errors.New("invalid close code")
+	ErrInvalidUTF8            = errors.New("invalid UTF-8 in text frame")
 )
 
 // Frame represents a WebSocket frame
 type Frame struct {
-	Fin      bool
-	RSV1     bool
-	RSV2     bool
-	RSV3     bool
-	Opcode   int
-	Masked   bool
-	Payload  []byte
-	MaskKey  [4]byte
+	Fin     bool
+	RSV1    bool
+	RSV2    bool
+	RSV3    bool
+	Opcode  int
+	Masked  bool
+	Payload []byte
+	MaskKey [4]byte
 }
 
 // FrameReader reads WebSocket frames
 type FrameReader struct {
-	reader *bufio.Reader
+	reader         *bufio.Reader
 	maxMessageSize int64
 }
 
@@ -70,7 +70,7 @@ func NewFrameReader(r *bufio.Reader, maxMessageSize int64) *FrameReader {
 		maxMessageSize = 1024 * 1024 // 1MB default
 	}
 	return &FrameReader{
-		reader: r,
+		reader:         r,
 		maxMessageSize: maxMessageSize,
 	}
 }
@@ -82,7 +82,7 @@ func (fr *FrameReader) ReadFrame() (*Frame, error) {
 	if _, err := io.ReadFull(fr.reader, header); err != nil {
 		return nil, err
 	}
-	
+
 	frame := &Frame{
 		Fin:    (header[0] & 0x80) != 0,
 		RSV1:   (header[0] & 0x40) != 0,
@@ -91,12 +91,12 @@ func (fr *FrameReader) ReadFrame() (*Frame, error) {
 		Opcode: int(header[0] & 0x0F),
 		Masked: (header[1] & 0x80) != 0,
 	}
-	
+
 	// Validate frame
 	if err := frame.validate(); err != nil {
 		return nil, err
 	}
-	
+
 	// Read payload length
 	payloadLen := int64(header[1] & 0x7F)
 	if payloadLen == 126 {
@@ -118,45 +118,45 @@ func (fr *FrameReader) ReadFrame() (*Frame, error) {
 		}
 		payloadLen = int64(len64)
 	}
-	
+
 	// Check message size limit
 	if payloadLen > fr.maxMessageSize {
 		return nil, ErrMessageTooBig
 	}
-	
+
 	// Read mask key if present
 	if frame.Masked {
 		if _, err := io.ReadFull(fr.reader, frame.MaskKey[:]); err != nil {
 			return nil, err
 		}
 	}
-	
+
 	// Read payload
 	if payloadLen > 0 {
 		frame.Payload = make([]byte, payloadLen)
 		if _, err := io.ReadFull(fr.reader, frame.Payload); err != nil {
 			return nil, err
 		}
-		
+
 		// Unmask payload if needed
 		if frame.Masked {
 			maskPayload(frame.Payload, frame.MaskKey)
 		}
 	}
-	
+
 	return frame, nil
 }
 
 // FrameWriter writes WebSocket frames
 type FrameWriter struct {
-	writer *bufio.Writer
+	writer   *bufio.Writer
 	isServer bool
 }
 
 // NewFrameWriter creates a new frame writer
 func NewFrameWriter(w *bufio.Writer, isServer bool) *FrameWriter {
 	return &FrameWriter{
-		writer: w,
+		writer:   w,
 		isServer: isServer,
 	}
 }
@@ -167,10 +167,10 @@ func (fw *FrameWriter) WriteFrame(frame *Frame) error {
 	if err := frame.validate(); err != nil {
 		return err
 	}
-	
+
 	// Build header
 	var header []byte
-	
+
 	// First byte: FIN, RSV, Opcode
 	b0 := byte(frame.Opcode)
 	if frame.Fin {
@@ -186,14 +186,14 @@ func (fw *FrameWriter) WriteFrame(frame *Frame) error {
 		b0 |= 0x10
 	}
 	header = append(header, b0)
-	
+
 	// Second byte: Mask flag and payload length
 	payloadLen := len(frame.Payload)
 	maskBit := byte(0)
 	if !fw.isServer && frame.Masked {
 		maskBit = 0x80
 	}
-	
+
 	if payloadLen < 126 {
 		header = append(header, maskBit|byte(payloadLen))
 	} else if payloadLen < 65536 {
@@ -207,19 +207,19 @@ func (fw *FrameWriter) WriteFrame(frame *Frame) error {
 		binary.BigEndian.PutUint64(b, uint64(payloadLen))
 		header = append(header, b...)
 	}
-	
+
 	// Write header
 	if _, err := fw.writer.Write(header); err != nil {
 		return err
 	}
-	
+
 	// Write mask key if client
 	if !fw.isServer && frame.Masked {
 		if _, err := fw.writer.Write(frame.MaskKey[:]); err != nil {
 			return err
 		}
 	}
-	
+
 	// Write payload
 	if len(frame.Payload) > 0 {
 		payload := frame.Payload
@@ -233,7 +233,7 @@ func (fw *FrameWriter) WriteFrame(frame *Frame) error {
 			return err
 		}
 	}
-	
+
 	return fw.writer.Flush()
 }
 
@@ -243,17 +243,17 @@ func (f *Frame) validate() error {
 	if f.Opcode > 10 || (f.Opcode > 2 && f.Opcode < 8) {
 		return ErrInvalidFrame
 	}
-	
+
 	// Control frames must not be fragmented
 	if f.IsControl() && !f.Fin {
 		return ErrFragmentedControl
 	}
-	
+
 	// Control frames must have payload <= 125 bytes
 	if f.IsControl() && len(f.Payload) > 125 {
 		return ErrControlFrameTooBig
 	}
-	
+
 	return nil
 }
 

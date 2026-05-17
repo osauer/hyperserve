@@ -1,9 +1,11 @@
-package server
+package builtin
 
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	jsonrpc "github.com/osauer/hyperserve/pkg/jsonrpc"
+	"github.com/osauer/hyperserve/pkg/server"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -25,7 +27,7 @@ func TestMCPHandler_ConcurrentRequests(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	// Create test files
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		testFile := filepath.Join(tempDir, fmt.Sprintf("test_%d.txt", i))
 		content := fmt.Sprintf("Test content for file %d", i)
 		if err := os.WriteFile(testFile, []byte(content), 0644); err != nil {
@@ -33,12 +35,12 @@ func TestMCPHandler_ConcurrentRequests(t *testing.T) {
 		}
 	}
 
-	srv, err := NewServer(
-		WithAddr(":0"),
-		WithMCPSupport("concurrency-test-server", "1.0.0"),
-		WithMCPBuiltinTools(true),     // Enable built-in tools for tests
-		WithMCPBuiltinResources(true), // Enable built-in resources for tests
-		WithMCPFileToolRoot(tempDir),
+	srv, err := server.NewServer(
+		server.WithAddr(":0"),
+		server.WithMCPSupport("concurrency-test-server", "1.0.0"),
+		server.WithMCPBuiltinTools(true),     // Enable built-in tools for tests
+		server.WithMCPBuiltinResources(true), // Enable built-in resources for tests
+		server.WithMCPFileToolRoot(tempDir),
 	)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
@@ -47,11 +49,11 @@ func TestMCPHandler_ConcurrentRequests(t *testing.T) {
 	// Test different types of concurrent requests
 	testCases := []struct {
 		name     string
-		requests []map[string]interface{}
+		requests []map[string]any
 	}{
 		{
 			name: "ConcurrentPing",
-			requests: []map[string]interface{}{
+			requests: []map[string]any{
 				{
 					"jsonrpc": "2.0",
 					"method":  "ping",
@@ -71,7 +73,7 @@ func TestMCPHandler_ConcurrentRequests(t *testing.T) {
 		},
 		{
 			name: "ConcurrentToolsList",
-			requests: []map[string]interface{}{
+			requests: []map[string]any{
 				{
 					"jsonrpc": "2.0",
 					"method":  "tools/list",
@@ -91,13 +93,13 @@ func TestMCPHandler_ConcurrentRequests(t *testing.T) {
 		},
 		{
 			name: "ConcurrentCalculator",
-			requests: []map[string]interface{}{
+			requests: []map[string]any{
 				{
 					"jsonrpc": "2.0",
 					"method":  "tools/call",
-					"params": map[string]interface{}{
+					"params": map[string]any{
 						"name": "mcp__hyperserve__calculator",
-						"arguments": map[string]interface{}{
+						"arguments": map[string]any{
 							"operation": "add",
 							"a":         10.0,
 							"b":         20.0,
@@ -108,9 +110,9 @@ func TestMCPHandler_ConcurrentRequests(t *testing.T) {
 				{
 					"jsonrpc": "2.0",
 					"method":  "tools/call",
-					"params": map[string]interface{}{
+					"params": map[string]any{
 						"name": "mcp__hyperserve__calculator",
-						"arguments": map[string]interface{}{
+						"arguments": map[string]any{
 							"operation": "multiply",
 							"a":         5.0,
 							"b":         6.0,
@@ -121,9 +123,9 @@ func TestMCPHandler_ConcurrentRequests(t *testing.T) {
 				{
 					"jsonrpc": "2.0",
 					"method":  "tools/call",
-					"params": map[string]interface{}{
+					"params": map[string]any{
 						"name": "mcp__hyperserve__calculator",
-						"arguments": map[string]interface{}{
+						"arguments": map[string]any{
 							"operation": "divide",
 							"a":         100.0,
 							"b":         4.0,
@@ -135,13 +137,13 @@ func TestMCPHandler_ConcurrentRequests(t *testing.T) {
 		},
 		{
 			name: "ConcurrentFileRead",
-			requests: []map[string]interface{}{
+			requests: []map[string]any{
 				{
 					"jsonrpc": "2.0",
 					"method":  "tools/call",
-					"params": map[string]interface{}{
+					"params": map[string]any{
 						"name": "mcp__hyperserve__read_file",
-						"arguments": map[string]interface{}{
+						"arguments": map[string]any{
 							"path": "test_0.txt",
 						},
 					},
@@ -150,9 +152,9 @@ func TestMCPHandler_ConcurrentRequests(t *testing.T) {
 				{
 					"jsonrpc": "2.0",
 					"method":  "tools/call",
-					"params": map[string]interface{}{
+					"params": map[string]any{
 						"name": "mcp__hyperserve__read_file",
-						"arguments": map[string]interface{}{
+						"arguments": map[string]any{
 							"path": "test_1.txt",
 						},
 					},
@@ -161,9 +163,9 @@ func TestMCPHandler_ConcurrentRequests(t *testing.T) {
 				{
 					"jsonrpc": "2.0",
 					"method":  "tools/call",
-					"params": map[string]interface{}{
+					"params": map[string]any{
 						"name": "mcp__hyperserve__read_file",
-						"arguments": map[string]interface{}{
+						"arguments": map[string]any{
 							"path": "test_2.txt",
 						},
 					},
@@ -173,7 +175,7 @@ func TestMCPHandler_ConcurrentRequests(t *testing.T) {
 		},
 		{
 			name: "MixedConcurrentRequests",
-			requests: []map[string]interface{}{
+			requests: []map[string]any{
 				{
 					"jsonrpc": "2.0",
 					"method":  "ping",
@@ -192,9 +194,9 @@ func TestMCPHandler_ConcurrentRequests(t *testing.T) {
 				{
 					"jsonrpc": "2.0",
 					"method":  "tools/call",
-					"params": map[string]interface{}{
+					"params": map[string]any{
 						"name": "mcp__hyperserve__calculator",
-						"arguments": map[string]interface{}{
+						"arguments": map[string]any{
 							"operation": "add",
 							"a":         1.0,
 							"b":         2.0,
@@ -205,7 +207,7 @@ func TestMCPHandler_ConcurrentRequests(t *testing.T) {
 				{
 					"jsonrpc": "2.0",
 					"method":  "resources/read",
-					"params": map[string]interface{}{
+					"params": map[string]any{
 						"uri": "system://runtime/info",
 					},
 					"id": 5,
@@ -225,7 +227,7 @@ func TestMCPHandler_ConcurrentRequests(t *testing.T) {
 
 			for i, request := range tc.requests {
 				wg.Add(1)
-				go func(i int, req map[string]interface{}) {
+				go func(i int, req map[string]any) {
 					defer wg.Done()
 
 					requestData, err := json.Marshal(req)
@@ -240,7 +242,7 @@ func TestMCPHandler_ConcurrentRequests(t *testing.T) {
 					httpReq.Header.Set("Content-Type", "application/json")
 
 					w := httptest.NewRecorder()
-					srv.mcpHandler.ServeHTTP(w, httpReq)
+					srv.MCPHandler().ServeHTTP(w, httpReq)
 
 					if w.Code != http.StatusOK {
 						mu.Lock()
@@ -249,7 +251,7 @@ func TestMCPHandler_ConcurrentRequests(t *testing.T) {
 						return
 					}
 
-					var response JSONRPCResponse
+					var response jsonrpc.Response
 					if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
 						mu.Lock()
 						errors = append(errors, fmt.Errorf("request %d response unmarshal error: %v", i, err))
@@ -292,11 +294,11 @@ func TestMCPHandler_HighConcurrency(t *testing.T) {
 		t.Skip("Skipping high concurrency test in short mode")
 	}
 
-	srv, err := NewServer(
-		WithAddr(":0"),
-		WithMCPSupport("test-server", "1.0.0"),
-		WithMCPBuiltinTools(true),     // Enable built-in tools for tests
-		WithMCPBuiltinResources(true), // Enable built-in resources for tests
+	srv, err := server.NewServer(
+		server.WithAddr(":0"),
+		server.WithMCPSupport("test-server", "1.0.0"),
+		server.WithMCPBuiltinTools(true),     // Enable built-in tools for tests
+		server.WithMCPBuiltinResources(true), // Enable built-in resources for tests
 	)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
@@ -311,7 +313,7 @@ func TestMCPHandler_HighConcurrency(t *testing.T) {
 	var successCount int64
 
 	// Create the request template
-	request := map[string]interface{}{
+	request := map[string]any{
 		"jsonrpc": "2.0",
 		"method":  "ping",
 		"id":      1,
@@ -324,17 +326,17 @@ func TestMCPHandler_HighConcurrency(t *testing.T) {
 
 	startTime := time.Now()
 
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
 
-			for j := 0; j < requestsPerGoroutine; j++ {
+			for j := range requestsPerGoroutine {
 				httpReq := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(requestData))
 				httpReq.Header.Set("Content-Type", "application/json")
 
 				w := httptest.NewRecorder()
-				srv.mcpHandler.ServeHTTP(w, httpReq)
+				srv.MCPHandler().ServeHTTP(w, httpReq)
 
 				if w.Code != http.StatusOK {
 					mu.Lock()
@@ -343,7 +345,7 @@ func TestMCPHandler_HighConcurrency(t *testing.T) {
 					continue
 				}
 
-				var response JSONRPCResponse
+				var response jsonrpc.Response
 				if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
 					mu.Lock()
 					errors = append(errors, fmt.Errorf("goroutine %d request %d unmarshal error: %v", goroutineID, j, err))
@@ -398,19 +400,19 @@ func TestMCPHandler_HighConcurrency(t *testing.T) {
 
 // TestMCPResources_ThreadSafety tests that resource access is thread-safe
 func TestMCPResources_ThreadSafety(t *testing.T) {
-	srv, err := NewServer(
-		WithAddr(":0"),
-		WithMCPSupport("thread-safety-test", "1.0.0"),
-		WithMCPBuiltinTools(true),     // Enable built-in tools for tests
-		WithMCPBuiltinResources(true), // Enable built-in resources for tests
+	srv, err := server.NewServer(
+		server.WithAddr(":0"),
+		server.WithMCPSupport("thread-safety-test", "1.0.0"),
+		server.WithMCPBuiltinTools(true),     // Enable built-in tools for tests
+		server.WithMCPBuiltinResources(true), // Enable built-in resources for tests
 	)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
 
 	// Simulate some server activity to populate metrics
-	srv.totalRequests.Store(100)
-	srv.totalResponseTime.Store(1000000000) // 1 second in nanoseconds
+	srv.SetMetrics(100, srv.TotalResponseTime())
+	srv.SetMetrics(srv.TotalRequests(), 1000000000) // 1 second in nanoseconds
 
 	resources := []string{
 		"config://server/options",
@@ -432,16 +434,16 @@ func TestMCPResources_ThreadSafety(t *testing.T) {
 			errors = errors[:0] // Reset errors for each resource
 			atomic.StoreInt64(&successCount, 0)
 
-			for i := 0; i < numGoroutines; i++ {
+			for i := range numGoroutines {
 				wg.Add(1)
 				go func(goroutineID int, uri string) {
 					defer wg.Done()
 
-					for j := 0; j < accessesPerGoroutine; j++ {
-						request := map[string]interface{}{
+					for j := range accessesPerGoroutine {
+						request := map[string]any{
 							"jsonrpc": "2.0",
 							"method":  "resources/read",
-							"params": map[string]interface{}{
+							"params": map[string]any{
 								"uri": uri,
 							},
 							"id": goroutineID*accessesPerGoroutine + j,
@@ -459,7 +461,7 @@ func TestMCPResources_ThreadSafety(t *testing.T) {
 						httpReq.Header.Set("Content-Type", "application/json")
 
 						w := httptest.NewRecorder()
-						srv.mcpHandler.ServeHTTP(w, httpReq)
+						srv.MCPHandler().ServeHTTP(w, httpReq)
 
 						if w.Code != http.StatusOK {
 							mu.Lock()
@@ -468,7 +470,7 @@ func TestMCPResources_ThreadSafety(t *testing.T) {
 							continue
 						}
 
-						var response JSONRPCResponse
+						var response jsonrpc.Response
 						if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
 							mu.Lock()
 							errors = append(errors, fmt.Errorf("goroutine %d access %d unmarshal error: %v", goroutineID, j, err))
@@ -484,7 +486,7 @@ func TestMCPResources_ThreadSafety(t *testing.T) {
 						}
 
 						// Validate that the response contains expected structure
-						result, ok := response.Result.(map[string]interface{})
+						result, ok := response.Result.(map[string]any)
 						if !ok {
 							mu.Lock()
 							errors = append(errors, fmt.Errorf("goroutine %d access %d: result is not a map", goroutineID, j))
@@ -492,7 +494,7 @@ func TestMCPResources_ThreadSafety(t *testing.T) {
 							continue
 						}
 
-						contents, ok := result["contents"].([]interface{})
+						contents, ok := result["contents"].([]any)
 						if !ok {
 							mu.Lock()
 							errors = append(errors, fmt.Errorf("goroutine %d access %d: contents is not an array", goroutineID, j))
@@ -541,11 +543,11 @@ func TestMCPConcurrency_DataRace(t *testing.T) {
 	// This test is specifically designed to be run with -race flag
 	// go test -race -run TestMCPConcurrency_DataRace
 
-	srv, err := NewServer(
-		WithAddr(":0"),
-		WithMCPSupport("test-server", "1.0.0"),
-		WithMCPBuiltinTools(true),     // Enable built-in tools for tests
-		WithMCPBuiltinResources(true), // Enable built-in resources for tests
+	srv, err := server.NewServer(
+		server.WithAddr(":0"),
+		server.WithMCPSupport("test-server", "1.0.0"),
+		server.WithMCPBuiltinTools(true),     // Enable built-in tools for tests
+		server.WithMCPBuiltinResources(true), // Enable built-in resources for tests
 	)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
@@ -556,12 +558,12 @@ func TestMCPConcurrency_DataRace(t *testing.T) {
 	const numGoroutines = 20
 
 	// Concurrent ping requests to test JSON-RPC handler state
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
 
-			request := map[string]interface{}{
+			request := map[string]any{
 				"jsonrpc": "2.0",
 				"method":  "ping",
 				"id":      id,
@@ -572,20 +574,20 @@ func TestMCPConcurrency_DataRace(t *testing.T) {
 			httpReq.Header.Set("Content-Type", "application/json")
 
 			w := httptest.NewRecorder()
-			srv.mcpHandler.ServeHTTP(w, httpReq)
+			srv.MCPHandler().ServeHTTP(w, httpReq)
 		}(i)
 	}
 
 	// Concurrent metrics access to test server statistics updates
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
 
-			request := map[string]interface{}{
+			request := map[string]any{
 				"jsonrpc": "2.0",
 				"method":  "resources/read",
-				"params": map[string]interface{}{
+				"params": map[string]any{
 					"uri": "metrics://server/stats",
 				},
 				"id": id + numGoroutines,
@@ -596,19 +598,19 @@ func TestMCPConcurrency_DataRace(t *testing.T) {
 			httpReq.Header.Set("Content-Type", "application/json")
 
 			w := httptest.NewRecorder()
-			srv.mcpHandler.ServeHTTP(w, httpReq)
+			srv.MCPHandler().ServeHTTP(w, httpReq)
 		}(i)
 	}
 
 	// Concurrent server statistics updates
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
 
 			// Simulate request processing that updates server stats
-			srv.totalRequests.Add(1)
-			srv.totalResponseTime.Add(int64(time.Millisecond))
+			srv.AddMetrics(uint64(1), 0)
+			srv.AddMetrics(0, int64(int64(time.Millisecond)))
 		}(i)
 	}
 
@@ -624,11 +626,11 @@ func TestMCPConcurrency_MemoryUsage(t *testing.T) {
 		t.Skip("Skipping memory usage test in short mode")
 	}
 
-	srv, err := NewServer(
-		WithAddr(":0"),
-		WithMCPSupport("test-server", "1.0.0"),
-		WithMCPBuiltinTools(true),     // Enable built-in tools for tests
-		WithMCPBuiltinResources(true), // Enable built-in resources for tests
+	srv, err := server.NewServer(
+		server.WithAddr(":0"),
+		server.WithMCPSupport("test-server", "1.0.0"),
+		server.WithMCPBuiltinTools(true),     // Enable built-in tools for tests
+		server.WithMCPBuiltinResources(true), // Enable built-in resources for tests
 	)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
@@ -645,15 +647,13 @@ func TestMCPConcurrency_MemoryUsage(t *testing.T) {
 	const numIterations = 100
 	const concurrentRequests = 50
 
-	for iteration := 0; iteration < numIterations; iteration++ {
+	for iteration := range numIterations {
 		var wg sync.WaitGroup
 
-		for i := 0; i < concurrentRequests; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+		for range concurrentRequests {
+			wg.Go(func() {
 
-				request := map[string]interface{}{
+				request := map[string]any{
 					"jsonrpc": "2.0",
 					"method":  "tools/list",
 					"id":      1,
@@ -664,8 +664,8 @@ func TestMCPConcurrency_MemoryUsage(t *testing.T) {
 				httpReq.Header.Set("Content-Type", "application/json")
 
 				w := httptest.NewRecorder()
-				srv.mcpHandler.ServeHTTP(w, httpReq)
-			}()
+				srv.MCPHandler().ServeHTTP(w, httpReq)
+			})
 		}
 
 		wg.Wait()

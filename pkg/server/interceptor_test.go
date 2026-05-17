@@ -105,7 +105,7 @@ func TestEarlyResponse(t *testing.T) {
 
 func TestRequestLogger(t *testing.T) {
 	var logMessages []string
-	logger := NewRequestLogger(func(format string, args ...interface{}) {
+	logger := NewRequestLogger(func(format string, args ...any) {
 		logMessages = append(logMessages, format)
 	})
 
@@ -136,7 +136,7 @@ func TestInterceptableRequest(t *testing.T) {
 
 	ireq := &InterceptableRequest{
 		Request:  req,
-		Metadata: make(map[string]interface{}),
+		Metadata: make(map[string]any),
 	}
 
 	// Test GetBody
@@ -210,7 +210,7 @@ func TestAuthTokenInjector(t *testing.T) {
 	req := httptest.NewRequest("GET", "/test", nil)
 	ireq := &InterceptableRequest{
 		Request:  req,
-		Metadata: make(map[string]interface{}),
+		Metadata: make(map[string]any),
 	}
 
 	resp, err := injector.InterceptRequest(context.Background(), ireq)
@@ -234,7 +234,7 @@ func TestResponseTransformer(t *testing.T) {
 	transformer := NewResponseTransformer(func(body []byte, contentType string) ([]byte, error) {
 		// Simple transformation: add timestamp
 		if contentType == "application/json" {
-			var data map[string]interface{}
+			var data map[string]any
 			if err := json.Unmarshal(body, &data); err == nil {
 				data["transformed_at"] = time.Now().Unix()
 				return json.Marshal(data)
@@ -246,7 +246,7 @@ func TestResponseTransformer(t *testing.T) {
 	req := httptest.NewRequest("GET", "/test", nil)
 	ireq := &InterceptableRequest{
 		Request:  req,
-		Metadata: make(map[string]interface{}),
+		Metadata: make(map[string]any),
 	}
 
 	// Create response
@@ -263,7 +263,7 @@ func TestResponseTransformer(t *testing.T) {
 	}
 
 	// Verify transformation
-	var transformedData map[string]interface{}
+	var transformedData map[string]any
 	err = json.Unmarshal(resp.Body.Bytes(), &transformedData)
 	if err != nil {
 		t.Errorf("Failed to parse transformed response: %v", err)

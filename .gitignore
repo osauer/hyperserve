@@ -82,7 +82,6 @@ examples/json-api/json-api
 examples/middleware-basics/middleware-basics
 examples/configuration/configuration
 examples/auth/auth
-examples/chaos/chaos
 examples/enterprise/enterprise
 examples/htmx-dynamic/htmx-dynamic
 examples/htmx-stream/htmx-stream
@@ -108,6 +107,8 @@ examples/**/*
 !examples/**/.gitkeep
 # Main binary
 /hyperserve
+/server
+/mcp-extensions
 /cmd/hyperserve/hyperserve
 
 # Python

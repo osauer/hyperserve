@@ -1,11 +1,14 @@
-package server
+package builtin
 
 import (
+	"context"
 	"encoding/json"
+	"log/slog"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/osauer/hyperserve/pkg/server"
 )
 
 func TestSystemResource(t *testing.T) {
@@ -40,7 +43,7 @@ func TestSystemResource(t *testing.T) {
 	}
 
 	// Verify it's valid JSON
-	var systemInfo map[string]interface{}
+	var systemInfo map[string]any
 	if err := json.Unmarshal([]byte(resultStr), &systemInfo); err != nil {
 		t.Fatalf("Result is not valid JSON: %v", err)
 	}
@@ -75,7 +78,7 @@ func TestSystemResource(t *testing.T) {
 
 func TestConfigResource(t *testing.T) {
 	// Create test server options
-	options := &ServerOptions{
+	options := &server.ServerOptions{
 		Addr:            ":8080",
 		EnableTLS:       false,
 		HealthAddr:      ":9080",
@@ -87,7 +90,6 @@ func TestConfigResource(t *testing.T) {
 		StaticDir:       "static/",
 		TemplateDir:     "templates/",
 		RunHealthServer: false,
-		ChaosMode:       false,
 		FIPSMode:        false,
 		HardenedMode:    false,
 	}
@@ -123,7 +125,7 @@ func TestConfigResource(t *testing.T) {
 	}
 
 	// Verify it's valid JSON
-	var config map[string]interface{}
+	var config map[string]any
 	if err := json.Unmarshal([]byte(resultStr), &config); err != nil {
 		t.Fatalf("Result is not valid JSON: %v", err)
 	}
@@ -162,188 +164,116 @@ func TestConfigResource(t *testing.T) {
 }
 
 func TestMetricsResource(t *testing.T) {
-	// Create a test server
-	srv := &Server{
-		totalRequests:     atomic.Uint64{},
-		totalResponseTime: atomic.Int64{},
-		isRunning:         atomic.Bool{},
-		isReady:           atomic.Bool{},
-		serverStart:       time.Now().Add(-time.Hour), // Started 1 hour ago
+	srv, err := server.NewServer()
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
 	}
-
-	// Set some test values
-	srv.totalRequests.Store(100)
-	srv.totalResponseTime.Store(50000) // 50ms total
-	srv.isRunning.Store(true)
-	srv.isReady.Store(true)
+	srv.SetMetrics(100, 5000)
 
 	resource := NewMetricsResource(srv)
 
-	// Test resource metadata
 	if resource.URI() != "metrics://server/stats" {
-		t.Errorf("Expected URI 'metrics://server/stats', got %s", resource.URI())
+		t.Errorf("URI: want metrics://server/stats, got %s", resource.URI())
 	}
-
 	if resource.Name() != "Server Metrics" {
-		t.Errorf("Expected name 'Server Metrics', got %s", resource.Name())
+		t.Errorf("Name: want 'Server Metrics', got %s", resource.Name())
 	}
-
-	if resource.Description() == "" {
-		t.Error("Description should not be empty")
-	}
-
 	if resource.MimeType() != "application/json" {
-		t.Errorf("Expected mime type 'application/json', got %s", resource.MimeType())
+		t.Errorf("MimeType: want application/json, got %s", resource.MimeType())
 	}
 
-	// Test reading metrics
 	result, err := resource.Read()
 	if err != nil {
-		t.Fatalf("Failed to read metrics resource: %v", err)
+		t.Fatalf("Read failed: %v", err)
 	}
-
-	resultStr, ok := result.(string)
+	raw, ok := result.(string)
 	if !ok {
-		t.Fatalf("Expected string result, got %T", result)
+		t.Fatalf("expected string result, got %T", result)
 	}
 
-	// Verify it's valid JSON
-	var metrics map[string]interface{}
-	if err := json.Unmarshal([]byte(resultStr), &metrics); err != nil {
-		t.Fatalf("Result is not valid JSON: %v", err)
+	var metrics map[string]any
+	if err := json.Unmarshal([]byte(raw), &metrics); err != nil {
+		t.Fatalf("not valid JSON: %v", err)
+	}
+	for _, field := range []string{"uptime", "totalRequests", "isRunning", "isReady"} {
+		if _, ok := metrics[field]; !ok {
+			t.Errorf("missing field %q in metrics payload", field)
+		}
+	}
+	if got, want := metrics["totalRequests"], float64(100); got != want {
+		t.Errorf("totalRequests: want %v, got %v", want, got)
 	}
 
-	// Check for expected fields
-	if _, exists := metrics["uptime"]; !exists {
-		t.Error("Expected 'uptime' field in metrics")
-	}
-
-	if metrics["totalRequests"] != float64(100) {
-		t.Errorf("Expected totalRequests 100, got %v", metrics["totalRequests"])
-	}
-
-	if metrics["isRunning"] != true {
-		t.Errorf("Expected isRunning true, got %v", metrics["isRunning"])
-	}
-
-	if metrics["isReady"] != true {
-		t.Errorf("Expected isReady true, got %v", metrics["isReady"])
-	}
-
-	// Test list method
 	uris, err := resource.List()
 	if err != nil {
-		t.Fatalf("Failed to list metrics resource: %v", err)
+		t.Fatalf("List failed: %v", err)
 	}
-
-	if len(uris) != 1 {
-		t.Errorf("Expected 1 URI, got %d", len(uris))
-	}
-
-	if uris[0] != resource.URI() {
-		t.Errorf("Expected URI %s, got %s", resource.URI(), uris[0])
+	if len(uris) != 1 || uris[0] != resource.URI() {
+		t.Errorf("List = %v, want [%s]", uris, resource.URI())
 	}
 }
 
-func TestLogResource(t *testing.T) {
-	resource := NewLogResource(5) // Max 5 entries
+func TestServerLogResource(t *testing.T) {
+	resource := NewServerLogResource(3)
 
-	// Test resource metadata
 	if resource.URI() != "logs://server/recent" {
-		t.Errorf("Expected URI 'logs://server/recent', got %s", resource.URI())
+		t.Errorf("expected URI logs://server/recent, got %s", resource.URI())
+	}
+	if resource.MimeType() != "application/json" {
+		t.Errorf("expected application/json, got %s", resource.MimeType())
 	}
 
-	if resource.Name() != "Recent Log Entries" {
-		t.Errorf("Expected name 'Recent Log Entries', got %s", resource.Name())
+	// Ingest 4 entries; oldest should rotate out.
+	ctx := context.Background()
+	for i, msg := range []string{"first", "second", "third", "fourth"} {
+		rec := slog.NewRecord(time.Now(), slog.LevelInfo, msg, 0)
+		rec.AddAttrs(slog.Int("i", i))
+		if err := resource.Handle(ctx, rec); err != nil {
+			t.Fatalf("Handle(%s) failed: %v", msg, err)
+		}
 	}
 
-	if resource.Description() == "" {
-		t.Error("Description should not be empty")
-	}
-
-	if resource.MimeType() != "text/plain" {
-		t.Errorf("Expected mime type 'text/plain', got %s", resource.MimeType())
-	}
-
-	// Test reading empty log
 	result, err := resource.Read()
 	if err != nil {
-		t.Fatalf("Failed to read log resource: %v", err)
+		t.Fatalf("Read failed: %v", err)
 	}
-
-	resultStr, ok := result.(string)
+	raw, ok := result.(string)
 	if !ok {
-		t.Fatalf("Expected string result, got %T", result)
+		t.Fatalf("expected string result, got %T", result)
 	}
 
-	if !strings.Contains(resultStr, "No log entries captured") {
-		t.Error("Expected message about no log entries")
+	var payload struct {
+		Logs []struct {
+			Message string `json:"msg"`
+		} `json:"logs"`
+		Count     int  `json:"count"`
+		Truncated bool `json:"truncated"`
+	}
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		t.Fatalf("payload not valid JSON: %v", err)
+	}
+	if payload.Count != 3 {
+		t.Errorf("expected 3 entries after rotation, got %d", payload.Count)
+	}
+	if !payload.Truncated {
+		t.Error("expected truncated=true at capacity")
+	}
+	got := []string{payload.Logs[0].Message, payload.Logs[1].Message, payload.Logs[2].Message}
+	want := []string{"second", "third", "fourth"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("entry %d: want %q got %q", i, want[i], got[i])
+		}
+	}
+	if strings.Contains(raw, `"first"`) {
+		t.Error("first entry should have been rotated out")
 	}
 
-	// Add some log entries
-	resource.AddLogEntry("First log entry")
-	resource.AddLogEntry("Second log entry")
-	resource.AddLogEntry("Third log entry")
-
-	// Test reading log with entries
-	result, err = resource.Read()
-	if err != nil {
-		t.Fatalf("Failed to read log resource with entries: %v", err)
-	}
-
-	resultStr, ok = result.(string)
-	if !ok {
-		t.Fatalf("Expected string result, got %T", result)
-	}
-
-	if !strings.Contains(resultStr, "First log entry") {
-		t.Error("Expected first log entry in result")
-	}
-
-	if !strings.Contains(resultStr, "Second log entry") {
-		t.Error("Expected second log entry in result")
-	}
-
-	if !strings.Contains(resultStr, "Third log entry") {
-		t.Error("Expected third log entry in result")
-	}
-
-	// Test log rotation (add more entries than max size)
-	resource.AddLogEntry("Fourth log entry")
-	resource.AddLogEntry("Fifth log entry")
-	resource.AddLogEntry("Sixth log entry") // This should cause rotation
-
-	result, err = resource.Read()
-	if err != nil {
-		t.Fatalf("Failed to read log resource after rotation: %v", err)
-	}
-
-	resultStr, ok = result.(string)
-	if !ok {
-		t.Fatalf("Expected string result, got %T", result)
-	}
-
-	// First entry should be rotated out
-	if strings.Contains(resultStr, "First log entry") {
-		t.Error("First log entry should have been rotated out")
-	}
-
-	// Sixth entry should be present
-	if !strings.Contains(resultStr, "Sixth log entry") {
-		t.Error("Expected sixth log entry in result")
-	}
-
-	// Test list method
 	uris, err := resource.List()
 	if err != nil {
-		t.Fatalf("Failed to list log resource: %v", err)
+		t.Fatalf("List failed: %v", err)
 	}
-
-	if len(uris) != 1 {
-		t.Errorf("Expected 1 URI, got %d", len(uris))
-	}
-
-	if uris[0] != resource.URI() {
-		t.Errorf("Expected URI %s, got %s", resource.URI(), uris[0])
+	if len(uris) != 1 || uris[0] != resource.URI() {
+		t.Errorf("List = %v, want [%s]", uris, resource.URI())
 	}
 }

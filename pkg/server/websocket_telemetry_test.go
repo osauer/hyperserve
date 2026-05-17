@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/osauer/hyperserve/pkg/websocket"
 )
 
 // TestWebSocketTelemetry tests that WebSocket connections are tracked in server metrics
@@ -112,7 +114,7 @@ func TestWebSocketMetricsInServerLog(t *testing.T) {
 	}
 
 	// Simulate some regular requests
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		srv.totalRequests.Add(1)
 		srv.totalResponseTime.Add(1000) // 1ms per request
 	}
@@ -145,7 +147,7 @@ func TestWebSocketWithCustomUpgrader(t *testing.T) {
 	beforeUpgradeCalled := false
 
 	// Create custom upgrader (not using server telemetry)
-	customUpgrader := &Upgrader{
+	customUpgrader := &websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
 			return true // Allow all origins
 		},
@@ -235,7 +237,7 @@ func TestCheckOriginHelpers(t *testing.T) {
 				req.Header.Set("Origin", tt.origin)
 			}
 
-			allowed := DefaultCheckOrigin(req)
+			allowed := websocket.DefaultCheckOrigin(req)
 			if allowed != tt.shouldAllow {
 				t.Errorf("Expected %v, got %v for origin %s and host %s",
 					tt.shouldAllow, allowed, tt.origin, tt.host)
@@ -252,7 +254,7 @@ func TestCheckOriginWithAllowedListTelemetry(t *testing.T) {
 		"https://staging.example.com",
 	}
 
-	checkFunc := CheckOriginWithAllowedList(allowedOrigins)
+	checkFunc := websocket.CheckOriginWithAllowedList(allowedOrigins)
 
 	tests := []struct {
 		name        string

@@ -82,7 +82,7 @@ func TestSecureWebWithoutRateLimit(t *testing.T) {
 	}
 
 	// Verify no rate limiting - send multiple requests
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		req := httptest.NewRequest(http.MethodGet, "/secure/test", nil)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
@@ -120,12 +120,12 @@ func TestRateLimitingUnderLoad(t *testing.T) {
 	numGoroutines := 10
 	requestsPerGoroutine := 20
 
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(clientID int) {
 			defer wg.Done()
 
-			for j := 0; j < requestsPerGoroutine; j++ {
+			for range requestsPerGoroutine {
 				req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
 				// Use same IP for all requests to trigger rate limiting
 				req.RemoteAddr = "192.168.1.100:12345"

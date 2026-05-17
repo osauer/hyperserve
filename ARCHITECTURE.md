@@ -2,29 +2,31 @@
 
 ## Design Philosophy
 
-HyperServe is built with a focus on simplicity, performance, and maintainability. By leveraging Go's excellent standard library and minimal external dependencies, we achieve a robust HTTP server framework that is both powerful and easy to understand.
+HyperServe is a thin layer over `net/http` with one runtime dependency
+(`golang.org/x/time`) and a built-in MCP server in the same binary. Everything
+else — middleware, WebSocket, JSON-RPC — is in-tree to keep the dependency tree
+flat.
 
 ## Core Principles
 
-### 1. Minimal Dependencies
-- Single external dependency: `golang.org/x/time` for rate limiting
-- Maximizes use of Go's standard library
-- Reduces security surface area and maintenance burden
+### 1. Single Runtime Dependency
+- `golang.org/x/time` for the rate-limiter token bucket.
+- Everything else uses the Go standard library.
+- `go.sum` has two lines; supply-chain audits are short.
 
-### 2. Performance First
-- Leverages Go's efficient goroutine model for concurrency
-- Zero-allocation patterns where possible
-- Optimized for both throughput and latency
+### 2. Standard Library First
+- `net/http` for the server, `crypto/tls` for TLS, `os.Root` (Go 1.24) for the static-file sandbox.
+- WebSocket and JSON-RPC are implemented in-tree against the standard library, not pulled from third parties.
 
-### 3. Security by Default
-- Built-in security headers
-- Rate limiting out of the box
-- Secure defaults for all configurations
+### 3. Secure Defaults
+- Security headers middleware is available out of the box.
+- Rate limiting is opt-in per route, with a periodic cleanup ticker.
+- TLS defaults to 1.2+; `WithFIPSMode()` restricts to the FIPS-approved cipher list.
 
-### 4. Developer Experience
-- Simple, intuitive API
-- Comprehensive examples
-- Clear error messages and logging
+### 4. AI / MCP as a First-Class Surface
+- The MCP server lives in `pkg/mcp` and is the differentiator vs `net/http` + a third-party router.
+- HTTP, SSE, and stdio transports share one handler; discovery endpoints (`/.well-known/mcp.json`) expose capabilities.
+- Built-in tools and resources are opt-in (`WithMCPBuiltinTools(true)`); they are demos, not production wiring.
 
 ## Architecture Overview
 
@@ -62,116 +64,63 @@ Full WebSocket implementation featuring:
 - Per-connection rate limiting
 
 ### Package Layout
-- `pkg/server`: public HTTP server surface, middleware registry, interceptors, MCP runtime
-- `pkg/websocket`: low-level WebSocket primitives, origin checks, pooling
-- `pkg/jsonrpc`: standalone JSON-RPC engine reused by MCP
-- Root facades (`*_facade.go`) keep `github.com/osauer/hyperserve` imports source-compatible
+
+- `pkg/server` — HTTP server, middleware registry, interceptor chain, deferred-init lifecycle, MCP wiring options.
+- `pkg/mcp` — MCP protocol surface. Standalone — no dependency on `pkg/server`.
+- `pkg/mcp/builtin` — Opt-in built-in MCP tools and resources. Depends on both `pkg/server` (for `*Server` access) and `pkg/mcp`.
+- `pkg/websocket` — WebSocket upgrader, low-level framing, connection pool, origin checks.
+- `pkg/jsonrpc` — Standalone JSON-RPC 2.0 engine used by `pkg/mcp`.
+
+Dependency direction is one-way: `pkg/mcp/builtin` → `pkg/server` + `pkg/mcp`; `pkg/server` → `pkg/mcp`; `pkg/mcp` → `pkg/jsonrpc`. No cycles.
 
 ### Directory Structure
 
 ```
 /
 ├── cmd/              # Command-line applications
-├── internal/         # Private application code (non-exported)
+├── internal/scaffold # Templates backing hyperserve-init
 ├── pkg/              # Public Go packages
-│   ├── server/       # HTTP server, middleware, MCP
-│   ├── websocket/    # WebSocket primitives & pooling
+│   ├── server/       # HTTP server, middleware, deferred-init, MCP wiring
+│   ├── mcp/          # MCP protocol (handler, transports, discovery, namespaces)
+│   │   └── builtin/  # Opt-in built-in MCP tools and resources
+│   ├── websocket/    # RFC 6455 WebSocket implementation + pool
 │   └── jsonrpc/      # JSON-RPC 2.0 engine
-├── examples/         # Example implementations
-├── docs/             # Documentation
+├── examples/         # Self-contained `go run .` examples
+├── docs/             # ADRs and guides
 ├── benchmarks/       # Performance benchmarks
-├── spec/             # API specifications
+├── spec/             # API spec + conformance tests
 ├── configs/          # Configuration examples
 └── go.{mod,sum}
 ```
 
 ## Key Design Decisions
 
-### Go Standard Library First
-We prioritize Go's standard library over external packages. This provides:
-- Better long-term stability
-- Reduced dependency management
-- More predictable behavior
-- Easier debugging
+- **Standard library first.** Routing is `net/http.ServeMux`. TLS is `crypto/tls`. The static-file sandbox is `os.Root`. WebSocket and JSON-RPC are in-tree against the standard library, not pulled from third parties.
+- **Interfaces only where they earn it.** `MiddlewareFunc`, `mcp.Tool`, `mcp.Resource`, `mcp.Transport`, `mcp.Extension` exist because they have multiple implementations or are extension points. Single-implementation interfaces are avoided.
+- **Context-aware end-to-end.** Handlers, middleware, deferred-init, shutdown hooks, and MCP tool execution all thread `context.Context`.
+- **Errors returned, not panicked.** The recovery middleware exists to catch caller panics, not as a control-flow mechanism.
 
-### Interface-Based Design
-Heavy use of interfaces enables:
-- Easy testing with mocks
-- Flexible implementations
-- Clean separation of concerns
-- Plugin-style extensibility
+## Security
 
-### Context-Aware
-All handlers and middleware use Go's context pattern for:
-- Request-scoped values
-- Cancellation propagation
-- Timeout management
-- Tracing and correlation
+- TLS 1.2+ default; `WithFIPSMode()` restricts to the FIPS-approved cipher list.
+- Security-header middleware (`SecureWeb`, `SecureAPI`) available out of the box; off by default.
+- Rate limiting is per-route and per-client, with a periodic cleanup ticker.
+- Static file serving is sandboxed via `os.Root` (Go 1.24+).
+- The MCP discovery filter (`WithMCPDiscoveryFilter`) lets you gate tool visibility on a JWT or RBAC predicate.
 
-### Error Handling
-Consistent error handling approach:
-- Errors are always returned, never panicked
-- Structured logging for debugging
-- User-friendly error messages
-- Proper HTTP status codes
+## Performance
 
-## Performance Characteristics
+- One goroutine per connection (stdlib `net/http`).
+- Atomic counters for request/latency totals.
+- Rate-limiter map uses Swiss Tables (Go 1.24+).
+- Connection pool in `pkg/websocket` maintains a long-lived pool of upgraded connections.
 
-### Concurrency Model
-- One goroutine per connection
-- Efficient goroutine pooling
-- Non-blocking I/O operations
-- Careful resource management
+## Roadmap
 
-### Memory Management
-- Minimal allocations in hot paths
-- Buffer pooling for large operations
-- Careful string handling
-- Efficient JSON encoding/decoding
-
-### Network Optimization
-- HTTP/2 support via standard library
-- Keep-alive connections
-- Configurable timeouts
-- Graceful shutdown
-
-## Security Architecture
-
-### Defense in Depth
-Multiple layers of security:
-1. Input validation
-2. Rate limiting
-3. Security headers
-4. Authentication middleware
-5. Authorization checks
-
-### Secure Defaults
-- TLS 1.2+ only
-- Secure cookie flags
-- CORS protection
-- XSS prevention headers
-
-## Future Roadmap
-
-### Near Term
-- Enhanced metrics and observability
-- Additional MCP tool implementations
-- Performance optimizations
-- Extended authentication providers
-
-### Long Term
-- HTTP/3 support
-- Advanced caching strategies
-- Distributed tracing
-- Service mesh integration
+Tracked in the issue tracker and CHANGELOG. The next milestone bumps the minimum Go version once `encoding/json/v2` graduates from experimental.
 
 ## Contributing
 
-When contributing to HyperServe:
-1. Follow Go best practices and idioms
-2. Maintain minimal dependency philosophy
-3. Write comprehensive tests
-4. Update documentation
-5. Consider performance implications
+See [CONTRIBUTING.md](./CONTRIBUTING.md). Run `make check` (vet + staticcheck + modernize + govulncheck) before opening a PR.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed guidelines.

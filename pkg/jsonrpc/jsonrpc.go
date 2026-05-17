@@ -4,7 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"sort"
+	"maps"
+	"slices"
 )
 
 // Version is the JSON-RPC 2.0 version identifier.
@@ -12,25 +13,25 @@ const Version = "2.0"
 
 // Request represents a JSON-RPC 2.0 request message.
 type Request struct {
-	JSONRPC string      `json:"jsonrpc"`
-	Method  string      `json:"method"`
-	Params  interface{} `json:"params,omitempty"`
-	ID      interface{} `json:"id,omitempty"`
+	JSONRPC string `json:"jsonrpc"`
+	Method  string `json:"method"`
+	Params  any    `json:"params,omitempty"`
+	ID      any    `json:"id,omitempty"`
 }
 
 // Response represents a JSON-RPC 2.0 response message.
 type Response struct {
 	JSONRPC string        `json:"jsonrpc"`
-	Result  interface{}   `json:"result,omitempty"`
+	Result  any           `json:"result,omitempty"`
 	Error   *ErrorDetails `json:"error,omitempty"`
-	ID      interface{}   `json:"id"`
+	ID      any           `json:"id"`
 }
 
 // ErrorDetails represents a JSON-RPC 2.0 error object.
 type ErrorDetails struct {
-	Code    int         `json:"code"`
-	Message string      `json:"message"`
-	Data    interface{} `json:"data,omitempty"`
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Data    any    `json:"data,omitempty"`
 }
 
 // Standard JSON-RPC error codes.
@@ -43,7 +44,7 @@ const (
 )
 
 // MethodHandler defines the signature for JSON-RPC method handlers.
-type MethodHandler func(params interface{}) (interface{}, error)
+type MethodHandler func(params any) (any, error)
 
 // Engine handles JSON-RPC 2.0 request processing.
 type Engine struct {
@@ -164,10 +165,5 @@ func (engine *Engine) ProcessRequestDirect(request *Request) *Response {
 
 // GetRegisteredMethods returns a sorted list of registered method names.
 func (engine *Engine) GetRegisteredMethods() []string {
-	methods := make([]string, 0, len(engine.methods))
-	for name := range engine.methods {
-		methods = append(methods, name)
-	}
-	sort.Strings(methods)
-	return methods
+	return slices.Sorted(maps.Keys(engine.methods))
 }

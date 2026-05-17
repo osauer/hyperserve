@@ -2,6 +2,8 @@ package server
 
 import (
 	"encoding/json"
+	jsonrpc "github.com/osauer/hyperserve/pkg/jsonrpc"
+	"github.com/osauer/hyperserve/pkg/mcp"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -22,11 +24,11 @@ func (t *TestTool) Description() string {
 	return t.description
 }
 
-func (t *TestTool) Schema() map[string]interface{} {
-	return map[string]interface{}{
+func (t *TestTool) Schema() map[string]any {
+	return map[string]any{
 		"type": "object",
-		"properties": map[string]interface{}{
-			"input": map[string]interface{}{
+		"properties": map[string]any{
+			"input": map[string]any{
 				"type": "string",
 			},
 		},
@@ -34,9 +36,9 @@ func (t *TestTool) Schema() map[string]interface{} {
 	}
 }
 
-func (t *TestTool) Execute(params map[string]interface{}) (interface{}, error) {
+func (t *TestTool) Execute(params map[string]any) (any, error) {
 	input, _ := params["input"].(string)
-	return map[string]interface{}{
+	return map[string]any{
 		"result": "Executed " + t.name + " with input: " + input,
 	}, nil
 }
@@ -64,7 +66,7 @@ func (r *TestResource) MimeType() string {
 	return "text/plain"
 }
 
-func (r *TestResource) Read() (interface{}, error) {
+func (r *TestResource) Read() (any, error) {
 	return "Content from " + r.name, nil
 }
 
@@ -110,14 +112,14 @@ func testServerWithNamespaceOption(t *testing.T) {
 
 	// Register namespaces after server creation
 	err = srv.RegisterMCPNamespace("daw",
-		WithNamespaceTools(dawPlayTool, dawStopTool),
+		mcp.WithNamespaceTools(dawPlayTool, dawStopTool),
 	)
 	if err != nil {
 		t.Fatalf("Failed to register daw namespace: %v", err)
 	}
 
 	err = srv.RegisterMCPNamespace("db",
-		WithNamespaceTools(dbQueryTool, dbBackupTool),
+		mcp.WithNamespaceTools(dbQueryTool, dbBackupTool),
 	)
 	if err != nil {
 		t.Fatalf("Failed to register db namespace: %v", err)
@@ -175,7 +177,7 @@ func testServerWithNamespaceOption(t *testing.T) {
 }
 
 func testDirectNamespaceRegistration(t *testing.T) {
-	handler := NewMCPHandler(MCPServerInfo{Name: "test-server", Version: "1.0"})
+	handler := mcp.NewHandler(mcp.ServerInfo{Name: "test-server", Version: "1.0"})
 
 	// Register individual tools in namespaces
 	tool1 := &TestTool{name: "tool1", description: "First tool"}
@@ -189,7 +191,7 @@ func testDirectNamespaceRegistration(t *testing.T) {
 	tool4 := &TestTool{name: "tool4", description: "Fourth tool"}
 
 	err := handler.RegisterNamespace("namespace3",
-		WithNamespaceTools(tool3, tool4),
+		mcp.WithNamespaceTools(tool3, tool4),
 	)
 	if err != nil {
 		t.Fatalf("Failed to register namespace: %v", err)
@@ -204,14 +206,14 @@ func testDirectNamespaceRegistration(t *testing.T) {
 	}
 
 	for _, expectedName := range expectedTools {
-		if _, exists := handler.tools[expectedName]; !exists {
+		if !handler.HasTool(expectedName) {
 			t.Errorf("Expected tool %s not found", expectedName)
 		}
 	}
 }
 
 func testMixedRegistrationMethods(t *testing.T) {
-	handler := NewMCPHandler(MCPServerInfo{Name: "test-server", Version: "1.0"})
+	handler := mcp.NewHandler(mcp.ServerInfo{Name: "test-server", Version: "1.0"})
 
 	// Register tools using different methods
 	backwardCompatTool := &TestTool{name: "legacy", description: "Legacy tool"}
@@ -228,25 +230,25 @@ func testMixedRegistrationMethods(t *testing.T) {
 	handler.RegisterResourceInNamespace(namespacedResource, "api")
 
 	// Verify registration
-	if _, exists := handler.tools["legacy"]; !exists {
+	if !handler.HasTool("legacy") {
 		t.Error("Legacy tool should exist without prefix")
 	}
 
-	if _, exists := handler.tools["mcp__api__modern"]; !exists {
+	if !handler.HasTool("mcp__api__modern") {
 		t.Error("Modern tool should exist with namespace prefix")
 	}
 
-	if _, exists := handler.resources["legacy://resource"]; !exists {
+	if !handler.HasResource("legacy://resource") {
 		t.Error("Legacy resource should exist without prefix")
 	}
 
-	if _, exists := handler.resources["mcp__api__resource://modern"]; !exists {
+	if !handler.HasResource("mcp__api__resource://modern") {
 		t.Error("Modern resource should exist with namespace prefix")
 	}
 }
 
 func testNamespaceToolExecution(t *testing.T) {
-	handler := NewMCPHandler(MCPServerInfo{Name: "test-server", Version: "1.0"})
+	handler := mcp.NewHandler(mcp.ServerInfo{Name: "test-server", Version: "1.0"})
 
 	// Register tools in different namespaces
 	mathTool := &TestTool{name: "calculate", description: "Math calculations"}
@@ -256,30 +258,30 @@ func testNamespaceToolExecution(t *testing.T) {
 	handler.RegisterToolInNamespace(webTool, "web")
 
 	// Execute math tool
-	mathRequest := &JSONRPCRequest{
+	mathRequest := &jsonrpc.Request{
 		JSONRPC: "2.0",
 		Method:  "tools/call",
-		Params: map[string]interface{}{
+		Params: map[string]any{
 			"name": "mcp__math__calculate",
-			"arguments": map[string]interface{}{
+			"arguments": map[string]any{
 				"input": "2+2",
 			},
 		},
 		ID: 1,
 	}
 
-	response := handler.rpcEngine.ProcessRequestDirect(mathRequest)
+	response := handler.RPCEngine().ProcessRequestDirect(mathRequest)
 	if response.Error != nil {
 		t.Fatalf("Math tool execution failed: %v", response.Error)
 	}
 
 	// Verify response
-	result, ok := response.Result.(map[string]interface{})
+	result, ok := response.Result.(map[string]any)
 	if !ok {
 		t.Fatal("Expected map result")
 	}
 
-	content, ok := result["content"].([]map[string]interface{})
+	content, ok := result["content"].([]map[string]any)
 	if !ok || len(content) == 0 {
 		t.Fatal("Expected content array in result")
 	}
@@ -290,26 +292,26 @@ func testNamespaceToolExecution(t *testing.T) {
 	}
 
 	// Execute web tool
-	webRequest := &JSONRPCRequest{
+	webRequest := &jsonrpc.Request{
 		JSONRPC: "2.0",
 		Method:  "tools/call",
-		Params: map[string]interface{}{
+		Params: map[string]any{
 			"name": "mcp__web__fetch",
-			"arguments": map[string]interface{}{
+			"arguments": map[string]any{
 				"input": "https://example.com",
 			},
 		},
 		ID: 2,
 	}
 
-	response = handler.rpcEngine.ProcessRequestDirect(webRequest)
+	response = handler.RPCEngine().ProcessRequestDirect(webRequest)
 	if response.Error != nil {
 		t.Fatalf("Web tool execution failed: %v", response.Error)
 	}
 }
 
 func testNamespaceResourceRead(t *testing.T) {
-	handler := NewMCPHandler(MCPServerInfo{Name: "test-server", Version: "1.0"})
+	handler := mcp.NewHandler(mcp.ServerInfo{Name: "test-server", Version: "1.0"})
 
 	// Register resources in different namespaces
 	configResource := &TestResource{
@@ -327,19 +329,19 @@ func testNamespaceResourceRead(t *testing.T) {
 	handler.RegisterResourceInNamespace(dataResource, "db")
 
 	// List resources
-	listRequest := &JSONRPCRequest{
+	listRequest := &jsonrpc.Request{
 		JSONRPC: "2.0",
 		Method:  "resources/list",
 		ID:      1,
 	}
 
-	response := handler.rpcEngine.ProcessRequestDirect(listRequest)
+	response := handler.RPCEngine().ProcessRequestDirect(listRequest)
 	if response.Error != nil {
 		t.Fatalf("Resource list failed: %v", response.Error)
 	}
 
-	result, _ := response.Result.(map[string]interface{})
-	resources, _ := result["resources"].([]map[string]interface{})
+	result, _ := response.Result.(map[string]any)
+	resources, _ := result["resources"].([]map[string]any)
 
 	// Verify resources have namespace prefixes
 	expectedURIs := map[string]bool{
@@ -361,22 +363,22 @@ func testNamespaceResourceRead(t *testing.T) {
 	}
 
 	// Read namespaced resource
-	readRequest := &JSONRPCRequest{
+	readRequest := &jsonrpc.Request{
 		JSONRPC: "2.0",
 		Method:  "resources/read",
-		Params: map[string]interface{}{
+		Params: map[string]any{
 			"uri": "mcp__system__config://app",
 		},
 		ID: 2,
 	}
 
-	response = handler.rpcEngine.ProcessRequestDirect(readRequest)
+	response = handler.RPCEngine().ProcessRequestDirect(readRequest)
 	if response.Error != nil {
 		t.Fatalf("Resource read failed: %v", response.Error)
 	}
 
-	result, _ = response.Result.(map[string]interface{})
-	contents, _ := result["contents"].([]map[string]interface{})
+	result, _ = response.Result.(map[string]any)
+	contents, _ := result["contents"].([]map[string]any)
 	if len(contents) == 0 {
 		t.Fatal("Expected resource contents")
 	}
@@ -388,8 +390,8 @@ func testNamespaceResourceRead(t *testing.T) {
 }
 
 func testDefaultNamespaceBehavior(t *testing.T) {
-	serverInfo := MCPServerInfo{Name: "myserver", Version: "1.0"}
-	handler := NewMCPHandler(serverInfo)
+	serverInfo := mcp.ServerInfo{Name: "myserver", Version: "1.0"}
+	handler := mcp.NewHandler(serverInfo)
 
 	// Register tool without specifying namespace - should use server name
 	tool := &TestTool{name: "default_tool", description: "Tool in default namespace"}
@@ -397,7 +399,7 @@ func testDefaultNamespaceBehavior(t *testing.T) {
 
 	// Verify tool is registered with server name as namespace
 	expectedName := "mcp__myserver__default_tool"
-	if _, exists := handler.tools[expectedName]; !exists {
+	if !handler.HasTool(expectedName) {
 		t.Errorf("Expected tool %s not found", expectedName)
 	}
 
@@ -405,10 +407,10 @@ func testDefaultNamespaceBehavior(t *testing.T) {
 }
 
 func testEmptyNamespaceHandling(t *testing.T) {
-	handler := NewMCPHandler(MCPServerInfo{Name: "test", Version: "1.0"})
+	handler := mcp.NewHandler(mcp.ServerInfo{Name: "test", Version: "1.0"})
 
 	// Test empty namespace registration error
-	err := handler.RegisterNamespace("", WithNamespaceTools())
+	err := handler.RegisterNamespace("", mcp.WithNamespaceTools())
 	if err == nil {
 		t.Error("Expected error when registering empty namespace")
 	}
@@ -421,7 +423,7 @@ func testEmptyNamespaceHandling(t *testing.T) {
 	handler.RegisterToolInNamespace(tool, "")
 
 	expectedName := "mcp__test__tool" // Should use server name as default
-	if _, exists := handler.tools[expectedName]; !exists {
+	if !handler.HasTool(expectedName) {
 		t.Errorf("Tool should be registered with default namespace, expected %s", expectedName)
 	}
 }
@@ -437,11 +439,11 @@ func testComplexNamespaceScenario(t *testing.T) {
 
 	// Register multiple namespaces
 	err = srv.RegisterMCPNamespace("analytics",
-		WithNamespaceTools(
+		mcp.WithNamespaceTools(
 			&TestTool{name: "track", description: "Track events"},
 			&TestTool{name: "report", description: "Generate reports"},
 		),
-		WithNamespaceResources(
+		mcp.WithNamespaceResources(
 			&TestResource{uri: "metrics://daily", name: "Daily Metrics"},
 			&TestResource{uri: "metrics://monthly", name: "Monthly Metrics"},
 		),
@@ -451,11 +453,11 @@ func testComplexNamespaceScenario(t *testing.T) {
 	}
 
 	err = srv.RegisterMCPNamespace("admin",
-		WithNamespaceTools(
+		mcp.WithNamespaceTools(
 			&TestTool{name: "users", description: "Manage users"},
 			&TestTool{name: "config", description: "Manage config"},
 		),
-		WithNamespaceResources(
+		mcp.WithNamespaceResources(
 			&TestResource{uri: "settings://global", name: "Global Settings"},
 		),
 	)

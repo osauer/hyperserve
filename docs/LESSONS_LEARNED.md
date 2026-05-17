@@ -45,7 +45,6 @@ func BenchmarkBaseline(b *testing.B) {
 - Swiss Tables make regular maps faster than sync.Map for rate limiting
 - os.Root requires custom file server implementation
 - FIPS mode needs careful cipher suite selection
-- ECH support is straightforward with proper key management
 
 ### 5. Testing Pitfalls
 **Parallel Test Conflicts**: 

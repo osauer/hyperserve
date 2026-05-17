@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/osauer/hyperserve/pkg/mcp"
 	"net"
 	"net/http"
 	"strings"
@@ -15,11 +16,11 @@ import (
 
 func TestMCPWithSSEIntegration(t *testing.T) {
 	// Create MCP handler with SSE support
-	serverInfo := MCPServerInfo{
+	serverInfo := mcp.ServerInfo{
 		Name:    "test-server",
 		Version: "1.0.0",
 	}
-	handler := NewMCPHandler(serverInfo)
+	handler := mcp.NewHandler(serverInfo)
 
 	// Register a test tool
 	handler.RegisterTool(&testTool{})
@@ -81,8 +82,8 @@ func TestMCPWithSSEIntegration(t *testing.T) {
 		go func() {
 			for scanner.Scan() {
 				line := scanner.Text()
-				if strings.HasPrefix(line, "data: ") {
-					events <- strings.TrimPrefix(line, "data: ")
+				if after, ok := strings.CutPrefix(line, "data: "); ok {
+					events <- after
 				}
 			}
 		}()
@@ -91,7 +92,7 @@ func TestMCPWithSSEIntegration(t *testing.T) {
 		var clientID string
 		select {
 		case event := <-events:
-			var connEvent map[string]interface{}
+			var connEvent map[string]any
 			if err := json.Unmarshal([]byte(event), &connEvent); err != nil {
 				t.Fatalf("Failed to parse connection event: %v", err)
 			}
@@ -107,13 +108,13 @@ func TestMCPWithSSEIntegration(t *testing.T) {
 		}
 
 		// 2. Send initialize request via HTTP with SSE client ID
-		initReq := map[string]interface{}{
+		initReq := map[string]any{
 			"jsonrpc": "2.0",
 			"method":  "initialize",
-			"params": map[string]interface{}{
+			"params": map[string]any{
 				"protocolVersion": "2024-11-05",
-				"capabilities":    map[string]interface{}{},
-				"clientInfo": map[string]interface{}{
+				"capabilities":    map[string]any{},
+				"clientInfo": map[string]any{
 					"name":    "test-client",
 					"version": "1.0.0",
 				},
@@ -138,7 +139,7 @@ func TestMCPWithSSEIntegration(t *testing.T) {
 		// 3. Verify response comes through SSE
 		select {
 		case event := <-events:
-			var response map[string]interface{}
+			var response map[string]any
 			if err := json.Unmarshal([]byte(event), &response); err != nil {
 				t.Fatalf("Failed to parse SSE response: %v", err)
 			}
@@ -147,7 +148,7 @@ func TestMCPWithSSEIntegration(t *testing.T) {
 				t.Fatalf("Expected response ID 1, got %v", response["id"])
 			}
 
-			result, ok := response["result"].(map[string]interface{})
+			result, ok := response["result"].(map[string]any)
 			if !ok {
 				t.Fatal("No result in response")
 			}
@@ -161,12 +162,12 @@ func TestMCPWithSSEIntegration(t *testing.T) {
 		}
 
 		// 4. Test tool call through SSE
-		toolReq := map[string]interface{}{
+		toolReq := map[string]any{
 			"jsonrpc": "2.0",
 			"method":  "tools/call",
-			"params": map[string]interface{}{
+			"params": map[string]any{
 				"name": "test_tool",
-				"arguments": map[string]interface{}{
+				"arguments": map[string]any{
 					"message": "hello",
 				},
 			},
@@ -190,7 +191,7 @@ func TestMCPWithSSEIntegration(t *testing.T) {
 		// Verify tool response through SSE
 		select {
 		case event := <-events:
-			var response map[string]interface{}
+			var response map[string]any
 			if err := json.Unmarshal([]byte(event), &response); err != nil {
 				t.Fatalf("Failed to parse tool response: %v", err)
 			}
@@ -199,12 +200,12 @@ func TestMCPWithSSEIntegration(t *testing.T) {
 				t.Fatalf("Expected response ID 2, got %v", response["id"])
 			}
 
-			result, ok := response["result"].(map[string]interface{})
+			result, ok := response["result"].(map[string]any)
 			if !ok {
 				t.Fatal("No result in tool response")
 			}
 
-			if result["content"].([]interface{})[0].(map[string]interface{})["text"] != "Echo: hello" {
+			if result["content"].([]any)[0].(map[string]any)["text"] != "Echo: hello" {
 				t.Fatal("Unexpected tool response")
 			}
 
@@ -217,7 +218,7 @@ func TestMCPWithSSEIntegration(t *testing.T) {
 		// Connect two SSE clients
 		clients := make([]string, 2)
 
-		for i := 0; i < 2; i++ {
+		for i := range 2 {
 			req, err := http.NewRequest("GET", baseURL+"/mcp", nil)
 			if err != nil {
 				t.Fatalf("Failed to create request for client %d: %v", i, err)
@@ -234,9 +235,9 @@ func TestMCPWithSSEIntegration(t *testing.T) {
 			scanner := bufio.NewScanner(resp.Body)
 			for scanner.Scan() {
 				line := scanner.Text()
-				if strings.HasPrefix(line, "data: ") {
-					data := strings.TrimPrefix(line, "data: ")
-					var connEvent map[string]interface{}
+				if after, ok := strings.CutPrefix(line, "data: "); ok {
+					data := after
+					var connEvent map[string]any
 					if err := json.Unmarshal([]byte(data), &connEvent); err == nil {
 						if connEvent["type"] == "connection" {
 							clients[i] = connEvent["clientId"].(string)
@@ -269,11 +270,11 @@ func (t *testTool) Description() string {
 	return "Test tool for integration testing"
 }
 
-func (t *testTool) Schema() map[string]interface{} {
-	return map[string]interface{}{
+func (t *testTool) Schema() map[string]any {
+	return map[string]any{
 		"type": "object",
-		"properties": map[string]interface{}{
-			"message": map[string]interface{}{
+		"properties": map[string]any{
+			"message": map[string]any{
 				"type":        "string",
 				"description": "Message to echo",
 			},
@@ -282,7 +283,7 @@ func (t *testTool) Schema() map[string]interface{} {
 	}
 }
 
-func (t *testTool) Execute(params map[string]interface{}) (interface{}, error) {
+func (t *testTool) Execute(params map[string]any) (any, error) {
 	msg, ok := params["message"].(string)
 	if !ok {
 		return nil, fmt.Errorf("message must be a string")

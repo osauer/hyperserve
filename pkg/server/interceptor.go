@@ -5,7 +5,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 )
@@ -35,7 +37,7 @@ type InterceptableRequest struct {
 	*http.Request
 
 	// Metadata can be used to pass data between interceptors
-	Metadata map[string]interface{}
+	Metadata map[string]any
 
 	// Body buffer for reading/modifying request body
 	bodyBuffer []byte
@@ -53,7 +55,7 @@ type InterceptableResponse struct {
 	Body       *bytes.Buffer
 
 	// Metadata from the request
-	Metadata map[string]interface{}
+	Metadata map[string]any
 
 	// Track if response has been written
 	written bool
@@ -88,7 +90,7 @@ func (ic *InterceptorChain) Remove(name string) bool {
 
 	for i, interceptor := range ic.interceptors {
 		if interceptor.Name() == name {
-			ic.interceptors = append(ic.interceptors[:i], ic.interceptors[i+1:]...)
+			ic.interceptors = slices.Delete(ic.interceptors, i, i+1)
 			return true
 		}
 	}
@@ -101,7 +103,7 @@ func (ic *InterceptorChain) WrapHandler(next http.Handler) http.Handler {
 		// Create interceptable request
 		ireq := &InterceptableRequest{
 			Request:  r,
-			Metadata: make(map[string]interface{}),
+			Metadata: make(map[string]any),
 		}
 
 		// Create interceptable response
@@ -129,9 +131,7 @@ func (ic *InterceptorChain) WrapHandler(next http.Handler) http.Handler {
 
 			if resp != nil {
 				// Early response from interceptor
-				for k, v := range resp.Headers {
-					w.Header()[k] = v
-				}
+				maps.Copy(w.Header(), resp.Headers)
 				w.WriteHeader(resp.StatusCode)
 				w.Write(resp.Body)
 				return
@@ -165,9 +165,7 @@ func (ic *InterceptorChain) WrapHandler(next http.Handler) http.Handler {
 		}
 
 		// Write the final response
-		for k, v := range iresp.Headers {
-			w.Header()[k] = v
-		}
+		maps.Copy(w.Header(), iresp.Headers)
 		w.WriteHeader(iresp.StatusCode)
 		io.Copy(w, iresp.Body)
 	})
@@ -233,9 +231,7 @@ func (rr *responseRecorder) WriteHeader(code int) {
 		rr.written = true
 
 		// Copy headers to underlying writer
-		for k, v := range rr.headers {
-			rr.ResponseWriter.Header()[k] = v
-		}
+		maps.Copy(rr.ResponseWriter.Header(), rr.headers)
 	}
 }
 
@@ -279,10 +275,10 @@ func (ati *AuthTokenInjector) InterceptResponse(ctx context.Context, req *Interc
 
 // RequestLogger logs all requests and responses
 type RequestLogger struct {
-	logger func(format string, args ...interface{})
+	logger func(format string, args ...any)
 }
 
-func NewRequestLogger(logger func(format string, args ...interface{})) *RequestLogger {
+func NewRequestLogger(logger func(format string, args ...any)) *RequestLogger {
 	return &RequestLogger{
 		logger: logger,
 	}

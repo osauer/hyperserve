@@ -13,18 +13,18 @@ import (
 // Mock types for testing
 type mockTool struct {
 	name        string
-	executeFunc func(params map[string]interface{}) (interface{}, error)
+	executeFunc func(params map[string]any) (any, error)
 }
 
 func (t *mockTool) Name() string        { return t.name }
 func (t *mockTool) Description() string { return "Mock tool for testing" }
-func (t *mockTool) Schema() map[string]interface{} {
-	return map[string]interface{}{
+func (t *mockTool) Schema() map[string]any {
+	return map[string]any{
 		"type":       "object",
-		"properties": map[string]interface{}{},
+		"properties": map[string]any{},
 	}
 }
-func (t *mockTool) Execute(params map[string]interface{}) (interface{}, error) {
+func (t *mockTool) Execute(params map[string]any) (any, error) {
 	if t.executeFunc != nil {
 		return t.executeFunc(params)
 	}
@@ -34,14 +34,14 @@ func (t *mockTool) Execute(params map[string]interface{}) (interface{}, error) {
 type mockResource struct {
 	uri      string
 	name     string
-	readFunc func() (interface{}, error)
+	readFunc func() (any, error)
 }
 
 func (r *mockResource) URI() string         { return r.uri }
 func (r *mockResource) Name() string        { return r.name }
 func (r *mockResource) Description() string { return "Mock resource for testing" }
 func (r *mockResource) MimeType() string    { return "application/json" }
-func (r *mockResource) Read() (interface{}, error) {
+func (r *mockResource) Read() (any, error) {
 	if r.readFunc != nil {
 		return r.readFunc()
 	}
@@ -62,7 +62,7 @@ func TestMCPOptimizationsIntegration(t *testing.T) {
 	// Register a custom tool that supports context
 	customTool := &testContextTool{
 		name: "context_aware_tool",
-		executeFunc: func(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+		executeFunc: func(ctx context.Context, params map[string]any) (any, error) {
 			// Simulate work that can be cancelled
 			select {
 			case <-ctx.Done():
@@ -80,7 +80,7 @@ func TestMCPOptimizationsIntegration(t *testing.T) {
 		// Create a slow tool that takes longer than 30 seconds
 		slowTool := &mockTool{
 			name: "slow_tool",
-			executeFunc: func(params map[string]interface{}) (interface{}, error) {
+			executeFunc: func(params map[string]any) (any, error) {
 				time.Sleep(35 * time.Second) // Longer than default timeout
 				return "should timeout", nil
 			},
@@ -88,12 +88,12 @@ func TestMCPOptimizationsIntegration(t *testing.T) {
 		srv.RegisterMCPTool(slowTool)
 
 		// Call the tool
-		request := map[string]interface{}{
+		request := map[string]any{
 			"jsonrpc": "2.0",
 			"method":  "tools/call",
-			"params": map[string]interface{}{
+			"params": map[string]any{
 				"name":      "slow_tool",
-				"arguments": map[string]interface{}{},
+				"arguments": map[string]any{},
 			},
 			"id": 1,
 		}
@@ -105,7 +105,7 @@ func TestMCPOptimizationsIntegration(t *testing.T) {
 
 		srv.mux.ServeHTTP(rec, req)
 
-		var response map[string]interface{}
+		var response map[string]any
 		json.Unmarshal(rec.Body.Bytes(), &response)
 
 		// Should have error due to timeout
@@ -120,9 +120,9 @@ func TestMCPOptimizationsIntegration(t *testing.T) {
 		testResource := &mockResource{
 			uri:  "test://cacheable",
 			name: "Cacheable Resource",
-			readFunc: func() (interface{}, error) {
+			readFunc: func() (any, error) {
 				callCount++
-				return map[string]interface{}{
+				return map[string]any{
 					"count": callCount,
 					"data":  "test data",
 				}, nil
@@ -131,10 +131,10 @@ func TestMCPOptimizationsIntegration(t *testing.T) {
 		srv.RegisterMCPResource(testResource)
 
 		// First read
-		request1 := map[string]interface{}{
+		request1 := map[string]any{
 			"jsonrpc": "2.0",
 			"method":  "resources/read",
-			"params": map[string]interface{}{
+			"params": map[string]any{
 				"uri": "test://cacheable",
 			},
 			"id": 1,
@@ -155,16 +155,16 @@ func TestMCPOptimizationsIntegration(t *testing.T) {
 		srv.mux.ServeHTTP(rec2, req2)
 
 		// Parse responses
-		var response1, response2 map[string]interface{}
+		var response1, response2 map[string]any
 		json.Unmarshal(rec1.Body.Bytes(), &response1)
 		json.Unmarshal(rec2.Body.Bytes(), &response2)
 
 		// Both should have the same data (count=1 because cached)
-		contents1 := response1["result"].(map[string]interface{})["contents"].([]interface{})[0].(map[string]interface{})
-		contents2 := response2["result"].(map[string]interface{})["contents"].([]interface{})[0].(map[string]interface{})
+		contents1 := response1["result"].(map[string]any)["contents"].([]any)[0].(map[string]any)
+		contents2 := response2["result"].(map[string]any)["contents"].([]any)[0].(map[string]any)
 
 		// Parse the JSON string from text field
-		var data1, data2 map[string]interface{}
+		var data1, data2 map[string]any
 		json.Unmarshal([]byte(contents1["text"].(string)), &data1)
 		json.Unmarshal([]byte(contents2["text"].(string)), &data2)
 
@@ -183,13 +183,13 @@ func TestMCPOptimizationsIntegration(t *testing.T) {
 	// Test metrics collection
 	t.Run("metrics_collection", func(t *testing.T) {
 		// Make several requests to collect metrics
-		pingRequest := map[string]interface{}{
+		pingRequest := map[string]any{
 			"jsonrpc": "2.0",
 			"method":  "ping",
 			"id":      1,
 		}
 
-		for i := 0; i < 5; i++ {
+		for range 5 {
 			body, _ := json.Marshal(pingRequest)
 			req := httptest.NewRequest("POST", "/mcp", bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
@@ -198,7 +198,7 @@ func TestMCPOptimizationsIntegration(t *testing.T) {
 		}
 
 		// Get metrics
-		handler := srv.mcpHandler
+		handler := srv.MCPHandler()
 		if handler == nil {
 			t.Skip("MCP handler not available")
 		}
@@ -214,9 +214,9 @@ func TestMCPOptimizationsIntegration(t *testing.T) {
 		}
 
 		// Check method metrics
-		methods := metrics["methods"].(map[string]interface{})
+		methods := metrics["methods"].(map[string]any)
 		if pingStats, exists := methods["ping"]; exists {
-			stats := pingStats.(map[string]interface{})
+			stats := pingStats.(map[string]any)
 			if stats["count"].(int64) < 5 {
 				t.Errorf("Expected at least 5 ping requests, got %v", stats["count"])
 			}
@@ -240,7 +240,7 @@ func TestMCPConcurrentToolExecution(t *testing.T) {
 	var maxActive int32
 	concurrentTool := &mockTool{
 		name: "concurrent_tool",
-		executeFunc: func(params map[string]interface{}) (interface{}, error) {
+		executeFunc: func(params map[string]any) (any, error) {
 			// Increment active count
 			current := atomic.AddInt32(&activeCount, 1)
 
@@ -258,7 +258,7 @@ func TestMCPConcurrentToolExecution(t *testing.T) {
 			// Decrement active count
 			atomic.AddInt32(&activeCount, -1)
 
-			return map[string]interface{}{"executed": true}, nil
+			return map[string]any{"executed": true}, nil
 		},
 	}
 	srv.RegisterMCPTool(concurrentTool)
@@ -267,14 +267,14 @@ func TestMCPConcurrentToolExecution(t *testing.T) {
 	const numRequests = 20
 	done := make(chan bool, numRequests)
 
-	for i := 0; i < numRequests; i++ {
+	for i := range numRequests {
 		go func(id int) {
-			request := map[string]interface{}{
+			request := map[string]any{
 				"jsonrpc": "2.0",
 				"method":  "tools/call",
-				"params": map[string]interface{}{
+				"params": map[string]any{
 					"name":      "concurrent_tool",
-					"arguments": map[string]interface{}{"id": id},
+					"arguments": map[string]any{"id": id},
 				},
 				"id": id,
 			}
@@ -286,7 +286,7 @@ func TestMCPConcurrentToolExecution(t *testing.T) {
 
 			srv.mux.ServeHTTP(rec, req)
 
-			var response map[string]interface{}
+			var response map[string]any
 			json.Unmarshal(rec.Body.Bytes(), &response)
 
 			if response["error"] != nil {
@@ -298,7 +298,7 @@ func TestMCPConcurrentToolExecution(t *testing.T) {
 	}
 
 	// Wait for all requests to complete
-	for i := 0; i < numRequests; i++ {
+	for range numRequests {
 		<-done
 	}
 
@@ -313,16 +313,16 @@ func TestMCPConcurrentToolExecution(t *testing.T) {
 // Test helper - context-aware tool
 type testContextTool struct {
 	name        string
-	executeFunc func(ctx context.Context, params map[string]interface{}) (interface{}, error)
+	executeFunc func(ctx context.Context, params map[string]any) (any, error)
 }
 
-func (t *testContextTool) Name() string                   { return t.name }
-func (t *testContextTool) Description() string            { return "Test tool" }
-func (t *testContextTool) Schema() map[string]interface{} { return map[string]interface{}{} }
-func (t *testContextTool) Execute(params map[string]interface{}) (interface{}, error) {
+func (t *testContextTool) Name() string           { return t.name }
+func (t *testContextTool) Description() string    { return "Test tool" }
+func (t *testContextTool) Schema() map[string]any { return map[string]any{} }
+func (t *testContextTool) Execute(params map[string]any) (any, error) {
 	return t.ExecuteWithContext(context.Background(), params)
 }
-func (t *testContextTool) ExecuteWithContext(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+func (t *testContextTool) ExecuteWithContext(ctx context.Context, params map[string]any) (any, error) {
 	if t.executeFunc != nil {
 		return t.executeFunc(ctx, params)
 	}

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -19,8 +21,8 @@ type WebSocketPool struct {
 	pools   map[string]*endpointPool // Key: endpoint URL
 	poolsMu sync.RWMutex
 
-	// Metrics
-	stats PoolStats
+	// Live counters (atomic). GetStats reads these into a PoolStats snapshot.
+	stats poolCounters
 
 	// Lifecycle
 	ctx    context.Context
@@ -55,8 +57,19 @@ type PoolConfig struct {
 	OnConnectionClosed func(endpoint string, conn *Conn, reason error)
 }
 
-// PoolStats tracks pool statistics
+// PoolStats is a point-in-time snapshot returned by (*WebSocketPool).GetStats.
 type PoolStats struct {
+	TotalConnections   int64
+	ActiveConnections  int64
+	IdleConnections    int64
+	FailedConnections  int64
+	ConnectionsCreated int64
+	ConnectionsReused  int64
+	HealthChecksFailed int64
+}
+
+// poolCounters holds the live atomic counters maintained by the pool.
+type poolCounters struct {
 	TotalConnections   atomic.Int64
 	ActiveConnections  atomic.Int64
 	IdleConnections    atomic.Int64
@@ -127,8 +140,7 @@ func NewWebSocketPool(config PoolConfig) *WebSocketPool {
 	}
 
 	// Start maintenance goroutine
-	pool.wg.Add(1)
-	go pool.maintainPools()
+	pool.wg.Go(pool.maintainPools)
 
 	return pool
 }
@@ -244,17 +256,17 @@ func (p *WebSocketPool) Close(conn *Conn, reason error) error {
 	return conn.Close()
 }
 
-// GetStats returns current pool statistics
+// GetStats returns a point-in-time snapshot of pool counters.
 func (p *WebSocketPool) GetStats() PoolStats {
-	var snapshot PoolStats
-	snapshot.TotalConnections.Store(p.stats.TotalConnections.Load())
-	snapshot.ActiveConnections.Store(p.stats.ActiveConnections.Load())
-	snapshot.IdleConnections.Store(p.stats.IdleConnections.Load())
-	snapshot.FailedConnections.Store(p.stats.FailedConnections.Load())
-	snapshot.ConnectionsCreated.Store(p.stats.ConnectionsCreated.Load())
-	snapshot.ConnectionsReused.Store(p.stats.ConnectionsReused.Load())
-	snapshot.HealthChecksFailed.Store(p.stats.HealthChecksFailed.Load())
-	return snapshot
+	return PoolStats{
+		TotalConnections:   p.stats.TotalConnections.Load(),
+		ActiveConnections:  p.stats.ActiveConnections.Load(),
+		IdleConnections:    p.stats.IdleConnections.Load(),
+		FailedConnections:  p.stats.FailedConnections.Load(),
+		ConnectionsCreated: p.stats.ConnectionsCreated.Load(),
+		ConnectionsReused:  p.stats.ConnectionsReused.Load(),
+		HealthChecksFailed: p.stats.HealthChecksFailed.Load(),
+	}
 }
 
 // Shutdown gracefully shuts down the pool
@@ -286,10 +298,9 @@ func (p *WebSocketPool) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-// maintainPools performs periodic maintenance on the connection pools
+// maintainPools performs periodic maintenance on the connection pools.
+// Started via WaitGroup.Go, so Done is not needed here.
 func (p *WebSocketPool) maintainPools() {
-	defer p.wg.Done()
-
 	ticker := time.NewTicker(p.config.HealthCheckInterval)
 	defer ticker.Stop()
 
@@ -306,10 +317,7 @@ func (p *WebSocketPool) maintainPools() {
 // performMaintenance checks health and removes idle connections
 func (p *WebSocketPool) performMaintenance() {
 	p.poolsMu.RLock()
-	pools := make([]*endpointPool, 0, len(p.pools))
-	for _, ep := range p.pools {
-		pools = append(pools, ep)
-	}
+	pools := slices.Collect(maps.Values(p.pools))
 	p.poolsMu.RUnlock()
 
 	now := time.Now()
@@ -331,7 +339,7 @@ func (p *WebSocketPool) performMaintenance() {
 			// Remove idle connections
 			if now.Sub(pc.lastUsed) > p.config.IdleTimeout {
 				pc.conn.Close()
-				ep.connections = append(ep.connections[:i], ep.connections[i+1:]...)
+				ep.connections = slices.Delete(ep.connections, i, i+1)
 				p.stats.TotalConnections.Add(-1)
 				p.stats.IdleConnections.Add(-1)
 				pc.mu.Unlock()
@@ -344,13 +352,13 @@ func (p *WebSocketPool) performMaintenance() {
 				pc.mu.Unlock()
 
 				// Send ping with timeout
-				pingData := []byte(fmt.Sprintf("ping-%d", time.Now().Unix()))
+				pingData := fmt.Appendf(nil, "ping-%d", time.Now().Unix())
 				err := pc.conn.WriteControl(PingMessage, pingData, time.Now().Add(5*time.Second))
 
 				if err != nil {
 					// Connection unhealthy, remove it
 					pc.conn.Close()
-					ep.connections = append(ep.connections[:i], ep.connections[i+1:]...)
+					ep.connections = slices.Delete(ep.connections, i, i+1)
 					p.stats.TotalConnections.Add(-1)
 					p.stats.IdleConnections.Add(-1)
 					p.stats.HealthChecksFailed.Add(1)
@@ -421,7 +429,7 @@ func (ep *endpointPool) removeConnection(conn *Conn) bool {
 
 	for i, pc := range ep.connections {
 		if pc.conn == conn {
-			ep.connections = append(ep.connections[:i], ep.connections[i+1:]...)
+			ep.connections = slices.Delete(ep.connections, i, i+1)
 			return true
 		}
 	}

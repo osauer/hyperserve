@@ -1,9 +1,11 @@
-package server
+package builtin
 
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	jsonrpc "github.com/osauer/hyperserve/pkg/jsonrpc"
+	"github.com/osauer/hyperserve/pkg/server"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -29,12 +31,12 @@ func TestMCPSecurity_PathTraversalAttacks(t *testing.T) {
 	}
 
 	// Create server with file tool root restriction
-	srv, err := NewServer(
-		WithAddr(":0"),
-		WithMCPSupport("test-server", "1.0.0"),
-		WithMCPBuiltinTools(true),     // Enable built-in tools for tests
-		WithMCPBuiltinResources(true), // Enable built-in resources for tests
-		WithMCPFileToolRoot(tempDir),
+	srv, err := server.NewServer(
+		server.WithAddr(":0"),
+		server.WithMCPSupport("test-server", "1.0.0"),
+		server.WithMCPBuiltinTools(true),     // Enable built-in tools for tests
+		server.WithMCPBuiltinResources(true), // Enable built-in resources for tests
+		server.WithMCPFileToolRoot(tempDir),
 	)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
@@ -56,12 +58,12 @@ func TestMCPSecurity_PathTraversalAttacks(t *testing.T) {
 
 	for _, maliciousPath := range maliciousPaths {
 		t.Run("PathTraversal_"+maliciousPath, func(t *testing.T) {
-			request := map[string]interface{}{
+			request := map[string]any{
 				"jsonrpc": "2.0",
 				"method":  "tools/call",
-				"params": map[string]interface{}{
+				"params": map[string]any{
 					"name": "mcp__hyperserve__read_file",
-					"arguments": map[string]interface{}{
+					"arguments": map[string]any{
 						"path": maliciousPath,
 					},
 				},
@@ -119,24 +121,24 @@ func TestMCPSecurity_SymlinkAttacks(t *testing.T) {
 	}
 
 	// Create server with file tool root restriction
-	srv, err := NewServer(
-		WithAddr(":0"),
-		WithMCPSupport("test-server", "1.0.0"),
-		WithMCPBuiltinTools(true),     // Enable built-in tools for tests
-		WithMCPBuiltinResources(true), // Enable built-in resources for tests
-		WithMCPFileToolRoot(tempDir),
+	srv, err := server.NewServer(
+		server.WithAddr(":0"),
+		server.WithMCPSupport("test-server", "1.0.0"),
+		server.WithMCPBuiltinTools(true),     // Enable built-in tools for tests
+		server.WithMCPBuiltinResources(true), // Enable built-in resources for tests
+		server.WithMCPFileToolRoot(tempDir),
 	)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
 
 	// Attempt to read through the symlink
-	request := map[string]interface{}{
+	request := map[string]any{
 		"jsonrpc": "2.0",
 		"method":  "tools/call",
-		"params": map[string]interface{}{
+		"params": map[string]any{
 			"name": "mcp__hyperserve__read_file",
-			"arguments": map[string]interface{}{
+			"arguments": map[string]any{
 				"path": "malicious_link",
 			},
 		},
@@ -153,10 +155,10 @@ func TestMCPSecurity_SymlinkAttacks(t *testing.T) {
 
 // TestMCPSecurity_InputValidation tests that MCP handlers properly validate input
 func TestMCPSecurity_InputValidation(t *testing.T) {
-	srv, err := NewServer(
-		WithAddr(":0"),
-		WithMCPSupport("test-server", "1.0.0"),
-		WithMCPBuiltinTools(true), // Enable built-in tools for tests
+	srv, err := server.NewServer(
+		server.WithAddr(":0"),
+		server.WithMCPSupport("test-server", "1.0.0"),
+		server.WithMCPBuiltinTools(true), // Enable built-in tools for tests
 	)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
@@ -164,17 +166,17 @@ func TestMCPSecurity_InputValidation(t *testing.T) {
 
 	testCases := []struct {
 		name        string
-		request     map[string]interface{}
+		request     map[string]any
 		expectError bool
 	}{
 		{
 			name: "NullBytes",
-			request: map[string]interface{}{
+			request: map[string]any{
 				"jsonrpc": "2.0",
 				"method":  "tools/call",
-				"params": map[string]interface{}{
+				"params": map[string]any{
 					"name": "mcp__hyperserve__read_file",
-					"arguments": map[string]interface{}{
+					"arguments": map[string]any{
 						"path": "test.txt\x00../../etc/passwd",
 					},
 				},
@@ -184,12 +186,12 @@ func TestMCPSecurity_InputValidation(t *testing.T) {
 		},
 		{
 			name: "ExtremelyLongPath",
-			request: map[string]interface{}{
+			request: map[string]any{
 				"jsonrpc": "2.0",
 				"method":  "tools/call",
-				"params": map[string]interface{}{
+				"params": map[string]any{
 					"name": "mcp__hyperserve__read_file",
-					"arguments": map[string]interface{}{
+					"arguments": map[string]any{
 						"path": strings.Repeat("a", 10000),
 					},
 				},
@@ -199,7 +201,7 @@ func TestMCPSecurity_InputValidation(t *testing.T) {
 		},
 		{
 			name: "InvalidJSONRPCVersion",
-			request: map[string]interface{}{
+			request: map[string]any{
 				"jsonrpc": "1.0",
 				"method":  "tools/list",
 				"id":      3,
@@ -208,7 +210,7 @@ func TestMCPSecurity_InputValidation(t *testing.T) {
 		},
 		{
 			name: "MissingRequiredFields",
-			request: map[string]interface{}{
+			request: map[string]any{
 				"jsonrpc": "2.0",
 				"method":  "tools/call",
 				// Missing params
@@ -218,7 +220,7 @@ func TestMCPSecurity_InputValidation(t *testing.T) {
 		},
 		{
 			name: "InvalidMethodName",
-			request: map[string]interface{}{
+			request: map[string]any{
 				"jsonrpc": "2.0",
 				"method":  "invalid/method/with/slashes",
 				"id":      5,
@@ -227,12 +229,12 @@ func TestMCPSecurity_InputValidation(t *testing.T) {
 		},
 		{
 			name: "InvalidCalculatorOperation",
-			request: map[string]interface{}{
+			request: map[string]any{
 				"jsonrpc": "2.0",
 				"method":  "tools/call",
-				"params": map[string]interface{}{
+				"params": map[string]any{
 					"name": "mcp__hyperserve__calculator",
-					"arguments": map[string]interface{}{
+					"arguments": map[string]any{
 						"operation": "exploit",
 						"a":         "' OR 1=1 --",
 						"b":         "<script>alert('xss')</script>",
@@ -244,12 +246,12 @@ func TestMCPSecurity_InputValidation(t *testing.T) {
 		},
 		{
 			name: "ExcessivelyLargeNumbers",
-			request: map[string]interface{}{
+			request: map[string]any{
 				"jsonrpc": "2.0",
 				"method":  "tools/call",
-				"params": map[string]interface{}{
+				"params": map[string]any{
 					"name": "mcp__hyperserve__calculator",
-					"arguments": map[string]interface{}{
+					"arguments": map[string]any{
 						"operation": "multiply",
 						"a":         1e308, // Near float64 max
 						"b":         1e308,
@@ -283,17 +285,17 @@ func TestMCPSecurity_AuthenticationIntegration(t *testing.T) {
 	}
 
 	// Create server with authentication and MCP
-	srv, err := NewServer(
-		WithAddr(":0"),
-		WithMCPSupport("test-server", "1.0.0"),
-		WithAuthTokenValidator(tokenValidator),
+	srv, err := server.NewServer(
+		server.WithAddr(":0"),
+		server.WithMCPSupport("test-server", "1.0.0"),
+		server.WithAuthTokenValidator(tokenValidator),
 	)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
 
 	// Add auth middleware to the entire server
-	srv.AddMiddleware("", AuthMiddleware(srv.Options))
+	srv.AddMiddleware("", server.AuthMiddleware(srv.Options))
 
 	testCases := []struct {
 		name         string
@@ -324,7 +326,7 @@ func TestMCPSecurity_AuthenticationIntegration(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			request := map[string]interface{}{
+			request := map[string]any{
 				"jsonrpc": "2.0",
 				"method":  "tools/list",
 				"id":      1,
@@ -344,7 +346,7 @@ func TestMCPSecurity_AuthenticationIntegration(t *testing.T) {
 			w := httptest.NewRecorder()
 
 			// Create a test handler chain with auth middleware
-			handler := srv.middleware.applyToMux(srv.mux)
+			handler := srv.Handler()
 			handler.ServeHTTP(w, req)
 
 			if w.Code != tc.expectStatus {
@@ -375,24 +377,24 @@ func TestMCPSecurity_FilePermissions(t *testing.T) {
 	}
 
 	// Create server with file tool root
-	srv, err := NewServer(
-		WithAddr(":0"),
-		WithMCPSupport("test-server", "1.0.0"),
-		WithMCPBuiltinTools(true),     // Enable built-in tools for tests
-		WithMCPBuiltinResources(true), // Enable built-in resources for tests
-		WithMCPFileToolRoot(tempDir),
+	srv, err := server.NewServer(
+		server.WithAddr(":0"),
+		server.WithMCPSupport("test-server", "1.0.0"),
+		server.WithMCPBuiltinTools(true),     // Enable built-in tools for tests
+		server.WithMCPBuiltinResources(true), // Enable built-in resources for tests
+		server.WithMCPFileToolRoot(tempDir),
 	)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
 
 	// Try to read the restricted file
-	request := map[string]interface{}{
+	request := map[string]any{
 		"jsonrpc": "2.0",
 		"method":  "tools/call",
-		"params": map[string]interface{}{
+		"params": map[string]any{
 			"name": "mcp__hyperserve__read_file",
-			"arguments": map[string]interface{}{
+			"arguments": map[string]any{
 				"path": "restricted.txt",
 			},
 		},
@@ -418,11 +420,11 @@ func TestMCPSecurity_FilePermissions(t *testing.T) {
 // TestMCPSecurity_ResourceSanitization tests that sensitive data is not exposed in resources
 func TestMCPSecurity_ResourceSanitization(t *testing.T) {
 	// Create server with sensitive configuration
-	srv, err := NewServer(
-		WithAddr(":0"),
-		WithMCPSupport("test-server", "1.0.0"),
-		WithMCPBuiltinResources(true), // Enable built-in resources for tests
-		WithAuthTokenValidator(func(token string) (bool, error) {
+	srv, err := server.NewServer(
+		server.WithAddr(":0"),
+		server.WithMCPSupport("test-server", "1.0.0"),
+		server.WithMCPBuiltinResources(true), // Enable built-in resources for tests
+		server.WithAuthTokenValidator(func(token string) (bool, error) {
 			return token == "secret_token", nil
 		}),
 	)
@@ -431,10 +433,10 @@ func TestMCPSecurity_ResourceSanitization(t *testing.T) {
 	}
 
 	// Request server configuration
-	request := map[string]interface{}{
+	request := map[string]any{
 		"jsonrpc": "2.0",
 		"method":  "resources/read",
-		"params": map[string]interface{}{
+		"params": map[string]any{
 			"uri": "config://server/options",
 		},
 		"id": 1,
@@ -447,12 +449,12 @@ func TestMCPSecurity_ResourceSanitization(t *testing.T) {
 	}
 
 	// Parse the configuration content
-	result := response.Result.(map[string]interface{})
-	contents := result["contents"].([]interface{})
-	contentItem := contents[0].(map[string]interface{})
+	result := response.Result.(map[string]any)
+	contents := result["contents"].([]any)
+	contentItem := contents[0].(map[string]any)
 	configText := contentItem["text"].(string)
 
-	var config map[string]interface{}
+	var config map[string]any
 	if err := json.Unmarshal([]byte(configText), &config); err != nil {
 		t.Fatalf("Failed to parse config JSON: %v", err)
 	}
@@ -460,7 +462,6 @@ func TestMCPSecurity_ResourceSanitization(t *testing.T) {
 	// Verify that sensitive fields are not exposed
 	sensitiveFields := []string{
 		"AuthTokenValidatorFunc",
-		"ECHKeys",
 		"KeyFile",  // TLS private key path
 		"CertFile", // TLS certificate path (less sensitive but still should be filtered)
 	}
@@ -488,10 +489,10 @@ func TestMCPSecurity_ResourceSanitization(t *testing.T) {
 
 // TestMCPSecurity_DenialOfService tests protection against DoS attacks
 func TestMCPSecurity_DenialOfService(t *testing.T) {
-	srv, err := NewServer(
-		WithAddr(":0"),
-		WithMCPSupport("test-server", "1.0.0"),
-		WithMCPBuiltinTools(true), // Enable built-in tools for tests
+	srv, err := server.NewServer(
+		server.WithAddr(":0"),
+		server.WithMCPSupport("test-server", "1.0.0"),
+		server.WithMCPBuiltinTools(true), // Enable built-in tools for tests
 	)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
@@ -500,12 +501,12 @@ func TestMCPSecurity_DenialOfService(t *testing.T) {
 	// Test extremely large JSON payload
 	t.Run("LargePayload", func(t *testing.T) {
 		largeData := strings.Repeat("A", 1024*1024) // 1MB of 'A's
-		request := map[string]interface{}{
+		request := map[string]any{
 			"jsonrpc": "2.0",
 			"method":  "tools/call",
-			"params": map[string]interface{}{
+			"params": map[string]any{
 				"name": "mcp__hyperserve__calculator",
-				"arguments": map[string]interface{}{
+				"arguments": map[string]any{
 					"operation": "add",
 					"a":         largeData, // This should cause type conversion to fail
 					"b":         1.0,
@@ -525,19 +526,19 @@ func TestMCPSecurity_DenialOfService(t *testing.T) {
 	// Test deeply nested JSON
 	t.Run("DeepNesting", func(t *testing.T) {
 		// Create deeply nested structure
-		nested := make(map[string]interface{})
+		nested := make(map[string]any)
 		current := nested
-		for i := 0; i < 1000; i++ {
-			next := make(map[string]interface{})
+		for range 1000 {
+			next := make(map[string]any)
 			current["nest"] = next
 			current = next
 		}
 		current["value"] = "deep"
 
-		request := map[string]interface{}{
+		request := map[string]any{
 			"jsonrpc": "2.0",
 			"method":  "tools/call",
-			"params": map[string]interface{}{
+			"params": map[string]any{
 				"name":      "mcp__hyperserve__calculator",
 				"arguments": nested, // Deeply nested arguments
 			},
@@ -551,7 +552,7 @@ func TestMCPSecurity_DenialOfService(t *testing.T) {
 }
 
 // Helper function for making MCP requests
-func makeMCPRequest(t *testing.T, srv *Server, request map[string]interface{}) JSONRPCResponse {
+func makeMCPRequest(t *testing.T, srv *server.Server, request map[string]any) jsonrpc.Response {
 	requestData, err := json.Marshal(request)
 	if err != nil {
 		t.Fatalf("Failed to marshal request: %v", err)
@@ -561,14 +562,14 @@ func makeMCPRequest(t *testing.T, srv *Server, request map[string]interface{}) J
 	req.Header.Set("Content-Type", "application/json")
 
 	w := httptest.NewRecorder()
-	srv.mcpHandler.ServeHTTP(w, req)
+	srv.MCPHandler().ServeHTTP(w, req)
 
 	// Allow both 200 and error status codes as both can contain valid JSON-RPC responses
 	if w.Code != http.StatusOK && w.Code != http.StatusBadRequest && w.Code != http.StatusUnauthorized && w.Code != http.StatusInternalServerError {
 		t.Fatalf("Unexpected status code: %d", w.Code)
 	}
 
-	var response JSONRPCResponse
+	var response jsonrpc.Response
 	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}

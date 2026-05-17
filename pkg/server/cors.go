@@ -2,7 +2,7 @@ package server
 
 import (
 	"path"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -38,19 +38,19 @@ func normalizeCORSOptions(opts *CORSOptions) *CORSOptions {
 	}
 
 	if len(copy.AllowedMethods) == 0 {
-		copy.AllowedMethods = append([]string{}, defaultCORSMethods...)
+		copy.AllowedMethods = slices.Clone(defaultCORSMethods)
 	}
 	if len(copy.AllowedHeaders) == 0 {
-		copy.AllowedHeaders = append([]string{}, defaultCORSHeaders...)
+		copy.AllowedHeaders = slices.Clone(defaultCORSHeaders)
 	}
 	if copy.MaxAgeSeconds <= 0 {
 		copy.MaxAgeSeconds = defaultCORSMaxAge
 	}
 
-	sort.Strings(copy.AllowedOrigins)
-	sort.Strings(copy.AllowedMethods)
-	sort.Strings(copy.AllowedHeaders)
-	sort.Strings(copy.ExposeHeaders)
+	slices.Sort(copy.AllowedOrigins)
+	slices.Sort(copy.AllowedMethods)
+	slices.Sort(copy.AllowedHeaders)
+	slices.Sort(copy.ExposeHeaders)
 
 	return copy
 }

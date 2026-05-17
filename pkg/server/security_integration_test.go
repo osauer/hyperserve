@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/osauer/hyperserve/pkg/websocket"
 )
 
 // TestSlowlorisProtection tests the ReadHeaderTimeout protection against Slowloris attacks
@@ -121,7 +123,7 @@ waiting:
 // TestIntegerOverflowProtection tests protection against integer overflow in WebSocket frames
 func TestIntegerOverflowProtection(t *testing.T) {
 	// This test is more of a unit test for the frame parsing logic
-	// The actual protection is in internal/ws/frame.go
+	// The actual protection is in pkg/websocket/frame.go
 	// We'll test it through the WebSocket interface
 
 	srv, err := NewServer(WithAddr(":0"))
@@ -130,7 +132,7 @@ func TestIntegerOverflowProtection(t *testing.T) {
 	}
 	srv.Options.RunHealthServer = false
 
-	upgrader := Upgrader{
+	upgrader := websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
 			return true
 		},
@@ -169,7 +171,7 @@ func TestIntegerOverflowProtection(t *testing.T) {
 	req.Header.Set("Sec-WebSocket-Version", "13")
 
 	// This is a basic connectivity test
-	// The actual integer overflow protection is tested in internal/ws/frame_test.go
+	// The actual integer overflow protection is tested in pkg/websocket/frame_test.go
 }
 
 // mockCloser is a test implementation of io.Closer

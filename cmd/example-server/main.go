@@ -52,7 +52,7 @@ func main() {
 
 	// JSON endpoint
 	srv.HandleFunc("/json", func(w http.ResponseWriter, r *http.Request) {
-		data := map[string]interface{}{
+		data := map[string]any{
 			"message":   "Hello from HyperServe Go",
 			"timestamp": time.Now().Unix(),
 			"version":   "1.0.0",

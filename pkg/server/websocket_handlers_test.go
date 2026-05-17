@@ -2,12 +2,15 @@ package server
 
 import (
 	"bytes"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/osauer/hyperserve/pkg/websocket"
 )
 
 func TestWebSocketPingPongHandlers(t *testing.T) {
@@ -18,7 +21,7 @@ func TestWebSocketPingPongHandlers(t *testing.T) {
 	}
 	defer srv.Stop()
 
-	upgrader := &Upgrader{
+	upgrader := &websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool { return true },
 	}
 
@@ -38,7 +41,7 @@ func TestWebSocketPingPongHandlers(t *testing.T) {
 			mu.Lock()
 			defer mu.Unlock()
 			// Echo back with pong
-			return conn.WriteControl(PongMessage, []byte(appData), time.Now().Add(time.Second))
+			return conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
 		})
 
 		// Set pong handler
@@ -72,9 +75,7 @@ func TestWebSocketPingPongHandlers(t *testing.T) {
 
 	// Create HTTP request
 	req, _ := http.NewRequest("GET", ts.URL+"/ws", nil)
-	for k, v := range headers {
-		req.Header[k] = v
-	}
+	maps.Copy(req.Header, headers)
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
@@ -98,7 +99,7 @@ func TestWebSocketCloseHandler(t *testing.T) {
 	}
 	defer srv.Stop()
 
-	upgrader := &Upgrader{
+	upgrader := &websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool { return true },
 	}
 
@@ -151,7 +152,7 @@ func TestWebSocketCloseHandler(t *testing.T) {
 }
 
 func TestWebSocketHandlerCompatibility(t *testing.T) {
-	conn := &Conn{}
+	conn := &websocket.Conn{}
 
 	// Test that all handler methods can be called without panicking
 	t.Run("CloseHandler", func(t *testing.T) {
@@ -160,7 +161,7 @@ func TestWebSocketHandlerCompatibility(t *testing.T) {
 			t.Error("CloseHandler returned nil")
 		}
 		// Test default handler
-		if err := handler(CloseNormalClosure, "test"); err != nil {
+		if err := handler(websocket.CloseNormalClosure, "test"); err != nil {
 			t.Errorf("Default close handler returned error: %v", err)
 		}
 	})
@@ -208,24 +209,24 @@ func TestWebSocketControlMessages(t *testing.T) {
 
 func TestIsCloseError(t *testing.T) {
 	// Test with nil error
-	if IsCloseError(nil, CloseNormalClosure) {
+	if websocket.IsCloseError(nil, websocket.CloseNormalClosure) {
 		t.Error("IsCloseError should return false for nil error")
 	}
 
 	// Test with non-close error
-	if IsCloseError(bytes.ErrTooLarge, CloseNormalClosure) {
+	if websocket.IsCloseError(bytes.ErrTooLarge, websocket.CloseNormalClosure) {
 		t.Error("IsCloseError should return false for non-close error")
 	}
 }
 
 func TestIsUnexpectedCloseError(t *testing.T) {
 	// Test with nil error
-	if IsUnexpectedCloseError(nil, CloseNormalClosure) {
+	if websocket.IsUnexpectedCloseError(nil, websocket.CloseNormalClosure) {
 		t.Error("IsUnexpectedCloseError should return false for nil error")
 	}
 
 	// Test with non-close error
-	if IsUnexpectedCloseError(bytes.ErrTooLarge, CloseNormalClosure) {
+	if websocket.IsUnexpectedCloseError(bytes.ErrTooLarge, websocket.CloseNormalClosure) {
 		t.Error("IsUnexpectedCloseError should return false for non-close error")
 	}
 }

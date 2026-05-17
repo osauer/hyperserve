@@ -46,6 +46,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/osauer/hyperserve/pkg/mcp"
 )
 
 // ServerOptions contains all configuration settings for the HTTP server.
@@ -70,17 +72,9 @@ type ServerOptions struct {
 	StaticDir              string        `json:"static_dir,omitempty"`
 	TemplateDir            string        `json:"template_dir,omitempty"`
 	RunHealthServer        bool          `json:"run_health_server,omitempty"`
-	ChaosMode              bool          `json:"chaos_mode,omitempty"`
-	ChaosMaxLatency        time.Duration `json:"chaos_max_latency,omitempty"`
-	ChaosMinLatency        time.Duration `json:"chaos_min_latency,omitempty"`
-	ChaosErrorRate         float64       `json:"chaos_error_rate,omitempty"`
-	ChaosThrottleRate      float64       `json:"chaos_throttle_rate,omitempty"`
-	ChaosPanicRate         float64       `json:"chaos_panic_rate,omitempty"`
 	AuthTokenValidatorFunc func(token string) (bool, error)
-	FIPSMode               bool     `json:"fips_mode,omitempty"`
-	EnableECH              bool     `json:"enable_ech,omitempty"`
-	ECHKeys                [][]byte `json:"-"` // ECH keys are sensitive, don't serialize
-	HardenedMode           bool     `json:"hardened_mode,omitempty"`
+	FIPSMode               bool `json:"fips_mode,omitempty"`
+	HardenedMode           bool `json:"hardened_mode,omitempty"`
 	// MCP (Model Context Protocol) configuration
 	MCPEnabled          bool                                        `json:"mcp_enabled,omitempty"`
 	MCPEndpoint         string                                      `json:"mcp_endpoint,omitempty"`
@@ -90,12 +84,12 @@ type ServerOptions struct {
 	MCPResourcesEnabled bool                                        `json:"mcp_resources_enabled,omitempty"`
 	MCPFileToolRoot     string                                      `json:"mcp_file_tool_root,omitempty"`
 	MCPLogResourceSize  int                                         `json:"mcp_log_resource_size,omitempty"`
-	MCPTransport        MCPTransportType                            `json:"mcp_transport,omitempty"`
+	MCPTransport        mcp.TransportType                           `json:"mcp_transport,omitempty"`
 	MCPDev              bool                                        `json:"mcp_dev,omitempty"`
 	MCPObservability    bool                                        `json:"mcp_observability,omitempty"`
-	MCPDiscoveryPolicy  DiscoveryPolicy                             `json:"mcp_discovery_policy,omitempty"`
+	MCPDiscoveryPolicy  mcp.DiscoveryPolicy                         `json:"mcp_discovery_policy,omitempty"`
 	MCPDiscoveryFilter  func(toolName string, r *http.Request) bool `json:"-"` // Custom filter function
-	mcpTransportOpts    mcpTransportOptions                         // Internal transport options
+	mcpTransportOpts    mcp.TransportOptions                        // Internal transport options
 	// CSP (Content Security Policy) configuration
 	CSPWebWorkerSupport bool         `json:"csp_web_worker_support,omitempty"`
 	CORS                *CORSOptions `json:"cors,omitempty"`
@@ -138,15 +132,8 @@ var defaultServerOptions = &ServerOptions{
 	StaticDir:              "static/",
 	TemplateDir:            "template/",
 	RunHealthServer:        false,
-	ChaosMode:              false,
-	ChaosMaxLatency:        2 * time.Second,
-	ChaosMinLatency:        500 * time.Millisecond,
-	ChaosErrorRate:         0.1,
-	ChaosThrottleRate:      0.05,
-	ChaosPanicRate:         0.01,
 	AuthTokenValidatorFunc: func(token string) (bool, error) { return false, nil },
 	FIPSMode:               false,
-	EnableECH:              false,
 	HardenedMode:           false,
 	// MCP defaults
 	MCPEnabled:          false,
@@ -157,7 +144,7 @@ var defaultServerOptions = &ServerOptions{
 	MCPResourcesEnabled: false, // Disabled by default - users must opt-in
 	MCPFileToolRoot:     "",
 	MCPLogResourceSize:  100,
-	MCPTransport:        HTTPTransport,
+	MCPTransport:        mcp.HTTPTransport,
 	MCPDev:              false, // Disabled by default - security sensitive
 	MCPObservability:    false, // Disabled by default - users must opt-in
 	// CSP defaults
@@ -283,9 +270,9 @@ func applyEnvVars(config *ServerOptions) *ServerOptions {
 	}
 	if mcpTransport := os.Getenv(paramMCPTransport); mcpTransport != "" {
 		if mcpTransport == "stdio" {
-			config.MCPTransport = StdioTransport
+			config.MCPTransport = mcp.StdioTransport
 		} else if mcpTransport == "http" {
-			config.MCPTransport = HTTPTransport
+			config.MCPTransport = mcp.HTTPTransport
 		}
 		logger.Debug("MCP transport set from environment variable", "variable", paramMCPTransport, "transport", mcpTransport)
 	}
@@ -425,7 +412,7 @@ func mergeConfig(base *ServerOptions, override *ServerOptions) {
 	overrideValue := reflect.ValueOf(override).Elem()
 	baseType := baseValue.Type()
 
-	for i := 0; i < baseValue.NumField(); i++ {
+	for i := range baseValue.NumField() {
 		field := baseType.Field(i)
 		baseField := baseValue.Field(i)
 		overrideField := overrideValue.Field(i)

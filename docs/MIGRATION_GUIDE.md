@@ -45,32 +45,7 @@ srv, _ := server.NewServer(
 - Restricted to approved algorithms
 - Audit-ready logging
 
-### 2. Encrypted Client Hello (ECH)
-
-**Before (Standard TLS):**
-```go
-srv, _ := server.NewServer(
-    server.WithTLS("cert.pem", "key.pem"),
-)
-```
-
-**After (With ECH):**
-```go
-// Generate or load ECH keys
-echKeys := [][]byte{primaryKey, backupKey}
-
-srv, _ := server.NewServer(
-    server.WithTLS("cert.pem", "key.pem"),
-    server.WithEncryptedClientHello(echKeys...),
-)
-```
-
-**Benefits:**
-- SNI privacy protection
-- Enhanced user privacy
-- Future-proof TLS
-
-### 3. Secure File Serving
+### 2. Secure File Serving
 
 **Before (Traditional):**
 ```go
@@ -89,7 +64,7 @@ srv.HandleStatic("/static/")  // Same API, more secure!
 - Prevents directory traversal
 - No code changes needed
 
-### 4. Optimized Rate Limiting
+### 3. Optimized Rate Limiting
 
 **Before:**
 ```go
@@ -108,7 +83,7 @@ srv.AddMiddleware("/api", server.RateLimitMiddleware(srv))
 - Better memory cleanup
 - Same API
 
-### 5. Timing-Safe Authentication
+### 4. Timing-Safe Authentication
 
 **Before (Potential timing attacks):**
 ```go
@@ -166,7 +141,6 @@ func main() {
         server.WithAddr(":8080"),
         server.WithTLS("cert.pem", "key.pem"),
         server.WithFIPSMode(),  // New: FIPS compliance
-        server.WithEncryptedClientHello(echKeys...),  // New: ECH
     )
     
     // Same API, better performance with Swiss Tables
@@ -210,7 +184,6 @@ If you need to rollback:
 
 2. Remove new options:
    - Remove `WithFIPSMode()`
-   - Remove `WithEncryptedClientHello()`
 
 3. Revert go.mod:
    ```go
@@ -220,7 +193,6 @@ If you need to rollback:
 ## Performance Expectations
 
 - **Rate Limiting**: 30-35% improvement for 1000+ concurrent clients
-- **TLS Handshake**: Slight overhead with ECH (1-2ms)
 - **File Serving**: Similar performance, better security
 - **Memory Usage**: Reduced due to better cleanup
 
@@ -230,12 +202,6 @@ If you need to rollback:
 ```
 Error: FIPS mode not available
 Solution: Ensure Go 1.24 is properly installed
-```
-
-### ECH Not Working
-```
-Error: ECH keys invalid
-Solution: Generate proper ECH keys (see examples/enterprise)
 ```
 
 ### Build Failures

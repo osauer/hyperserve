@@ -39,7 +39,6 @@ This checklist was completed on 2025-06-27 before making the repository public.
 - [x] Middleware overhead as percentages
 
 ## ✅ Examples
-- [x] chaos - Resilience testing
 - [x] htmx-dynamic - Dynamic content
 - [x] htmx-stream - Server-sent events
 - [x] enterprise - FIPS and security features

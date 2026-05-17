@@ -1,21 +1,13 @@
 # HyperServe
 
-HyperServe lets humans and AI assistants co-manage the same production-grade Go services. A zero-dependency, high-performance core ships with native Model Context Protocol (MCP) control surfaces and hardened defaults so you can automate safely from laptop to regulated environments.
+A Go HTTP framework with built-in MCP (Model Context Protocol) support and a single
+transitive dependency (`golang.org/x/time`). `go.sum` has two lines.
 
-## Features
-
-- 🧱 **Project Scaffold** - Generate secure, MCP-ready services via `hyperserve-init`
-- 🚀 **Minimal Dependencies** - Only 1 dependency (`golang.org/x/time`)
-- 🤖 **MCP Support** - Built-in Model Context Protocol for AI assistants
-- 🔌 **WebSocket Support** - Real-time bidirectional communication
-- 🛡️ **Security Middleware** - Hardened headers, auth, and rate limiting ready to enable
-- 📊 **Observable** - Metrics, health checks, and structured logging
-- ⚡ **High Performance** - Optimized for throughput and low latency
-- 🔧 **Battle-tested HTTP/2** - Leverages Go's excellent standard library
+The point: a small `net/http`-shaped server that ships an MCP control plane in the
+same binary, so AI assistants can introspect and operate the server without an
+out-of-process bridge.
 
 ## Quick Start
-
-> All code samples import the server package with `server "github.com/osauer/hyperserve/pkg/server"`.
 
 ```go
 import (
@@ -36,7 +28,23 @@ func main() {
 }
 ```
 
-## Scaffold a New Service
+## Install
+
+```bash
+go get github.com/osauer/hyperserve/pkg/server
+```
+
+## What's in the box
+
+- HTTP server built on `net/http`, with grouping, middleware chain, and graceful shutdown.
+- MCP server (HTTP, SSE, stdio transports) with discovery endpoints and namespace support.
+- WebSocket implementation (RFC 6455) with connection pooling.
+- JSON-RPC 2.0 engine reused by MCP.
+- Middleware: recovery, request logging, metrics, CORS, security headers, rate limiting, auth.
+- Static file serving sandboxed via `os.Root` (Go 1.24).
+- Deferred-init lifecycle: serve `/healthz` immediately while bootstrap work runs in the background.
+
+## Scaffold a new service
 
 ```bash
 go install github.com/osauer/hyperserve/cmd/hyperserve-init@latest
@@ -45,22 +53,11 @@ cd payments
 go run ./cmd/server
 ```
 
-Flags include `--name` (display name), `--out` (output directory), `--with-mcp=false` to opt out of MCP, and `--local-replace` for working against a local HyperServe checkout during development.
+Flags: `--name` (display name), `--out` (output directory), `--with-mcp=false` to opt
+out of MCP, `--local-replace` to develop against a local checkout.
 
-## Installation
+## MCP
 
-```bash
-go get github.com/osauer/hyperserve/pkg/server
-```
-
-## MCP (Model Context Protocol)
-
-HyperServe includes native MCP support, enabling AI assistants to:
-- Execute tools and access resources
-- Connect via HTTP or Server-Sent Events (SSE)
-- Discover capabilities automatically
-
-Enable MCP with environment variables:
 ```bash
 HS_MCP_ENABLED=true
 HS_MCP_SERVER_NAME=MyServer
@@ -68,6 +65,7 @@ HS_MCP_SERVER_VERSION=1.0.0
 ```
 
 Or programmatically:
+
 ```go
 srv, _ := server.NewServer(
     server.WithMCPSupport("MyServer", "1.0.0"),
@@ -76,10 +74,11 @@ srv, _ := server.NewServer(
 )
 ```
 
-## Common Middleware
+Built-in MCP tools and resources are off by default; you opt in per server.
 
-`NewServer` wires in recovery, request logging, and metrics collectors.
-Security middleware (headers, auth, rate limiting) can be enabled per route:
+## Middleware
+
+`NewServer` wires recovery, request logging, and metrics. Apply security stacks per route:
 
 ```go
 srv, _ := server.NewServer()
@@ -87,48 +86,42 @@ srv.AddMiddleware("/api", server.RateLimitMiddleware(srv))
 srv.AddMiddlewareStack("/web", server.SecureWeb(srv.Options))
 ```
 
-## Deferred Initialization
+## Deferred initialization
 
-Bring the listener up immediately while long-running bootstrap work executes in the background. The server keeps `/healthz` live, returns 503 for application routes, and flips to ready once deferred tasks (and any `WithOnReady` hooks) finish successfully.
+Serve `/healthz` immediately, return 503 for application routes, flip to ready once
+bootstrap (and any `WithOnReady` hooks) succeed:
 
 ```go
 srv, _ := server.NewServer(
     server.WithDeferredInit(func(ctx context.Context, app *server.Server) error {
-        return warmCaches(ctx) // hydrate databases, load configs, etc.
+        return warmCaches(ctx)
     }),
     server.WithOnReady(func(ctx context.Context, app *server.Server) error {
         app.HandleFunc("/api/users", usersHandler)
         return nil
     }),
-    server.WithBannerColor(true), // optional ANSI color output for the startup banner
 )
 ```
 
-Use `server.WithDeferredInitStopOnFailure(false)` to keep serving health checks when a bootstrap failure should not terminate the process, and `server.CompleteDeferredInit(ctx, nil)` once the issue is resolved to flip the server to ready.
+Use `WithDeferredInitStopOnFailure(false)` to keep the listener up after a bootstrap
+failure, then call `CompleteDeferredInit(ctx, nil)` once the issue is resolved.
+
+See [examples/deferred-init](./examples/deferred-init/).
 
 ## Examples
 
-See the [examples](./examples) directory for comprehensive examples including:
-- Basic HTTP server
-- WebSocket implementation
-- MCP integration
-- Authentication and RBAC
-- Enterprise features
-- Best practices
+[examples/](./examples) covers HTTP, WebSocket, MCP (HTTP/SSE/stdio/discovery/extensions),
+auth + RBAC, interceptors, htmx, and static file serving. Each example is a self-contained
+`go run .` target.
 
 ## Documentation
 
-- [Architecture](./ARCHITECTURE.md) - Design decisions and system architecture
-- [API Specification](./spec/api.md) - Complete API documentation
-- [MCP Guide](./docs/MCP_GUIDE.md) - Model Context Protocol integration
-- [WebSocket Guide](./docs/WEBSOCKET_GUIDE.md) - WebSocket implementation details
-- [Scaffolding Guide](./docs/SCAFFOLDING.md) - `hyperserve-init` usage and templates
-- [Bundle Exploration](./docs/BUNDLE_EXPLORATION.md) - Strategy for one-click Regime deployment
-
-## Contributing
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines on contributing.
+- [Architecture](./ARCHITECTURE.md)
+- [API specification](./spec/api.md)
+- [MCP guide](./docs/MCP_GUIDE.md)
+- [WebSocket guide](./docs/WEBSOCKET_GUIDE.md)
+- [Scaffolding guide](./docs/SCAFFOLDING.md)
 
 ## License
 
-MIT License - see [LICENSE](./LICENSE) for details.
+MIT — see [LICENSE](./LICENSE).

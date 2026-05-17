@@ -1,4 +1,4 @@
-package server
+package builtin
 
 import (
 	"fmt"
@@ -26,7 +26,7 @@ func TestCalculatorTool(t *testing.T) {
 	}
 
 	// Test addition
-	result, err := calc.Execute(map[string]interface{}{
+	result, err := calc.Execute(map[string]any{
 		"operation": "add",
 		"a":         5.0,
 		"b":         3.0,
@@ -35,13 +35,13 @@ func TestCalculatorTool(t *testing.T) {
 		t.Fatalf("Addition failed: %v", err)
 	}
 
-	resultMap := result.(map[string]interface{})
+	resultMap := result.(map[string]any)
 	if resultMap["result"] != 8.0 {
 		t.Errorf("Expected 8.0, got %v", resultMap["result"])
 	}
 
 	// Test subtraction
-	result, err = calc.Execute(map[string]interface{}{
+	result, err = calc.Execute(map[string]any{
 		"operation": "subtract",
 		"a":         10.0,
 		"b":         4.0,
@@ -50,13 +50,13 @@ func TestCalculatorTool(t *testing.T) {
 		t.Fatalf("Subtraction failed: %v", err)
 	}
 
-	resultMap = result.(map[string]interface{})
+	resultMap = result.(map[string]any)
 	if resultMap["result"] != 6.0 {
 		t.Errorf("Expected 6.0, got %v", resultMap["result"])
 	}
 
 	// Test multiplication
-	result, err = calc.Execute(map[string]interface{}{
+	result, err = calc.Execute(map[string]any{
 		"operation": "multiply",
 		"a":         4.0,
 		"b":         3.0,
@@ -65,13 +65,13 @@ func TestCalculatorTool(t *testing.T) {
 		t.Fatalf("Multiplication failed: %v", err)
 	}
 
-	resultMap = result.(map[string]interface{})
+	resultMap = result.(map[string]any)
 	if resultMap["result"] != 12.0 {
 		t.Errorf("Expected 12.0, got %v", resultMap["result"])
 	}
 
 	// Test division
-	result, err = calc.Execute(map[string]interface{}{
+	result, err = calc.Execute(map[string]any{
 		"operation": "divide",
 		"a":         15.0,
 		"b":         3.0,
@@ -80,13 +80,13 @@ func TestCalculatorTool(t *testing.T) {
 		t.Fatalf("Division failed: %v", err)
 	}
 
-	resultMap = result.(map[string]interface{})
+	resultMap = result.(map[string]any)
 	if resultMap["result"] != 5.0 {
 		t.Errorf("Expected 5.0, got %v", resultMap["result"])
 	}
 
 	// Test division by zero
-	_, err = calc.Execute(map[string]interface{}{
+	_, err = calc.Execute(map[string]any{
 		"operation": "divide",
 		"a":         10.0,
 		"b":         0.0,
@@ -96,7 +96,7 @@ func TestCalculatorTool(t *testing.T) {
 	}
 
 	// Test invalid operation
-	_, err = calc.Execute(map[string]interface{}{
+	_, err = calc.Execute(map[string]any{
 		"operation": "invalid",
 		"a":         5.0,
 		"b":         3.0,
@@ -106,7 +106,7 @@ func TestCalculatorTool(t *testing.T) {
 	}
 
 	// Test missing parameters
-	_, err = calc.Execute(map[string]interface{}{
+	_, err = calc.Execute(map[string]any{
 		"operation": "add",
 		"a":         5.0,
 	})
@@ -150,7 +150,7 @@ func TestFileReadTool(t *testing.T) {
 	}
 
 	// Test reading existing file
-	result, err := tool.Execute(map[string]interface{}{
+	result, err := tool.Execute(map[string]any{
 		"path": "test.txt",
 	})
 	if err != nil {
@@ -162,7 +162,7 @@ func TestFileReadTool(t *testing.T) {
 	}
 
 	// Test reading non-existent file
-	_, err = tool.Execute(map[string]interface{}{
+	_, err = tool.Execute(map[string]any{
 		"path": "nonexistent.txt",
 	})
 	if err == nil {
@@ -170,7 +170,7 @@ func TestFileReadTool(t *testing.T) {
 	}
 
 	// Test missing path parameter
-	_, err = tool.Execute(map[string]interface{}{})
+	_, err = tool.Execute(map[string]any{})
 	if err == nil {
 		t.Error("Expected error for missing path parameter")
 	}
@@ -220,14 +220,14 @@ func TestListDirectoryTool(t *testing.T) {
 	}
 
 	// Test listing directory
-	result, err := tool.Execute(map[string]interface{}{
+	result, err := tool.Execute(map[string]any{
 		"path": tempDir,
 	})
 	if err != nil {
 		t.Fatalf("Failed to list directory: %v", err)
 	}
 
-	files, ok := result.([]map[string]interface{})
+	files, ok := result.([]map[string]any)
 	if !ok {
 		t.Fatalf("Expected slice of maps, got %T", result)
 	}
@@ -264,7 +264,7 @@ func TestListDirectoryTool(t *testing.T) {
 	}
 
 	// Test listing non-existent directory
-	_, err = tool.Execute(map[string]interface{}{
+	_, err = tool.Execute(map[string]any{
 		"path": "/nonexistent/directory",
 	})
 	if err == nil {
@@ -293,13 +293,13 @@ func TestHTTPRequestTool(t *testing.T) {
 	// For now, test error conditions
 
 	// Test missing URL parameter
-	_, err := tool.Execute(map[string]interface{}{})
+	_, err := tool.Execute(map[string]any{})
 	if err == nil {
 		t.Error("Expected error for missing URL parameter")
 	}
 
 	// Test invalid URL
-	_, err = tool.Execute(map[string]interface{}{
+	_, err = tool.Execute(map[string]any{
 		"url": "not-a-valid-url",
 	})
 	if err == nil {
@@ -311,7 +311,7 @@ func TestCalculatorTool_IntegerParams(t *testing.T) {
 	calc := NewCalculatorTool()
 
 	// Test with integer parameters (should be converted to float64)
-	result, err := calc.Execute(map[string]interface{}{
+	result, err := calc.Execute(map[string]any{
 		"operation": "add",
 		"a":         5,   // int
 		"b":         3.5, // float64
@@ -320,7 +320,7 @@ func TestCalculatorTool_IntegerParams(t *testing.T) {
 		t.Fatalf("Addition with mixed types failed: %v", err)
 	}
 
-	resultMap := result.(map[string]interface{})
+	resultMap := result.(map[string]any)
 	if resultMap["result"] != 8.5 {
 		t.Errorf("Expected 8.5, got %v", resultMap["result"])
 	}
@@ -347,7 +347,7 @@ func TestFileReadTool_WithoutRoot(t *testing.T) {
 	tempFile.Close()
 
 	// Test reading the file
-	result, err := tool.Execute(map[string]interface{}{
+	result, err := tool.Execute(map[string]any{
 		"path": tempFile.Name(),
 	})
 	if err != nil {

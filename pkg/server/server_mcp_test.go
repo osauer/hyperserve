@@ -5,28 +5,28 @@ import (
 	"testing"
 )
 
-// TestCustomTool implements MCPTool for testing
+// TestCustomTool implements mcp.Tool for testing
 type TestCustomTool struct {
 	name string
 }
 
 func (t *TestCustomTool) Name() string        { return t.name }
 func (t *TestCustomTool) Description() string { return "Test tool" }
-func (t *TestCustomTool) Schema() map[string]interface{} {
-	return map[string]interface{}{
+func (t *TestCustomTool) Schema() map[string]any {
+	return map[string]any{
 		"type": "object",
-		"properties": map[string]interface{}{
-			"input": map[string]interface{}{
+		"properties": map[string]any{
+			"input": map[string]any{
 				"type": "string",
 			},
 		},
 	}
 }
-func (t *TestCustomTool) Execute(params map[string]interface{}) (interface{}, error) {
-	return map[string]interface{}{"result": "ok"}, nil
+func (t *TestCustomTool) Execute(params map[string]any) (any, error) {
+	return map[string]any{"result": "ok"}, nil
 }
 
-// TestCustomResource implements MCPResource for testing
+// TestCustomResource implements mcp.Resource for testing
 type TestCustomResource struct {
 	uri string
 }
@@ -35,8 +35,8 @@ func (r *TestCustomResource) URI() string         { return r.uri }
 func (r *TestCustomResource) Name() string        { return "Test resource" }
 func (r *TestCustomResource) Description() string { return "Test resource" }
 func (r *TestCustomResource) MimeType() string    { return "application/json" }
-func (r *TestCustomResource) Read() (interface{}, error) {
-	return map[string]interface{}{"data": "test"}, nil
+func (r *TestCustomResource) Read() (any, error) {
+	return map[string]any{"data": "test"}, nil
 }
 func (r *TestCustomResource) List() ([]string, error) {
 	return []string{r.uri}, nil
@@ -67,7 +67,7 @@ func TestMCPCustomRegistration(t *testing.T) {
 		}
 
 		// Verify tool was registered by checking handler's tools map
-		if srv.mcpHandler.tools[tool.Name()] == nil {
+		if !srv.MCPHandler().HasTool(tool.Name()) {
 			t.Fatal("Tool was not registered")
 		}
 	})
@@ -90,7 +90,7 @@ func TestMCPCustomRegistration(t *testing.T) {
 		}
 
 		// Verify resource was registered
-		if srv.mcpHandler.resources[resource.URI()] == nil {
+		if !srv.MCPHandler().HasResource(resource.URI()) {
 			t.Fatal("Resource was not registered")
 		}
 	})

@@ -155,8 +155,8 @@ func TestTemplateRenderingIntegration(t *testing.T) {
 	// Templates will be parsed lazily when HandleFuncDynamic is called
 
 	// Add template endpoint
-	err = srv.HandleFuncDynamic("/template-test", "test.html", func(r *http.Request) interface{} {
-		return map[string]interface{}{
+	err = srv.HandleFuncDynamic("/template-test", "test.html", func(r *http.Request) any {
+		return map[string]any{
 			"title":   "Integration Test",
 			"content": "This is a template rendering test",
 		}
@@ -272,10 +272,10 @@ func TestCleanupOnServerStopIntegration(t *testing.T) {
 	}
 
 	// Verify cleanup mechanisms are initialized
-	if srv.cleanupTicker == nil {
+	if srv.rateLimiters.cleanupTicker == nil {
 		t.Error("cleanup ticker should be initialized")
 	}
-	if srv.cleanupDone == nil {
+	if srv.rateLimiters.cleanupDone == nil {
 		t.Error("cleanup done channel should be initialized")
 	}
 

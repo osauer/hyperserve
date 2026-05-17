@@ -9,6 +9,9 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/osauer/hyperserve/pkg/websocket"
 )
 
 // baseResponseWriter is a minimal ResponseWriter that doesn't implement optional interfaces
@@ -212,7 +215,7 @@ func TestMiddlewareWithWebSocket(t *testing.T) {
 	srv.AddMiddleware("*", RequestLoggerMiddleware)
 
 	// Add WebSocket handler
-	upgrader := Upgrader{
+	upgrader := websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
 			return true
 		},
@@ -266,6 +269,12 @@ func TestMiddlewareWithWebSocket(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
+	// The handler stores the atomic after writing the response, so a short
+	// wait avoids racing the test assertion against the server goroutine.
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for !wsHandlerCalled.Load() && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
 	if !wsHandlerCalled.Load() {
 		t.Error("WebSocket handler was not called")
 	}

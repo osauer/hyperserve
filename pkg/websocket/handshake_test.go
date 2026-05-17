@@ -1,4 +1,4 @@
-package ws
+package websocket
 
 import (
 	"net/http"
@@ -9,9 +9,9 @@ import (
 
 func TestValidateHandshake(t *testing.T) {
 	tests := []struct {
-		name       string
-		setupReq   func() *http.Request
-		wantErr    error
+		name     string
+		setupReq func() *http.Request
+		wantErr  error
 	}{
 		{
 			name: "valid handshake",
@@ -76,7 +76,7 @@ func TestValidateHandshake(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := tt.setupReq()
-			
+
 			err := ValidateHandshake(req)
 			if err != tt.wantErr {
 				t.Errorf("ValidateHandshake() error = %v, wantErr %v", err, tt.wantErr)
@@ -89,7 +89,7 @@ func TestGenerateAcceptKey(t *testing.T) {
 	// Test vector from RFC 6455
 	key := "dGhlIHNhbXBsZSBub25jZQ=="
 	expected := "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
-	
+
 	result := generateAcceptKey(key)
 	if result != expected {
 		t.Errorf("generateAcceptKey() = %v, want %v", result, expected)
@@ -233,17 +233,17 @@ func TestCheckOrigin(t *testing.T) {
 			req := httptest.NewRequest("GET", "/ws", nil)
 			req.Header.Set("Origin", tt.origin)
 			req.Host = tt.requestHost
-			
+
 			// Set up valid WebSocket headers
 			req.Header.Set("Upgrade", "websocket")
 			req.Header.Set("Connection", "Upgrade")
 			req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
 			req.Header.Set("Sec-WebSocket-Version", "13")
-			
+
 			w := httptest.NewRecorder()
-			
+
 			_, _, err := PerformHandshake(w, req, tt.opts)
-			
+
 			gotAllow := err != ErrBadHandshake
 			if gotAllow != tt.wantAllow {
 				t.Errorf("PerformHandshake() allowed = %v, want %v (err: %v)", gotAllow, tt.wantAllow, err)
