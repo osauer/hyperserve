@@ -56,10 +56,6 @@ type InterceptableResponse struct {
 
 	// Metadata from the request
 	Metadata map[string]any
-
-	// Track if response has been written
-	written bool
-	mu      sync.Mutex
 }
 
 // InterceptorResponse allows interceptors to return early responses

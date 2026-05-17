@@ -48,7 +48,6 @@ import (
 ## Root files
 
 - `go.mod` / `go.sum` — Module + single transitive dependency (`golang.org/x/time`).
-- `.golangci.yml` — Linter config.
 - `Makefile` — `build` / `install` / `test` / `check` (runs `vet`, `staticcheck`, `modernize`, `govulncheck`).
 - `README.md` — Overview and Quick Start.
 - `ARCHITECTURE.md` — Design notes for the layered package layout.

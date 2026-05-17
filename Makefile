@@ -15,7 +15,7 @@ build: ## Compile cmd/server with version stamped via ldflags
 install: ## Install hyperserve via `go install`
 	go install $(LDFLAGS) ./cmd/server
 
-test: ## Run go test -v ./...
+test: check ## Run the check gate, then `go test -v ./...`
 	go test -v ./...
 
 clean:

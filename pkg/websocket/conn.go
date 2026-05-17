@@ -26,7 +26,6 @@ type lowConn struct {
 
 	// Close handling
 	closeMu   sync.Mutex
-	closeErr  error
 	closeSent bool
 }
 

@@ -370,7 +370,6 @@ func RateLimitMiddleware(srv *Server) MiddlewareFunc {
 				w.Header().Set("Retry-After", "1")
 				writeErrorResponse(w, http.StatusTooManyRequests, "Rate limit exceeded")
 			}
-			return
 		}
 	}
 }
@@ -524,20 +523,6 @@ func TraceMiddleware(next http.Handler) http.HandlerFunc {
 		traceID := generateTraceID()
 		ctx := context.WithValue(r.Context(), traceIDKey, traceID)
 		next.ServeHTTP(w, r.WithContext(ctx))
-	}
-}
-
-// trailingSlashMiddleware MiddlewareFunc redirects requests without a trailing slash to the same URL with a trailing slash.
-// TODO: check if this  has become obsolete as the http handler is taking care.
-func trailingSlashMiddleware(next http.Handler) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		path := r.URL.Path
-		if path != "/" && !strings.HasSuffix(path, "/") {
-			// redirect to the same URL with a trailing slash
-			http.Redirect(w, r, path+"/", http.StatusMovedPermanently)
-			return
-		}
-		next.ServeHTTP(w, r)
 	}
 }
 

@@ -646,7 +646,7 @@ func (srv *Server) initHealthServer() error {
 		IdleTimeout:       srv.Options.IdleTimeout,
 		ReadHeaderTimeout: srv.Options.ReadHeaderTimeout, // Prevent Slowloris attacks
 		BaseContext: func(_ net.Listener) context.Context {
-			return context.WithValue(baseCtx, "health", true)
+			return baseCtx
 		},
 	}
 	// If ReadHeaderTimeout is not set, default to ReadTimeout
@@ -677,7 +677,7 @@ func (srv *Server) initHealthServer() error {
 
 func (srv *Server) handleShutdown(serverErr chan error, deferredErr chan error) error {
 	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGKILL)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	defer signal.Stop(quit)
 
 	deferredChan := deferredErr
@@ -1093,23 +1093,9 @@ func (srv *Server) CompleteDeferredInit(ctx context.Context, err error) error {
 	return srv.completeDeferredInit(ctx, err, nil)
 }
 
-func (srv *Server) shutdownHealthServer(ctx context.Context) error {
-	if srv.Options.RunHealthServer {
-		logger.Info("Shutting down health server.")
-		// Close any dependencies if needed
-		// ...
-		if err := srv.healthServer.Shutdown(ctx); err != nil {
-			return fmt.Errorf("health server shutdown: %w", err)
-		}
-		return nil
-	} else {
-		return nil
-	}
-}
-
 func (srv *Server) WithOutStack(stack MiddlewareStack) error {
 	if srv.isRunning.Load() {
-		return fmt.Errorf("Cannot change middleware after httpServer has started.")
+		return fmt.Errorf("cannot change middleware after httpServer has started")
 	}
 	srv.middleware.exclude = append(srv.middleware.exclude, stack...)
 	return nil
@@ -1283,7 +1269,7 @@ func (srv *Server) rootFileServer() http.Handler {
 // Returns an error if template parsing fails.
 func (srv *Server) HandleTemplate(pattern, t string, data any) error {
 	if err := srv.parseTemplates(); err != nil {
-		return fmt.Errorf("Failed to parse templates. %w", err)
+		return fmt.Errorf("failed to parse templates: %w", err)
 	}
 
 	srv.registerRoute(pattern)
@@ -1399,7 +1385,7 @@ func (srv *Server) listTemplateFiles() ([]string, error) {
 
 func checkfile(file, wd string) error {
 	if _, err := os.Stat(file); err != nil {
-		return fmt.Errorf("File %s not found in working directory %s. %w ", file, wd, err)
+		return fmt.Errorf("file %s not found in working directory %s: %w", file, wd, err)
 	}
 	return nil
 }

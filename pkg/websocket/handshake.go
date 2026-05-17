@@ -110,10 +110,10 @@ func PerformHandshake(w http.ResponseWriter, r *http.Request, opts *HandshakeOpt
 
 	// Send upgrade response
 	var response strings.Builder
-	response.WriteString(fmt.Sprintf("HTTP/1.1 101 Switching Protocols\r\n"))
+	response.WriteString("HTTP/1.1 101 Switching Protocols\r\n")
 	for k, v := range headers {
 		for _, vv := range v {
-			response.WriteString(fmt.Sprintf("%s: %s\r\n", k, vv))
+			fmt.Fprintf(&response, "%s: %s\r\n", k, vv)
 		}
 	}
 	response.WriteString("\r\n")
@@ -124,13 +124,6 @@ func PerformHandshake(w http.ResponseWriter, r *http.Request, opts *HandshakeOpt
 	}
 
 	return conn, buf, nil
-}
-
-// isWebSocketUpgrade checks if the request is a WebSocket upgrade
-func isWebSocketUpgrade(r *http.Request) bool {
-	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket") &&
-		strings.Contains(strings.ToLower(r.Header.Get("Connection")), "upgrade") &&
-		r.Method == "GET"
 }
 
 // generateAcceptKey generates the Sec-WebSocket-Accept header value.

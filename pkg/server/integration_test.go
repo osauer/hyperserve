@@ -93,7 +93,7 @@ func TestHealthEndpointsIntegration(t *testing.T) {
 
 	// Disable automatic health server and set unique port
 	srv.Options.RunHealthServer = false
-	srv.Options.HealthAddr = fmt.Sprintf(":0") // Let OS assign port
+	srv.Options.HealthAddr = ":0" // Let OS assign port
 
 	// Initialize the health server manually to set up the endpoints
 	if err := srv.initHealthServer(); err != nil {
