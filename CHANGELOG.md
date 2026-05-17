@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.1] - 2026-05-17
+
+Patch release. Drives `staticcheck ./...` to zero across pre-existing findings the
+0.25.0 `make check` gate exposed, and wires that gate into CI so it runs on every
+push and PR. No API changes.
+
+### Changed
+- CI (`.github/workflows/ci.yml`) bumped to Go 1.25 (matches `go.mod`), now runs `make test` (which runs the full `check` gate then `go test`), installs `staticcheck` and `govulncheck` explicitly, and builds `./cmd/server` (was the stale `./cmd/hyperserve` path).
+- `Makefile`: `test` target now depends on `check`, so local `make test` runs the gofmt + vet + staticcheck + govulncheck + modernize gate before the test suite.
+- Error strings in `pkg/server/server.go` lowercased / unpunctuated per Go style (ST1005).
+
+### Removed
+- `internal/responsewriter` package — dead since the websocket package landed; zero callers.
+- `pkg/server.trailingSlashMiddleware` — unreferenced and the inline TODO already noted it was likely obsolete.
+- `pkg/server.(*Server).shutdownHealthServer` — unused (health server shutdown happens inline).
+- `pkg/websocket.isWebSocketUpgrade` — unused; the `Upgrade` method does its own checking inline.
+- Unused struct fields: `InterceptableResponse.{written,mu}`, `lowConn.closeErr`, `Conn.{pingInterval,pongTimeout}`.
+- `spec/conformance.fetchResponse` and its `io` import — unused since the conformance suite landed.
+- `.golangci.yml` plus its CI job — `make check` covers the same ground via tools pinned in `go.mod` (vet + staticcheck + modernize) plus govulncheck.
+
+### Fixed
+- `pkg/server/server.go` no longer registers `syscall.SIGKILL` with `signal.Notify` — it cannot be trapped (SA1016).
+- Health-server `BaseContext` no longer attaches a string-keyed value that nothing reads (SA1029).
+- Misc S1023 / S1039 cleanups (redundant return, unnecessary `fmt.Sprintf`) in `pkg/server` and `pkg/websocket`.
+
 ## [0.25.0] - 2026-05-17
 
 Pre-1.0 cleanup release. This is a breaking-API change: import paths and several
