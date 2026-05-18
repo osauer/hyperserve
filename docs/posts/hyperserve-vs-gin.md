@@ -1,5 +1,7 @@
 # HyperServe vs Gin: a smaller net/http wrapper that speaks MCP
 
+![HyperServe vs Gin — radar comparison across nine axes](./hyperserve-vs-gin.svg)
+
 Stand up an MCP server in Go today and you have two choices: run a separate process and route between it and your HTTP service, or write the JSON-RPC handshake yourself. Both work. Neither is the same thing as `srv.HandleFunc` plus a couple of registered tools sharing one process and one config tree, which is what HyperServe is built around.
 
 The comparison here is with Gin because Gin is the framework anyone evaluating HyperServe is also evaluating. The reasons to pick Gin are real and unchanged. HyperServe is not a Gin replacement; it's a different bet about what 2026 needs from a Go HTTP framework.
