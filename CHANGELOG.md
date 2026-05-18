@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.1] - 2026-05-18
+
+Patch release. Closes one Dependabot HIGH alert and the process gap
+that let it through `make check`.
+
+### Security
+
+- **`examples/auth/go.mod`: `github.com/golang-jwt/jwt/v5` bumped
+  `v5.2.1 → v5.2.2`** (GHSA-mh63-6h87-95cp — excessive memory
+  allocation during JWT header parsing in versions `>= 5.0.0-rc.1,
+  < 5.2.2`). Scope is the standalone auth example only; the main
+  HyperServe library has no JWT dependency.
+
+### Changed
+
+- **`make check` now recurses into standalone example modules**
+  (`Makefile`). New `check-examples` target discovers
+  `examples/*/go.mod` via shell glob and runs
+  `go vet ./... && go build ./... && govulncheck ./...` inside each,
+  wired into `check:`. Closes the gap that let the JWT vuln above
+  reach the default branch: examples with their own `go.mod` (via
+  `replace`) live outside the main module's `./...`, so the
+  pre-existing govulncheck pass never saw them. Discovery is
+  glob-based — new standalone example modules are picked up
+  automatically without Makefile edits.
+
 ## [0.33.0] - 2026-05-18
 
 **Final breaking sweep before v1.0.** Closes the one MEDIUM security
