@@ -105,11 +105,15 @@ type ToolCallParams struct {
 	Arguments map[string]any `json:"arguments"`
 }
 
-// ToolInfo describes a tool in tools/list responses.
+// ToolInfo describes a tool in tools/list responses. OutputSchema is the
+// `outputSchema` field added in the MCP spec revision 2025-06-18; tools
+// that implement ToolWithOutputSchema populate it via the handler's
+// tools/list path, others omit it.
 type ToolInfo struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	InputSchema map[string]any `json:"inputSchema"`
+	Name         string         `json:"name"`
+	Description  string         `json:"description"`
+	InputSchema  map[string]any `json:"inputSchema"`
+	OutputSchema map[string]any `json:"outputSchema,omitempty"`
 }
 
 // ResourceInfo describes a resource in resources/list responses.

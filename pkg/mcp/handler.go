@@ -444,11 +444,15 @@ func (h *Handler) handleResourcesRead(params any) (any, error) {
 func (h *Handler) handleToolsList(_ any) (any, error) {
 	tools := make([]ToolInfo, 0, len(h.tools))
 	for prefixedName, tool := range h.tools {
-		tools = append(tools, ToolInfo{
+		info := ToolInfo{
 			Name:        prefixedName,
 			Description: tool.Description(),
 			InputSchema: tool.Schema(),
-		})
+		}
+		if out, ok := tool.(ToolWithOutputSchema); ok {
+			info.OutputSchema = out.OutputSchema()
+		}
+		tools = append(tools, info)
 	}
 	return map[string]any{"tools": tools}, nil
 }

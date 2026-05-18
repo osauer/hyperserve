@@ -181,6 +181,75 @@ For production monitoring via Claude:
 
 ## Custom Extensions
 
+### Typed Tool (recommended)
+
+`mcp.NewTypedTool` wraps a typed Go function as an MCP tool. The framework
+derives the JSON Schema from the args struct via reflection — field names
+from `json:"…"`, types from Go types, `required`/`oneof`/`min`/`max`/`len`
+from `validate:"…"`, descriptions from `mcp:"desc=…"`. Each call decodes
+the incoming arguments into the struct, runs the same validator used by
+the HTTP binding helpers, then invokes the handler. The return type
+drives `outputSchema` on `tools/list` so MCP clients can introspect the
+response shape too.
+
+Prefer **one tool per verb** — narrow args structs let `required` mean
+what it says, and named tools like `create_post` / `delete_post` are
+easier for an LLM to select than a `manage_posts` tool with an `action`
+enum.
+
+```go
+type CreatePostArgs struct {
+    Title   string   `json:"title"   validate:"required,max=200"`
+    Author  string   `json:"author"  validate:"required"`
+    Tags    []string `json:"tags,omitempty" validate:"max=10"`
+}
+type Post struct {
+    ID, Title, Author string
+    Tags              []string
+    CreatedAt         time.Time
+}
+
+func (b *Blog) Create(ctx context.Context, args CreatePostArgs) (Post, error) {
+    return b.create(args) // args is already decoded and validated.
+}
+
+srv.RegisterMCPTool(mcp.NewTypedTool(
+    "create_post", "Create a new blog post.", blog.Create))
+```
+
+Type inference picks both `In` and `Out` off the method value — callers
+don't write the generic parameters explicitly. Use `struct{}` on either
+side for tools that take no arguments (`List`) or return no payload
+(`Delete`); the empty struct also suppresses `outputSchema`.
+
+Supported `validate` verbs map to JSON Schema as:
+
+| Verb                  | Field type     | Schema constraint           |
+|-----------------------|----------------|-----------------------------|
+| `required`            | any            | appears in `required` list  |
+| `oneof=A B C`         | string         | `enum: ["A","B","C"]`       |
+| `oneof=1 2 3`         | integer        | `enum: [1,2,3]`             |
+| `min=N` / `max=N`     | integer/number | `minimum` / `maximum`       |
+| `min=N` / `max=N`     | string         | `minLength` / `maxLength`   |
+| `min=N` / `max=N`     | array/slice    | `minItems` / `maxItems`     |
+| `len=N`               | string/array   | min and max set to N        |
+
+Validation failures surface through the JSON-RPC tool-call error with the
+same per-field message format produced by `server.BindJSON`
+(`"validation failed: field: rule message; …"`). That format is part of
+the wire surface — see [pkg/mcp/typed_tool_test.go](../pkg/mcp/typed_tool_test.go)
+`TestNewTypedTool_ValidationErrorMessageFormat` for the pinning test.
+Nested structs are inlined; pointer fields are optional (presence in
+`required` is controlled by the tag, not the pointer).
+
+Out of scope for v1: cross-field rules, custom validators, JSON Schema
+`$ref` / `$defs`, OpenAPI generation. Hand-author the schema with the
+builder below when those matter.
+
+See `examples/mcp-extensions/` for `create_post` / `get_post` /
+`list_posts` / `delete_post` (typed) and `search_posts` (builder) side
+by side.
+
 ### Simple Tool
 
 ```go

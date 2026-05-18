@@ -5,6 +5,73 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.31.0] - 2026-05-18
+
+Feature release. Adds `mcp.NewTypedTool[In, Out]` — typed MCP tool
+registration with reflection-derived `inputSchema` *and* `outputSchema`,
+the same `validate:"..."` rules used by `BindJSON`, and a panic-free
+handler body. Backwards-compatible — `mcp.NewTool().WithParameter(...)`
+keeps working and is the right tool when you need a hand-tuned schema.
+
+### Added
+
+- **`mcp.NewTypedTool[In, Out](name, description, fn) mcp.Tool`**
+  (`pkg/mcp/typed_tool.go`). Wraps a typed handler `func(ctx, In) (Out, error)`
+  where `In` is a struct. The framework derives `inputSchema` from `In`
+  via reflection — field names from `json:"…"`, types from Go types,
+  `required`/`oneof`/`min`/`max`/`len` from `validate:"…"`, descriptions
+  from `mcp:"desc=…"`. Each call JSON-decodes arguments into a fresh
+  `In`, runs `validate.Struct`, then invokes `fn`. Type inference picks
+  both type parameters off the function value, so call sites don't write
+  them explicitly:
+
+  ```go
+  type CreatePostArgs struct {
+      Title  string   `json:"title"  validate:"required,max=200"`
+      Author string   `json:"author" validate:"required"`
+      Tags   []string `json:"tags,omitempty" validate:"max=10"`
+  }
+  type Post struct { ID, Title, Author string; Tags []string; CreatedAt time.Time }
+
+  srv.RegisterMCPTool(mcp.NewTypedTool(
+      "create_post", "Create a new blog post.", blog.Create))
+  // blog.Create: func(ctx context.Context, args CreatePostArgs) (Post, error)
+  ```
+
+  Validation failures surface through the JSON-RPC tool-call error with
+  the same per-field format produced by `server.BindJSON`
+  (`"validation failed: field: rule message; …"`). The format is pinned
+  by `TestNewTypedTool_ValidationErrorMessageFormat` so MCP clients can
+  rely on it. `struct{}` works on either side for no-args / no-payload
+  tools and suppresses `outputSchema`.
+
+- **`outputSchema` on `tools/list`**. New `ToolInfo.OutputSchema`
+  (`pkg/mcp/types.go`) carries the field added in the MCP spec revision
+  2025-06-18. Typed tools implement the new `ToolWithOutputSchema`
+  interface; the handler type-asserts and emits the schema only when
+  present, so builder-based tools stay unchanged on the wire.
+
+- **`internal/validate`**. Extracted the tag-driven struct validator out
+  of `pkg/server/binding.go` so `pkg/mcp` can reuse it without an import
+  cycle. `pkg/server.Validate` / `ValidationError` / `FieldError` are
+  preserved as type aliases — no source-level break for existing callers.
+
+- **`examples/mcp-extensions/`**. Rewritten as `create_post` / `get_post`
+  / `list_posts` / `delete_post` (typed verbs, each with a tight args
+  struct, no `action` enum or every-field-optional shape) plus a
+  `search_posts` builder tool kept for contrast. Each typed tool's
+  return type drives an `outputSchema` visible in `tools/list`.
+
+### Changed
+
+- **`docs/MCP_GUIDE.md`** now leads with the typed-tool section, with a
+  validate-verb → JSON-Schema mapping table, the one-tool-per-verb
+  guidance, and pointers to the example and the validation-format pin
+  test. The builder section is preserved for hand-tuned schemas.
+
+- **`pkg/server/binding.go`** shrinks to bind helpers + thin re-exports.
+  Validation core moved to `internal/validate`; no behavior change.
+
 ## [0.30.0] - 2026-05-18
 
 Feature release. Adds `server.JSONEcho[T]()` — the natural sibling to
