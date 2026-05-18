@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.1] - 2026-05-18
+
+Small dev-affordance increment on top of v0.26.0. No API or wire-shape changes.
+
+### Added
+- `cmd/server -version` (and `--version`) prints the ldflag-stamped version,
+  build hash, and build time, then exits — matches the version info already
+  exposed via `server.GetVersionInfo()`.
+- README badges: CI status, latest release, Go version (from `go.mod`),
+  pkg.go.dev reference, MIT license. Sourced from shields.io; pure metadata,
+  no extra dependencies.
+
 ## [0.26.0] - 2026-05-18
 
 Taste-review sweep. Targets dead surface, half-wired features, and doc drift
