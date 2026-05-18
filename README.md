@@ -201,6 +201,7 @@ auth + RBAC, htmx, and static file serving. Each example is a self-contained
 - [API reference](https://pkg.go.dev/github.com/osauer/hyperserve)
 - [MCP guide](./docs/MCP_GUIDE.md)
 - [WebSocket guide](./docs/WEBSOCKET_GUIDE.md)
+- [Production guide](./docs/PRODUCTION.md) — TLS, reverse proxy, CDN gotchas, MCP threat model.
 - [Scaffolding guide](./docs/SCAFFOLDING.md)
 - [Contributing](./CONTRIBUTING.md) — local CI gate + code map.
 - [Security policy](./SECURITY.md)
