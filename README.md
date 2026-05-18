@@ -147,6 +147,7 @@ Available rules: `required, min, max, len, email, url, oneof`.
 Entry points:
 
 - `server.JSONHandler[In, Out](fn)` — typed wrapper: bind + validate + respond.
+- `server.JSONEcho[T]()` — shorthand for validate-and-pass-through (webhook acks, dev stubs).
 - `server.Bind(r, dst)` — picks JSON / form / query by `Content-Type`.
 - `server.BindJSON(r, dst)` — JSON with `DisallowUnknownFields` and a 1 MiB body cap.
 - `server.BindQuery(r, dst)` — URL query parameters (slices via repeated keys).

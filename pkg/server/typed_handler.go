@@ -93,6 +93,24 @@ func JSONHandler[In, Out any](fn func(context.Context, In) (Out, error)) http.Ha
 	}
 }
 
+// JSONEcho is the shorthand for the validate-and-pass-through case: bind the
+// body into T, run validation, and echo the validated value back as the 200
+// response. Useful for webhook acks, dev stubs, and "did this payload
+// validate?" endpoints where the response shape is the same as the input.
+//
+//	srv.POST("/users", server.JSONEcho[CreateUser]())
+//
+// Reach for JSONHandler[In, Out] when the response is genuinely different
+// from the input — assigning a server-side ID, lowercasing the email,
+// joining a related record. An identity function is the absence of business
+// logic; JSONEcho says so directly.
+//
+// Errors follow JSONHandler: *ValidationError → per-field 400 envelope,
+// other bind errors → 400 with {"error": err.Error()}.
+func JSONEcho[T any]() http.HandlerFunc {
+	return JSONHandler(func(_ context.Context, in T) (T, error) { return in, nil })
+}
+
 // fieldErrorPayload is the wire shape for a single validation failure. It
 // intentionally omits FieldError.Value so handlers can't accidentally
 // leak the offending field (passwords, tokens, …) back to the caller.

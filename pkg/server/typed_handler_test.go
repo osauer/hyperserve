@@ -181,6 +181,62 @@ func TestJSONHandler_ValidationEnvelopeShape(t *testing.T) {
 	}
 }
 
+// TestJSONEcho covers the two behaviours that distinguish JSONEcho from a
+// plain JSONHandler: a successful request echoes the validated input
+// verbatim, and a validation failure emits the same per-field 400 envelope
+// JSONHandler renders. Other error paths are exercised by TestJSONHandler
+// since JSONEcho is a thin wrapper over it.
+func TestJSONEcho(t *testing.T) {
+	t.Parallel()
+	h := JSONEcho[tUserIn]()
+
+	t.Run("success echoes the validated input verbatim", func(t *testing.T) {
+		t.Parallel()
+		body := `{"name":"Ada","email":"ada@example.com"}`
+		r := httptest.NewRequest(http.MethodPost, "/echo", strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		h(w, r)
+
+		res := w.Result()
+		defer res.Body.Close()
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("status: want 200, got %d (body=%s)", res.StatusCode, w.Body.String())
+		}
+		if got := res.Header.Get("Content-Type"); got != "application/json" {
+			t.Fatalf("Content-Type: want application/json, got %q", got)
+		}
+		var got tUserIn
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatalf("decode echo body: %v\nbody=%s", err, w.Body.String())
+		}
+		want := tUserIn{Name: "Ada", Email: "ada@example.com"}
+		if got != want {
+			t.Fatalf("echo body: want %+v, got %+v", want, got)
+		}
+	})
+
+	t.Run("validation failure emits per-field 400 envelope", func(t *testing.T) {
+		t.Parallel()
+		r := httptest.NewRequest(http.MethodPost, "/echo", strings.NewReader(`{"name":"A","email":"not-an-email"}`))
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		h(w, r)
+
+		res := w.Result()
+		defer res.Body.Close()
+		if res.StatusCode != http.StatusBadRequest {
+			t.Fatalf("status: want 400, got %d (body=%s)", res.StatusCode, w.Body.String())
+		}
+		body := w.Body.String()
+		for _, want := range []string{`"error":"validation failed"`, `"field":"name"`, `"tag":"min"`, `"field":"email"`} {
+			if !strings.Contains(body, want) {
+				t.Fatalf("body missing %q\nfull body: %s", want, body)
+			}
+		}
+	})
+}
+
 func TestStatusError(t *testing.T) {
 	t.Parallel()
 	inner := errors.New("db gone")

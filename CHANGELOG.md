@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.30.0] - 2026-05-18
+
+Feature release. Adds `server.JSONEcho[T]()` — the natural sibling to
+v0.28.0's `JSONHandler` for the case where the response shape is the same
+as the validated input. Backwards-compatible — `JSONHandler` is unchanged.
+
+### Added
+
+- **`server.JSONEcho[T]()`** (`pkg/server/typed_handler.go`). Shorthand
+  for the validate-and-pass-through case: bind the body into `T`, run
+  validation, echo the validated value back as the 200 response.
+
+  ```go
+  srv.POST("/webhook", server.JSONEcho[Event]())
+  ```
+
+  Useful for webhook acks, dev stubs, and "did this payload validate?"
+  endpoints. Reach for `JSONHandler[In, Out]` when the response is
+  genuinely different from the input (assigning a server-side ID,
+  lowercasing the email, joining a related record). An identity function
+  is the absence of business logic; `JSONEcho` says so directly.
+
+  Implementation is a one-liner over `JSONHandler` — same bind path,
+  same per-field 400 validation envelope, same error model.
+
+### Changed
+
+- **`examples/binding/`** now demonstrates three endpoints side-by-side:
+  `/users/echo` (`JSONEcho[CreateUser]()`), `/users` (`JSONHandler` with
+  a genuine mapping — assigns ID, lowercases email), and `/users-manual`
+  (low-level `BindJSON`). The contrast lets readers pick the right tool.
+
 ## [0.29.0] - 2026-05-18
 
 Feature release. Adds method-aware route helpers so handlers no longer
