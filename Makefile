@@ -7,7 +7,7 @@ BUILD_TIME := $(shell date -u +"%Y-%m-%d_%H:%M:%S_UTC" || echo "unknown")
 # Stamped into pkg/server.Version/BuildHash/BuildTime via -X.
 LDFLAGS := -ldflags "-X github.com/osauer/hyperserve/pkg/server.Version=$(VERSION) -X github.com/osauer/hyperserve/pkg/server.BuildHash=$(BUILD_HASH) -X github.com/osauer/hyperserve/pkg/server.BuildTime=$(BUILD_TIME)"
 
-.PHONY: build install test test-race fuzz-smoke clean version check vet fmt modernize modernize-check staticcheck govulncheck
+.PHONY: build install test test-race fuzz-smoke clean version check check-examples vet fmt modernize modernize-check staticcheck govulncheck
 
 build: ## Compile cmd/server with version stamped via ldflags
 	go build $(LDFLAGS) -o hyperserve ./cmd/server
@@ -52,7 +52,7 @@ version: ## Print the version string the next build would embed
 # tells you the exact command if missing. Modernize is different — it's
 # pinned via the `tool` directive in go.mod and invoked via `go tool`, so it
 # auto-downloads on first use and stays reproducible across machines/CI.
-check: vet staticcheck govulncheck modernize-check ## gofmt + vet + staticcheck + govulncheck + modernize-check
+check: vet staticcheck govulncheck modernize-check check-examples ## gofmt + vet + staticcheck + govulncheck + modernize-check + per-example govulncheck
 	@# gofmt over tracked + untracked-but-not-gitignored .go files. Same
 	@# pattern as ibkr — `git ls-files` respects .gitignore so this skips
 	@# /dist, agent worktrees, etc. The intermediate exists-check filters
@@ -80,6 +80,26 @@ staticcheck:
 govulncheck:
 	@command -v govulncheck >/dev/null 2>&1 || { echo "govulncheck not on PATH; install: go install golang.org/x/vuln/cmd/govulncheck@latest" >&2; exit 1; }
 	govulncheck ./...
+
+# Standalone example modules (own go.mod via `replace`) live outside the
+# main module's `./...`, so vet + govulncheck against the root never sees
+# them. Dependabot caught a HIGH vuln in examples/auth/go.mod
+# (golang-jwt v5.2.1, GHSA-mh63-6h87-95cp) that the root govulncheck had
+# missed for exactly this reason — closing the process gap here.
+#
+# Discovery is by shell glob, so new standalone examples are picked up
+# automatically without Makefile edits.
+EXAMPLE_MODULES := $(shell ls examples/*/go.mod 2>/dev/null | xargs -n1 dirname)
+
+check-examples: ## go vet + build + govulncheck in each standalone examples/*/ module
+	@if [ -z "$(EXAMPLE_MODULES)" ]; then \
+		echo "no standalone example modules found"; \
+		exit 0; \
+	fi
+	@for mod in $(EXAMPLE_MODULES); do \
+		echo "--- $$mod"; \
+		(cd $$mod && go vet ./... && go build ./... && govulncheck ./...) || exit 1; \
+	done
 
 # Idiom-drift gate. `go fix -diff` is the toolchain-native fixer (tracks the
 # Go version pinned in go.mod); `go tool modernize` runs the broader gopls
