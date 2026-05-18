@@ -25,7 +25,6 @@ type Handler struct {
 	rpcEngine       *jsonrpc.Engine
 	serverInfo      ServerInfo
 	logger          *slog.Logger
-	metrics         *Metrics
 	cache           *resourceCache
 	sseManager      *SSEManager
 	toolCallTimeout time.Duration // Set via SetToolCallTimeout; defaults to 30s when zero.
@@ -55,7 +54,6 @@ func NewHandler(serverInfo ServerInfo) *Handler {
 		rpcEngine:  jsonrpc.NewEngine(logger),
 		serverInfo: serverInfo,
 		logger:     logger,
-		metrics:    newMetrics(),
 		cache:      newResourceCache(100),
 		sseManager: NewSSEManager(),
 	}
@@ -166,14 +164,6 @@ func (h *Handler) RegisterNamespace(name string, configs ...NamespaceConfig) err
 	h.namespaces[name] = ns
 	h.logger.Debug("MCP namespace registered", "namespace", name, "tools", len(ns.Tools), "resources", len(ns.Resources))
 	return nil
-}
-
-// GetMetrics returns the current MCP metrics summary.
-func (h *Handler) GetMetrics() map[string]any {
-	if h.metrics == nil {
-		return nil
-	}
-	return h.metrics.GetMetricsSummary()
 }
 
 // GetRegisteredTools returns all registered tool names.
@@ -295,20 +285,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // ProcessRequestWithTransport processes an MCP request using the provided transport.
 func (h *Handler) ProcessRequestWithTransport(transport Transport) error {
-	start := time.Now()
-
 	request, err := transport.Receive()
 	if err != nil {
 		return fmt.Errorf("failed to receive request: %w", err)
 	}
 
 	response := h.rpcEngine.ProcessRequestDirect(request)
-
-	var responseErr error
-	if response.Error != nil {
-		responseErr = fmt.Errorf("error: %s", response.Error.Message)
-	}
-	h.metrics.recordRequest(request.Method, time.Since(start), responseErr)
 
 	if err := transport.Send(response); err != nil {
 		return fmt.Errorf("failed to send response: %w", err)
@@ -366,7 +348,6 @@ func (h *Handler) handleResourcesList(_ any) (any, error) {
 }
 
 func (h *Handler) handleResourcesRead(params any) (any, error) {
-	start := time.Now()
 	var readParams ResourceReadParams
 
 	if params != nil {
@@ -401,10 +382,7 @@ func (h *Handler) handleResourcesRead(params any) (any, error) {
 	}
 
 	cacheKey := readParams.URI
-	cacheHit := false
 	if cachedContent, hit := h.cache.get(cacheKey); hit {
-		cacheHit = true
-		h.metrics.recordResourceRead(readParams.URI, time.Since(start), nil, true)
 		return map[string]any{
 			"contents": []ResourceContent{
 				{URI: resource.URI(), MimeType: resource.MimeType(), Text: cachedContent},
@@ -413,7 +391,6 @@ func (h *Handler) handleResourcesRead(params any) (any, error) {
 	}
 
 	content, err := resource.Read()
-	h.metrics.recordResourceRead(readParams.URI, time.Since(start), err, cacheHit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read resource: %w", err)
 	}
@@ -458,7 +435,6 @@ func (h *Handler) handleToolsList(_ any) (any, error) {
 }
 
 func (h *Handler) handleToolsCall(params any) (any, error) {
-	start := time.Now()
 	var callParams ToolCallParams
 
 	if params != nil {
@@ -484,8 +460,6 @@ func (h *Handler) handleToolsCall(params any) (any, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	result, err := ctxTool.ExecuteWithContext(ctx, callParams.Arguments)
-
-	h.metrics.recordToolExecution(callParams.Name, time.Since(start), err)
 	if err != nil {
 		return nil, fmt.Errorf("tool execution failed: %w", err)
 	}

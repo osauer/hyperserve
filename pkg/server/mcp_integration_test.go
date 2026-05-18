@@ -180,50 +180,6 @@ func TestMCPOptimizationsIntegration(t *testing.T) {
 		}
 	})
 
-	// Test metrics collection
-	t.Run("metrics_collection", func(t *testing.T) {
-		// Make several requests to collect metrics
-		pingRequest := map[string]any{
-			"jsonrpc": "2.0",
-			"method":  "ping",
-			"id":      1,
-		}
-
-		for range 5 {
-			body, _ := json.Marshal(pingRequest)
-			req := httptest.NewRequest("POST", "/mcp", bytes.NewReader(body))
-			req.Header.Set("Content-Type", "application/json")
-			rec := httptest.NewRecorder()
-			srv.mux.ServeHTTP(rec, req)
-		}
-
-		// Get metrics
-		handler := srv.MCPHandler()
-		if handler == nil {
-			t.Skip("MCP handler not available")
-		}
-
-		metrics := handler.GetMetrics()
-		if metrics == nil {
-			t.Fatal("Expected metrics to be available")
-		}
-
-		totalRequests := metrics["total_requests"].(int64)
-		if totalRequests < 5 {
-			t.Errorf("Expected at least 5 requests, got %d", totalRequests)
-		}
-
-		// Check method metrics
-		methods := metrics["methods"].(map[string]any)
-		if pingStats, exists := methods["ping"]; exists {
-			stats := pingStats.(map[string]any)
-			if stats["count"].(int64) < 5 {
-				t.Errorf("Expected at least 5 ping requests, got %v", stats["count"])
-			}
-		} else {
-			t.Error("Expected ping method in metrics")
-		}
-	})
 }
 
 // Test concurrent tool execution safety
