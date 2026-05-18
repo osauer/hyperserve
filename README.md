@@ -198,7 +198,7 @@ auth + RBAC, htmx, and static file serving. Each example is a self-contained
 
 - [Roadmap](./docs/ROADMAP.md) — what's planned and why.
 - [Architecture](./ARCHITECTURE.md)
-- [API specification](./spec/api.md)
+- [API reference](https://pkg.go.dev/github.com/osauer/hyperserve)
 - [MCP guide](./docs/MCP_GUIDE.md)
 - [WebSocket guide](./docs/WEBSOCKET_GUIDE.md)
 - [Scaffolding guide](./docs/SCAFFOLDING.md)

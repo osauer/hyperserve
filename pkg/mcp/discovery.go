@@ -156,8 +156,14 @@ func shouldIncludeToolList(policy DiscoveryPolicy, r *http.Request) bool {
 // shouldExposeToolInDiscovery applies the policy + custom filter to a single
 // tool name. By the time it runs, shouldIncludeToolList has already gated
 // the policy — DiscoveryNone and DiscoveryCount can never reach this
-// function, so this switch only needs to handle the policies that allow
-// listing.
+// function, so this only needs to handle the policies that allow listing.
+//
+// A tool may opt out of discovery for itself by implementing
+// `interface{ IsDiscoverable() bool }`. That is the only mechanism — the
+// protocol package does not pattern-match tool names, since "debug"/"admin"
+// substring rules would silently hide legitimate user tools (e.g. "tax_admin_lookup")
+// and leak builtin-namespace knowledge upward into pkg/mcp. Names beginning
+// with `_` or `internal_` remain a convention for explicitly hidden tools.
 func (h *Handler) shouldExposeToolInDiscovery(toolName string, r *http.Request, cfg DiscoveryConfig) bool {
 	if cfg.Filter != nil {
 		return cfg.Filter(toolName, r)
@@ -169,15 +175,6 @@ func (h *Handler) shouldExposeToolInDiscovery(toolName string, r *http.Request, 
 
 	if strings.HasPrefix(toolName, "internal_") || strings.HasPrefix(toolName, "_") {
 		return false
-	}
-
-	if !cfg.Dev {
-		if strings.Contains(toolName, "debug") || strings.Contains(toolName, "admin") {
-			return false
-		}
-		if toolName == "server_control" {
-			return false
-		}
 	}
 
 	if tool, exists := h.GetToolByName(toolName); exists {

@@ -1,6 +1,6 @@
 # HyperServe Roadmap
 
-_Last updated: 2026-05-18 (v0.31.0)._
+_Last updated: 2026-05-18 20:26 CEST (v0.33.0-dev)._
 
 This document is the project's north star — what HyperServe is, what
 differentiates it, and what's planned next. Concrete near-term work is
@@ -26,15 +26,16 @@ and operate the same binary that serves traffic.
 |-------|-------------|--------|--------------|
 | **1. OpenTelemetry Export Bridge** | Provide `WithOTLPExporter` options for metrics/traces, using the OTLP HTTP protocol and exposing summaries back through an MCP observability tool. | Unlocks integration with Grafana, Datadog, New Relic while reinforcing the AI-observability narrative. | Implement HTTP exporter (no full SDK) and reuse existing metrics registry; add MCP endpoints for curated queries. |
 | **2. Runtime Control Safeguards** | Introduce a privileged MCP namespace for safe toggles: reload config, rotate log level, drain WebSocket pools, update rate limits. Ship with RBAC hooks and guardrails. | Makes the “AI-augmented DevOps” story tangible, enabling runbook automation through MCP while keeping SOC teams comfortable. | Wrap existing configuration knobs; add policy hooks and structured auditing. |
-| **3. Project Bootstrap & Templates** | Deliver a `hyperserve init` CLI that scaffolds secure-by-default services (config, Dockerfile, example MCP tools, OTLP wiring). | Reduces time-to-first-value for new teams, demonstrates best practices, and increases perceived polish. | Build on current examples; generate code via text/template with minimal dependencies. |
+| **3. v1.0 freeze** | One more breaking sweep in v0.33 (cohesion split of `pkg/server/server.go`, unexport unused public surface, drop `Get*` prefixes, close the discovery substring leak), then cut v1.0 with `API_STABILITY.md` enforced — no further breaking subtractions in minors. | Closes the single biggest real gap downstream consumers feel today: "every minor is a refactor day." | Subtractions are cheap; the work is mostly choosing what stays and writing the migration notes. |
 
 These items deepen HyperServe’s differentiation (AI-native + secure + production-ready) without compromising the lightweight core.
 
 ## Next Build Focus
 
-1. **Kick off OTLP bridge** – Sketch the metrics/trace exporter API, flesh out configuration knobs, and capture benchmark baselines before adding collectors.
-2. **Prototype runtime controls** – Define the privileged MCP namespace, enumerate the safe toggles, and wire auditing stubs so RBAC can be layered in next.
-3. **Expand `hyperserve-init` templates** – Layer in OTLP-ready wiring, runtime control stubs, and template variants so the scaffold stays aligned with the broader roadmap.
+1. **Ship v0.33 breaking sweep** – Cohesion-split `pkg/server/server.go`, unexport the SSE state machine, drop the remaining `Get*` prefixes, fix the discovery substring leak, raise `pkg/mcp` coverage from 33% → 60%.
+2. **Cut v1.0 with `API_STABILITY.md` teeth** – No further breaking subtractions in minor releases. Patch-only signature changes after v1.0.0.
+3. **Kick off OTLP bridge** – Sketch the metrics/trace exporter API, flesh out configuration knobs, and capture benchmark baselines before adding collectors.
+4. **Prototype runtime controls** – Define the privileged MCP namespace, enumerate the safe toggles, and wire auditing stubs so RBAC can be layered in next.
 
 ## One-Click Bundles (Exploration)
 

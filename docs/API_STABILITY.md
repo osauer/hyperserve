@@ -1,6 +1,6 @@
 # API Stability
 
-_Last updated: 2026-05-18 (v0.31.0)._
+_Last updated: 2026-05-18 20:26 CEST (v0.33.0-dev)._
 
 ## TL;DR
 
