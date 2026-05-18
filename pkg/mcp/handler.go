@@ -490,43 +490,9 @@ func (h *Handler) handleToolsCall(params any) (any, error) {
 		return nil, fmt.Errorf("tool execution failed: %w", err)
 	}
 
-	var content []map[string]any
-	switch v := result.(type) {
-	case string:
-		content = []map[string]any{{"type": "text", "text": v}}
-	case map[string]any:
-		if existingContent, ok := v["content"].([]map[string]any); ok {
-			content = existingContent
-		} else if existingContent, ok := v["content"].([]any); ok {
-			content = make([]map[string]any, len(existingContent))
-			for i, item := range existingContent {
-				if m, ok := item.(map[string]any); ok {
-					content[i] = m
-				} else {
-					jsonBytes, _ := json.Marshal(v)
-					content = []map[string]any{{"type": "text", "text": string(jsonBytes)}}
-					break
-				}
-			}
-		} else {
-			jsonBytes, err := json.Marshal(v)
-			if err != nil {
-				return nil, fmt.Errorf("failed to marshal tool response: %w", err)
-			}
-			content = []map[string]any{{"type": "text", "text": string(jsonBytes)}}
-		}
-	case []any:
-		jsonBytes, err := json.Marshal(v)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal tool response: %w", err)
-		}
-		content = []map[string]any{{"type": "text", "text": string(jsonBytes)}}
-	default:
-		jsonBytes, err := json.Marshal(result)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal tool response: %w", err)
-		}
-		content = []map[string]any{{"type": "text", "text": string(jsonBytes)}}
+	content, err := toToolContent(result)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal tool response: %w", err)
 	}
 
 	response := ToolResult{Content: content}
@@ -536,6 +502,57 @@ func (h *Handler) handleToolsCall(params any) (any, error) {
 		}
 	}
 	return response, nil
+}
+
+// toToolContent normalises a tool's `any` return into the MCP `content[]`
+// shape. The supported inputs, in order:
+//
+//   - `string` — wrapped as a single text content frame.
+//   - `map[string]any` with `content: []map[string]any` — passed through
+//     (the tool already produced MCP content).
+//   - `map[string]any` with `content: []any` whose every element is a
+//     `map[string]any` — same as above after the element cast.
+//   - anything else — JSON-marshalled into a single text content frame.
+//
+// The prior shape had a sub-branch that silently dropped a `json.Marshal`
+// error and overwrote the in-progress content slice with a single text
+// frame, leaving consumers no signal that something went wrong.
+func toToolContent(result any) ([]map[string]any, error) {
+	switch v := result.(type) {
+	case string:
+		return []map[string]any{{"type": "text", "text": v}}, nil
+
+	case map[string]any:
+		if existing, ok := v["content"].([]map[string]any); ok {
+			return existing, nil
+		}
+		if existing, ok := v["content"].([]any); ok {
+			coerced := make([]map[string]any, 0, len(existing))
+			for _, item := range existing {
+				m, ok := item.(map[string]any)
+				if !ok {
+					// Heterogeneous content slice — fall through to
+					// "marshal the whole map as one text frame" rather
+					// than silently produce a partial result.
+					return marshalAsText(v)
+				}
+				coerced = append(coerced, m)
+			}
+			return coerced, nil
+		}
+		return marshalAsText(v)
+
+	default:
+		return marshalAsText(v)
+	}
+}
+
+func marshalAsText(v any) ([]map[string]any, error) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	return []map[string]any{{"type": "text", "text": string(b)}}, nil
 }
 
 func (h *Handler) handlePing(_ any) (any, error) {

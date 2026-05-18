@@ -158,6 +158,48 @@ func TestHeadersMiddlewareWithoutHardenedMode(t *testing.T) {
 	}
 }
 
+// TestHSTSOnlyOverTLS pins the contract: HSTS is set when EnableTLS is true,
+// and is *not* set on plaintext responses. Sending HSTS over HTTP is at best
+// no-op and (with `preload` ahead of a reverse-proxy terminator) actively
+// harmful, so the empty-header case is part of the contract, not a gap.
+func TestHSTSOnlyOverTLS(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name       string
+		enableTLS  bool
+		wantHeader string // empty == header must be absent
+	}{
+		{
+			name:       "plaintext omits HSTS",
+			enableTLS:  false,
+			wantHeader: "",
+		},
+		{
+			name:       "tls sets two-year preload HSTS",
+			enableTLS:  true,
+			wantHeader: "max-age=63072000; includeSubDomains; preload",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			options := &ServerOptions{EnableTLS: tc.enableTLS}
+			handler := HeadersMiddleware(options)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
+			req := httptest.NewRequest("GET", "/", nil)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			got := rec.Header().Get("Strict-Transport-Security")
+			if got != tc.wantHeader {
+				t.Errorf("HSTS header = %q, want %q", got, tc.wantHeader)
+			}
+		})
+	}
+}
+
 func TestCSPGenerationWithoutWebWorkerSupport(t *testing.T) {
 	t.Parallel()
 	options := &ServerOptions{

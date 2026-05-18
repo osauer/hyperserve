@@ -58,11 +58,12 @@ func TestWebSocketTelemetry(t *testing.T) {
 	newWebSockets := srv.totalWebSocketUpgrades.Load()
 
 	// Note: httptest.ResponseRecorder doesn't support hijacking, so the WebSocket upgrade fails
-	// But we should see that BeforeUpgrade was called and metrics were incremented
+	// But we should see that BeforeUpgrade was called and metrics were incremented.
 
-	// The middleware adds 1 request, and BeforeUpgrade adds another
-	if newRequests < initialRequests+1 {
-		t.Errorf("Expected total requests to increase, got %d -> %d",
+	// MetricsMiddleware is the single source of truth for totalRequests; the
+	// WebSocketUpgrader's BeforeUpgrade only bumps totalWebSocketUpgrades.
+	if newRequests != initialRequests+1 {
+		t.Errorf("Expected total requests to increase by exactly 1, got %d -> %d",
 			initialRequests, newRequests)
 	}
 

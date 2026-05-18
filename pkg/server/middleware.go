@@ -337,12 +337,16 @@ func RateLimitMiddleware(srv *Server) MiddlewareFunc {
 	}
 }
 
-// securityHeaders provide headers for HeadersMiddleware
+// securityHeaders provide headers for HeadersMiddleware.
+//
+// Strict-Transport-Security is intentionally omitted from this table: HSTS
+// over plaintext is at best meaningless and at worst harmful (a reverse-proxy
+// terminating TLS in front of us would inherit `preload` against intent), so
+// the header is only set when EnableTLS is true. See HeadersMiddleware below.
 var securityHeaders = []header{
-	{"X-Content-Type-Options", "nosniff"},                                         // Prevent MIME-type sniffing
-	{"X-Frame-Options", "DENY"},                                                   // Mitigate clickjacking
-	{"Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload"}, // Enforce HTTPS with preload
-	{"Referrer-Policy", "strict-origin-when-cross-origin"},                        // Balance privacy and functionality
+	{"X-Content-Type-Options", "nosniff"},                  // Prevent MIME-type sniffing
+	{"X-Frame-Options", "DENY"},                            // Mitigate clickjacking
+	{"Referrer-Policy", "strict-origin-when-cross-origin"}, // Balance privacy and functionality
 	{"Permissions-Policy", "geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), fullscreen=(self)"}, // Modern replacement for Feature-Policy (removed invalid 'speaker' directive)
 	{"Cross-Origin-Embedder-Policy", "require-corp"},                // Prevent cross-origin attacks
 	{"Cross-Origin-Opener-Policy", "same-origin"},                   // Isolate browsing context
@@ -387,8 +391,12 @@ func HeadersMiddleware(options *ServerOptions) MiddlewareFunc {
 			// Set dynamic CSP based on configuration
 			w.Header().Set("Content-Security-Policy", generateCSP(options))
 
+			// HSTS only over TLS. Two years + includeSubDomains + preload is
+			// the value the Chrome HSTS preload list documents as the minimum
+			// for inclusion; we ship it because anyone enabling EnableTLS in
+			// this server is opting into "this hostname is HTTPS, period".
 			if options.EnableTLS {
-				w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+				w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
 			}
 
 			if handled := applyCORSHeaders(w, r, options.CORS); handled {

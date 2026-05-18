@@ -583,18 +583,22 @@ func (srv *Server) Run() error {
 }
 
 func (srv *Server) logServerMetrics() {
-	tp := uint64(0)
-	resp := srv.totalResponseTime.Load()
-	if resp != 0 {
-		tp = srv.totalRequests.Load() / uint64(resp)
+	totalReq := srv.totalRequests.Load()
+	totalUs := srv.totalResponseTime.Load() // microseconds, accumulated across all handlers
+	// avg µs per handled request. The prior shape divided the other way and
+	// reported a uint64 floor of "requests per µs", which collapses to 0 for
+	// any realistic workload.
+	avgUs := int64(0)
+	if totalReq > 0 {
+		avgUs = totalUs / int64(totalReq)
 	}
 	upTime := time.Since(srv.serverStart)
 	logger.Info("Server metrics:",
 		"up-time", upTime,
-		"µs-in-handlers", resp,
-		"total-req", srv.totalRequests.Load(),
+		"µs-in-handlers", totalUs,
+		"total-req", totalReq,
 		"websocket-upgrades-total", srv.totalWebSocketUpgrades.Load(),
-		"avg-handles-per-µs", tp)
+		"avg-µs-per-req", avgUs)
 }
 
 func (srv *Server) tlsConfig() *tls.Config {
@@ -679,25 +683,24 @@ func (srv *Server) initHealthServer() error {
 		srv.healthServer.ReadHeaderTimeout = srv.healthServer.ReadTimeout
 	}
 
-	// Channel to receive errors from the health server goroutine
-	healthErrChan := make(chan error, 1)
+	// Bind the listener synchronously so EADDRINUSE (and friends) surface
+	// before this function returns. The previous shape called ListenAndServe
+	// inside a goroutine and then guessed "started" after a 100 ms timer —
+	// on a contended runner that timer could win a real `bind` error and we'd
+	// claim success while the listener was dead. net.Listen + Serve(ln) is
+	// what the main HTTP server already uses; the health server now matches.
+	ln, err := net.Listen("tcp", srv.Options.HealthAddr)
+	if err != nil {
+		return fmt.Errorf("failed to listen on %s: %w", srv.Options.HealthAddr, err)
+	}
 
 	go func() {
 		logger.Debug("Starting health server", "addr", srv.Options.HealthAddr)
-		if err := srv.healthServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := srv.healthServer.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("Health server encountered an error", "error", err)
-			healthErrChan <- err
 		}
 	}()
-
-	// Optionally, wait for the server to start or fail
-	select {
-	case err := <-healthErrChan:
-		return err
-	case <-time.After(100 * time.Millisecond):
-		// Assume server started successfully after a short delay
-		return nil
-	}
+	return nil
 }
 
 func (srv *Server) handleShutdown(serverErr chan error, deferredErr chan error) error {
@@ -1092,9 +1095,10 @@ func (srv *Server) shutdown(ctx context.Context) error {
 	return shutdownErr
 }
 
-// WebSocketUpgrader returns a WebSocket upgrader that tracks connections in server telemetry.
-// Use this instead of creating a standalone Upgrader to ensure WebSocket connections are counted
-// in the server's request metrics.
+// WebSocketUpgrader returns a WebSocket upgrader that tracks the upgrade in
+// server telemetry. Use this instead of a standalone Upgrader so WS upgrades
+// land in totalWebSocketUpgrades alongside the totalRequests counter that
+// MetricsMiddleware already maintains for every request.
 func (srv *Server) WebSocketUpgrader() *websocket.Upgrader {
 	return &websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
@@ -1102,8 +1106,8 @@ func (srv *Server) WebSocketUpgrader() *websocket.Upgrader {
 			return websocket.DefaultCheckOrigin(r)
 		},
 		BeforeUpgrade: func(w http.ResponseWriter, r *http.Request) error {
-			// Track WebSocket upgrade as a request
-			srv.totalRequests.Add(1)
+			// MetricsMiddleware already incremented totalRequests for this
+			// request; only the WS-specific counter is ours to bump here.
 			srv.totalWebSocketUpgrades.Add(1)
 			return nil
 		},
