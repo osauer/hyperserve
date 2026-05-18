@@ -1,6 +1,6 @@
 # HyperServe Roadmap
 
-_Last updated: 2026-05-18 (v0.27.0)._
+_Last updated: 2026-05-18 (v0.31.0)._
 
 This document is the project's north star — what HyperServe is, what
 differentiates it, and what's planned next. Concrete near-term work is

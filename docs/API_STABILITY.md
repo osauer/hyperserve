@@ -1,204 +1,82 @@
-# API Stability Promise
+# API Stability
 
-HyperServe is committed to providing a stable, reliable API that developers can depend on for production applications.
+_Last updated: 2026-05-18 (v0.31.0)._
 
-## Semantic Versioning Commitment
+## TL;DR
 
-Starting with **v1.0.0**, HyperServe follows strict [Semantic Versioning](https://semver.org/spec/v2.0.0.html):
+HyperServe is **pre-1.0**. Minor versions (`0.x.0`) may include breaking
+changes; patch versions (`0.x.y`) are bug-fix only. Until v1.0.0 lands,
+the stability promise is **process, not signatures**: every breaking
+change is called out in the [CHANGELOG](../CHANGELOG.md) entry for that
+release, with a one-paragraph migration note.
 
-- ✅ **PATCH versions (1.0.X)** - Bug fixes only, no API changes
-- ✅ **MINOR versions (1.X.0)** - New features, fully backward compatible  
-- ⚠️ **MAJOR versions (X.0.0)** - May include breaking changes (rare and well-documented)
+## What pre-1.0 means here
 
-## Current Status: Pre-Release (v0.9.x)
+- **No locked signatures.** The package will not pretend a function shape
+  is permanent before the surface has stabilised in production use. The
+  prior version of this doc tried to lock signatures from v0.9.x; several
+  were renamed or restructured by v0.25 (MCP split) and v0.27 (binding
+  API), and the lock didn't help anyone.
+- **Each minor release is reviewed for subtraction.** v0.25 removed dead
+  MCP surface; v0.26 ran a full taste-review sweep and dropped exports
+  that had accreted. v0.27 introduced the binding + validation API.
+  v0.28–v0.31 layered typed handlers, method-aware route helpers, and
+  typed MCP tools on top. Read the release notes — the surface moves
+  intentionally.
+- **Examples drift with the API.** When a release changes an example's
+  shape, the example is updated in the same commit.
 
-**⚠️ Important**: Versions before v1.0.0 are considered pre-release and may include breaking changes between minor versions. However, we strive to minimize breaking changes and document them clearly.
+## What we do guarantee, even pre-1.0
 
-## API Stability Guarantees (Starting v1.0.0)
+1. **CHANGELOG accuracy.** Every breaking change appears in `CHANGELOG.md`
+   under its release header, with the old and new form side by side
+   where helpful.
+2. **Compile-fail beats silent change.** When we have to break, we break
+   loudly: rename or remove rather than silently change semantics.
+3. **`make check` is the floor.** Releases that don't pass
+   `gofmt + vet + staticcheck + govulncheck + modernize` do not ship.
+4. **Security fixes are patch releases.** Bug fixes that don't change
+   shape land as `0.x.(y+1)` and are called out.
 
-### What Will NOT Change Within Major Versions
+## What v1.0.0 will mean
 
-1. **Core API Signatures**
-   ```go
-   // These signatures are locked at v1.0.0
-   func NewServer(opts ...ServerOptionFunc) (*Server, error)
-   func (s *Server) Run() error
-   func (s *Server) HandleFunc(pattern string, handler http.HandlerFunc)
-   func (s *Server) AddMiddleware(pattern string, middleware ...MiddlewareFunc)
-   
-   // MCP integration methods (when MCP is enabled)
-   func (s *Server) RegisterMCPTool(tool MCPTool) error
-   func (s *Server) RegisterMCPResource(resource MCPResource) error
-   func (s *Server) MCPEnabled() bool
-   ```
+When the library reaches v1.0.0, this document will lock the public
+surface, and these rules will apply:
 
-2. **Configuration Options**
-   ```go
-   // Existing WithX functions will remain stable
-   WithAddr(addr string) ServerOptionFunc
-   WithTLS(certFile, keyFile string) ServerOptionFunc
-   WithTimeouts(read, write, idle time.Duration) ServerOptionFunc
-   // ... all existing options
-   ```
+- **PATCH (`1.0.x`)** — bug fixes, no API changes.
+- **MINOR (`1.x.0`)** — additive only. Existing signatures, struct
+  fields, and exported types stay backward-compatible.
+- **MAJOR (`2.0.0`)** — only if absolutely necessary, with migration
+  guide and overlap window.
 
-3. **Middleware System**
-   ```go
-   // Core middleware interfaces are stable
-   type MiddlewareFunc func(http.Handler) http.HandlerFunc
-   type MiddlewareStack []MiddlewareFunc
-   ```
+Until then, treat this library as "stable in shape, mobile in detail".
 
-4. **MCP Interfaces**
-   ```go
-   // MCP extension interfaces are stable
-   type MCPTool interface {
-       Name() string
-       Description() string
-       Schema() map[string]interface{}
-       Execute(params map[string]interface{}) (interface{}, error)
-   }
-   
-   type MCPResource interface {
-       URI() string
-       Name() string
-       Description() string
-       MimeType() string
-       Read(ctx context.Context) ([]byte, error)
-   }
-   ```
+## Deprecation policy (pre-1.0)
 
-5. **Public Struct Fields**
-   ```go
-   type ServerOptions struct {
-       Addr     string  // Will not be removed or change meaning
-       Port     int     // Will not be removed or change meaning
-       // ... existing fields remain stable
-   }
-   ```
+When something is on its way out:
 
-### What May Change (Backward Compatible)
+1. The release notes call it out under "Changed" or "Removed".
+2. If it can be aliased (type alias, thin wrapper), it is — see
+   `pkg/server.Validate` / `ValidationError` / `FieldError`, kept as
+   type aliases when the validation core moved to `internal/validate`
+   in v0.31.
+3. Hard removal happens on a clean minor boundary, not mid-release.
 
-1. **New Configuration Options**
-   ```go
-   // New WithX functions may be added
-   WithNewFeature(config FeatureConfig) ServerOptionFunc
-   ```
+## Where to look
 
-2. **New Methods on Existing Types**
-   ```go
-   // New methods may be added to Server
-   func (s *Server) NewMethod() error
-   ```
+- **[CHANGELOG.md](../CHANGELOG.md)** — per-release change list and
+  migration notes. The contract you can act on today.
+- **[ROADMAP.md](./ROADMAP.md)** — what's next; subject to change.
+- **GitHub Issues** — `https://github.com/osauer/hyperserve/issues` for
+  concrete bug reports.
+- **GitHub Discussions** —
+  `https://github.com/osauer/hyperserve/discussions` for "is this the
+  right shape?" before a release locks the answer.
 
-3. **New Struct Fields**
-   ```go
-   type ServerOptions struct {
-       Addr     string  // Existing fields stable
-       Port     int     // Existing fields stable
-       NewField string  `json:"new_field,omitempty"` // New fields added safely
-   }
-   ```
+## If something breaks
 
-4. **Enhanced Middleware**
-   ```go
-   // New predefined middleware may be added
-   func NewSecurityMiddleware() MiddlewareFunc
-   ```
-
-### What Would Require a Major Version (v2.0.0)
-
-Breaking changes that would trigger a major version include:
-
-- Removing public functions, methods, or struct fields
-- Changing function signatures or return types
-- Changing the meaning or behavior of existing configuration options
-- Removing or renaming the module path
-
-## Deprecation Policy
-
-When we need to phase out functionality:
-
-1. **Deprecation Warning** (Minor Version)
-   ```go
-   // Deprecated: Use NewBetterFunc instead. Will be removed in v2.0.0.
-   func OldFunc() { /* redirects to new implementation */ }
-   ```
-
-2. **Continued Support** - Deprecated features continue working for the entire major version
-3. **Migration Guide** - Clear documentation on how to migrate
-4. **Removal** - Only in the next major version (e.g., v2.0.0)
-
-## Examples of Stable vs. Breaking Changes
-
-### ✅ Safe Changes (Minor/Patch Versions)
-
-```go
-// Adding optional configuration
-func WithCaching(enabled bool) ServerOptionFunc { /* ... */ }
-
-// Adding new methods
-func (s *Server) GetMetrics() ServerMetrics { /* ... */ }
-
-// Adding optional struct fields
-type ServerOptions struct {
-    Addr         string
-    CacheEnabled bool `json:"cache_enabled,omitempty"` // Safe addition
-}
-
-// Enhancing existing functionality
-func (s *Server) HandleFunc(pattern string, handler http.HandlerFunc) {
-    // Enhanced implementation, same behavior
-}
-```
-
-### ❌ Breaking Changes (Major Version Required)
-
-```go
-// Changing function signatures
-func NewServer(ctx context.Context, opts ...ServerOptionFunc) (*Server, error) // ❌
-
-// Removing public methods
-// func (s *Server) HandleFunc(...) // ❌ Removed
-
-// Changing struct field types
-type ServerOptions struct {
-    Port string // ❌ Was int, now string
-}
-
-// Changing behavior significantly
-func (s *Server) Run() error {
-    // ❌ Now requires manual Start() call first
-}
-```
-
-## Testing Compatibility
-
-We maintain backward compatibility through:
-
-1. **Automated Tests** - Every release includes compatibility tests
-2. **Integration Tests** - Real-world usage scenarios
-3. **Example Validation** - All documentation examples are tested
-4. **Community Feedback** - Beta releases for major changes
-
-## Getting Help
-
-If you encounter what appears to be a breaking change in a minor/patch version:
-
-1. **Check the [CHANGELOG.md](../CHANGELOG.md)** — release-by-release migration notes live here.
-2. **File an issue** at https://github.com/osauer/hyperserve/issues
-3. **Join discussions** at https://github.com/osauer/hyperserve/discussions
-
-## Commitment Timeline
-
-- **v0.9.x** (Current): Pre-release, minimal breaking changes
-- **v1.0.0** (Planned): Full API stability guarantees begin
-- **v1.x.x** (Future): Strict backward compatibility within major version
-- **v2.0.0** (Future): Only if absolutely necessary for significant improvements
-
----
-
-## Our Promise
-
-**We understand that stability is crucial for production applications.** Starting with v1.0.0, you can upgrade HyperServe minor and patch versions with confidence that your existing code will continue to work without modification.
-
-This API stability promise is our commitment to the HyperServe community.
+1. Check the CHANGELOG entry for the release you upgraded into.
+2. If the break isn't documented, file an issue — that's a bug in this
+   process, not just in the code.
+3. If you're depending on a pre-1.0 release in production, pin to a
+   specific version in `go.mod` until v1.0.0 lands.

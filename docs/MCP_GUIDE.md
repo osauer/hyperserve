@@ -20,10 +20,16 @@ HyperServe's MCP implementation uses a **unified endpoint approach** - both regu
 
 ### How SSE Works
 
-1. **Connect with SSE**: Add `Accept: text/event-stream` header to connect via SSE
-2. **Get Client ID**: Server returns a unique client ID in the connection event
-3. **Send Requests**: Use the same endpoint with `X-SSE-Client-ID` header
-4. **Receive Responses**: Responses are delivered through the SSE stream
+1. **Connect with SSE**: send a GET with `Accept: text/event-stream`.
+2. **Capture the connection event**: the server returns a `clientId` *and* a
+   `bindingToken`. The token is the per-stream capability — knowing the
+   `clientId` alone is not enough.
+3. **Send routed requests**: POST to the same endpoint with **both**
+   `X-SSE-Client-ID` and `X-SSE-Binding` set. The server constant-time
+   compares the binding token before queuing the request; a missing or
+   wrong token returns 403 indistinguishably from "no such client".
+4. **Receive responses**: replies are delivered as events on the open
+   SSE stream, not in the POST's HTTP response body.
 
 ### Example Usage
 
@@ -33,15 +39,16 @@ curl -N -H "Accept: text/event-stream" http://localhost:8080/mcp
 
 # Response:
 # event: connection
-# data: {"clientId":"abc123"}
+# data: {"clientId":"sse-…","bindingToken":"…32-byte hex…"}
 
-# 2. Send requests with the client ID
+# 2. Send routed requests with BOTH headers. Missing X-SSE-Binding → 403.
 curl -X POST http://localhost:8080/mcp \
-  -H "X-SSE-Client-ID: abc123" \
+  -H "X-SSE-Client-ID: sse-..." \
+  -H "X-SSE-Binding: <bindingToken from the connection event>" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
 
-# 3. Response comes through the SSE connection
+# 3. Response arrives on the SSE connection from step 1.
 ```
 
 ### Benefits of SSE
@@ -484,11 +491,14 @@ When MCP is enabled, HyperServe automatically provides:
 // Connect to SSE endpoint
 const eventSource = new EventSource('/mcp/sse');
 let clientId = null;
+let bindingToken = null;
 
-// Handle connection
+// Capture the per-stream capability emitted in the connection event.
+// Both fields are required for any subsequent routed POST.
 eventSource.addEventListener('connection', (e) => {
     const data = JSON.parse(e.data);
     clientId = data.clientId;
+    bindingToken = data.bindingToken;
     console.log('Connected:', clientId);
 });
 
@@ -498,13 +508,15 @@ eventSource.addEventListener('message', (e) => {
     console.log('Response:', response);
 });
 
-// Send requests with SSE routing
+// Send routed requests. Both headers MUST be set — the binding token is
+// the capability, not the client ID. A wrong/missing token returns 403.
 async function callMethod(method, params) {
     const response = await fetch('/mcp', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'X-SSE-Client-ID': clientId
+            'X-SSE-Client-ID': clientId,
+            'X-SSE-Binding': bindingToken
         },
         body: JSON.stringify({
             jsonrpc: '2.0',
