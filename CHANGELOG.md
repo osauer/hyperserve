@@ -5,6 +5,76 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.0] - 2026-05-18
+
+Feature release. Adds a typed JSON handler wrapper that absorbs the
+bind + validate + respond boilerplate every JSON endpoint otherwise writes
+by hand. Backwards-compatible — the low-level `BindJSON` / `Validate` path
+is unchanged and remains the escape hatch.
+
+### Added
+
+- **`server.JSONHandler[In, Out]`** (`pkg/server/typed_handler.go`). A
+  generic `http.HandlerFunc` wrapper around a typed business function:
+
+  ```go
+  srv.HandleFunc("POST /users", server.JSONHandler(
+      func(ctx context.Context, in CreateUser) (User, error) {
+          return createUser(ctx, in)
+      },
+  ))
+  ```
+
+  Decodes the body with `server.BindJSON`, runs `validate:"..."` rules,
+  calls the function with `r.Context()`, then JSON-encodes the result
+  with 200. The 25-line per-endpoint shape collapses to one line of
+  business logic.
+
+  Error mapping:
+  - `*server.ValidationError` → 400 with per-field envelope
+    (`{error, fields: [{field, tag, param, message}]}`); `FieldError.Value`
+    is intentionally omitted so handlers can't leak the offending field
+    (passwords, tokens) back to callers.
+  - errors implementing `HTTPStatus() int` → that status with
+    `{"error": err.Error()}`.
+  - everything else → 500 with `{"error":"internal server error"}`; the
+    original error string stays in the server log, not the client.
+
+  204 No Content is written when `Out` is `struct{}` or when the returned
+  value is a nil pointer / nil interface.
+
+- **`server.StatusError` + `server.NewStatusError`**. Sentinel error type
+  carrying an HTTP status code so handlers can opt into a non-500
+  response without inventing a per-call-site error type. Implements
+  `HTTPStatus() int`, `Unwrap() error`, and `Error() string` with
+  message → wrapped-err → `http.StatusText` fallback. Any user-defined
+  error implementing the same interface works too — `StatusError` is
+  the convenience, not the contract.
+
+- **`examples/binding/`**. Side-by-side example: `POST /users` uses
+  `JSONHandler`, `POST /users-manual` shows the equivalent hand-rolled
+  `BindJSON` + `errors.As(&verr)` path with a `writeValidationError`
+  renderer that mirrors the framework envelope. Surfaces what
+  `JSONHandler` normally hides.
+
+### Fixed
+
+- **`.gitignore` re-includes under `examples/`.** The prior allow-list
+  pattern (`examples/**/*` + per-extension negations) silently excluded
+  every subdirectory under `examples/`, which in turn prevented any
+  `.go` file under those subdirectories from being tracked — git refuses
+  to re-include a file whose parent directory is excluded. Added
+  `!examples/**/` so the per-extension negations take effect as
+  intended. This is the reason `examples/binding/` (and likely other
+  examples referenced in `examples/README.md`) was never committable.
+
+### Documentation
+
+- **README "Request binding & validation" section rewritten** to lead
+  with `JSONHandler` as the high-level shortcut and keep the
+  `BindJSON`-level API as the explicit escape hatch for streaming,
+  custom headers, or non-JSON responses. Entry-points list extended.
+
 ## [0.27.1] - 2026-05-18
 
 Docs and project-plumbing release. No code changes — bus-factor de-risking

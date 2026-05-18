@@ -75,8 +75,12 @@ coverage.html
 
 # Compiled example binaries — keep sources/assets, drop everything else.
 # A single allow-list pattern, not a per-example list, so new examples
-# don't need a .gitignore edit.
+# don't need a .gitignore edit. The `!examples/**/` line is required: git
+# refuses to re-include a file whose parent directory is excluded, so the
+# subdirectory itself must be un-excluded before the per-extension
+# allow-list takes effect.
 examples/**/*
+!examples/**/
 !examples/**/*.go
 !examples/**/*.md
 !examples/**/*.html

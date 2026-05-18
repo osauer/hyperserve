@@ -51,10 +51,12 @@ go get github.com/osauer/hyperserve/pkg/server
 - Middleware: recovery, request logging, metrics, CORS, security headers, rate limiting, auth.
 - Static file serving sandboxed via `os.Root`.
 - Deferred-init lifecycle: serve `/healthz` immediately while bootstrap work runs in the background.
-- **Request binding + validation** (`server.Bind`, `server.BindJSON`, `server.BindQuery`, `server.BindForm`)
-  with struct-tag rules (`required,min,max,len,email,url,oneof`) and structured
-  `*ValidationError` for per-field 400 responses. No external dependencies. See
-  [examples/binding](./examples/binding/).
+- **Request binding + validation** with struct-tag rules
+  (`required,min,max,len,email,url,oneof`) and structured `*ValidationError`
+  for per-field 400 responses. Use `server.JSONHandler[In, Out]` for typed
+  bind + validate + respond in one line, or drop to `server.Bind` /
+  `BindJSON` / `BindQuery` / `BindForm` for finer control. No external
+  dependencies. See [examples/binding](./examples/binding/).
 
 ## Scaffold a new service
 
@@ -94,21 +96,42 @@ Parse a JSON body, query string, or form into a typed struct, then validate
 against struct-tag rules. Zero external dependencies; the rules cover the
 checks that show up in 90% of input-handling code.
 
+The fastest path is `server.JSONHandler`, which wraps bind + validate +
+respond around a typed business function. The handler shrinks to the one
+line of logic that actually changes per endpoint:
+
 ```go
-type createUser struct {
+type CreateUser struct {
     Name  string `json:"name"  validate:"required,min=2,max=64"`
     Email string `json:"email" validate:"required,email"`
     Age   int    `json:"age"   validate:"required,min=13,max=120"`
-    Role  string `json:"role"  validate:"oneof=admin user guest"`
+    Role  string `json:"role"  validate:"required,oneof=admin user guest"`
 }
 
+srv.HandleFunc("POST /users", server.JSONHandler(
+    func(ctx context.Context, in CreateUser) (User, error) {
+        return createUser(ctx, in)
+    },
+))
+```
+
+`JSONHandler` decodes the body, runs `validate:"..."` rules, calls your
+function with `r.Context()`, then JSON-encodes the result with 200. A
+`*server.ValidationError` becomes a per-field 400 envelope; an error
+implementing `HTTPStatus() int` (e.g. `server.NewStatusError(404, "…")`)
+sets its own status; everything else is a 500. Returning `struct{}` or a
+nil pointer writes 204.
+
+When you need more control — custom headers, streaming, a non-JSON body —
+drop to the lower-level binders:
+
+```go
 srv.HandleFunc("/users", func(w http.ResponseWriter, r *http.Request) {
-    var u createUser
+    var u CreateUser
     if err := server.BindJSON(r, &u); err != nil {
         var verr *server.ValidationError
         if errors.As(err, &verr) {
-            // verr.Fields is []*FieldError — one entry per failing rule,
-            // ready to render as a structured 400 response.
+            // verr.Fields is []*FieldError — render however you want.
         }
         http.Error(w, err.Error(), http.StatusBadRequest)
         return
@@ -121,14 +144,14 @@ Available rules: `required, min, max, len, email, url, oneof`.
 
 Entry points:
 
+- `server.JSONHandler[In, Out](fn)` — typed wrapper: bind + validate + respond.
 - `server.Bind(r, dst)` — picks JSON / form / query by `Content-Type`.
 - `server.BindJSON(r, dst)` — JSON with `DisallowUnknownFields` and a 1 MiB body cap.
 - `server.BindQuery(r, dst)` — URL query parameters (slices via repeated keys).
 - `server.BindForm(r, dst)` — `application/x-www-form-urlencoded` or `multipart/form-data`.
 - `server.Validate(dst)` — run rules without binding.
 
-See [examples/binding](./examples/binding/) for a working endpoint with
-structured 400 responses.
+See [examples/binding](./examples/binding/) for both shapes side-by-side.
 
 ## Middleware
 
