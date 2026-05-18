@@ -2,96 +2,50 @@ package mcp
 
 import "fmt"
 
-// SimpleTool is a Tool implementation backed by function fields. Use it when
-// you want a one-off tool without defining a new struct.
-type SimpleTool struct {
+// simpleTool is the function-field Tool implementation that ToolBuilder
+// assembles in Build(). It is intentionally unexported: every consumer in
+// this repo, in examples, and in the tests reaches Tool through the builder
+// path or through NewTypedTool — nobody constructs the struct directly.
+// Exposing it widens the public surface without buying anything.
+type simpleTool struct {
 	NameFunc        func() string
 	DescriptionFunc func() string
 	SchemaFunc      func() map[string]any
 	ExecuteFunc     func(map[string]any) (any, error)
 }
 
-func (t *SimpleTool) Name() string {
+func (t *simpleTool) Name() string {
 	if t.NameFunc != nil {
 		return t.NameFunc()
 	}
 	return "unnamed_tool"
 }
 
-func (t *SimpleTool) Description() string {
+func (t *simpleTool) Description() string {
 	if t.DescriptionFunc != nil {
 		return t.DescriptionFunc()
 	}
 	return "No description provided"
 }
 
-func (t *SimpleTool) Schema() map[string]any {
+func (t *simpleTool) Schema() map[string]any {
 	if t.SchemaFunc != nil {
 		return t.SchemaFunc()
 	}
 	return map[string]any{"type": "object"}
 }
 
-func (t *SimpleTool) Execute(params map[string]any) (any, error) {
+func (t *simpleTool) Execute(params map[string]any) (any, error) {
 	if t.ExecuteFunc != nil {
 		return t.ExecuteFunc(params)
 	}
 	return nil, fmt.Errorf("execute function not implemented")
 }
 
-// SimpleResource is a Resource implementation backed by function fields.
-type SimpleResource struct {
-	URIFunc         func() string
-	NameFunc        func() string
-	DescriptionFunc func() string
-	MimeTypeFunc    func() string
-	ReadFunc        func() (any, error)
-	ListFunc        func() ([]string, error)
-}
-
-func (r *SimpleResource) URI() string {
-	if r.URIFunc != nil {
-		return r.URIFunc()
-	}
-	return "resource://unknown"
-}
-
-func (r *SimpleResource) Name() string {
-	if r.NameFunc != nil {
-		return r.NameFunc()
-	}
-	return "Unnamed Resource"
-}
-
-func (r *SimpleResource) Description() string {
-	if r.DescriptionFunc != nil {
-		return r.DescriptionFunc()
-	}
-	return "No description provided"
-}
-
-func (r *SimpleResource) MimeType() string {
-	if r.MimeTypeFunc != nil {
-		return r.MimeTypeFunc()
-	}
-	return "application/json"
-}
-
-func (r *SimpleResource) Read() (any, error) {
-	if r.ReadFunc != nil {
-		return r.ReadFunc()
-	}
-	return nil, fmt.Errorf("read function not implemented")
-}
-
-func (r *SimpleResource) List() ([]string, error) {
-	if r.ListFunc != nil {
-		return r.ListFunc()
-	}
-	return []string{r.URI()}, nil
-}
-
-// ToolBuilder provides a fluent API for building Tools.
+// ToolBuilder provides a fluent API for building Tools with a hand-tuned
+// schema. Prefer NewTypedTool[In, Out] when the input shape is a struct;
+// reach for this builder when you need a schema the type system can't
+// describe (oneOf, polymorphic shapes, schema-from-JSON-file, etc.).
 type ToolBuilder struct {
 	name        string
 	description string
@@ -136,59 +90,11 @@ func (b *ToolBuilder) WithExecute(fn func(map[string]any) (any, error)) *ToolBui
 }
 
 func (b *ToolBuilder) Build() Tool {
-	return &SimpleTool{
+	return &simpleTool{
 		NameFunc:        func() string { return b.name },
 		DescriptionFunc: func() string { return b.description },
 		SchemaFunc:      func() map[string]any { return b.schema },
 		ExecuteFunc:     b.executeFunc,
-	}
-}
-
-// ResourceBuilder provides a fluent API for building Resources.
-type ResourceBuilder struct {
-	uri         string
-	name        string
-	description string
-	mimeType    string
-	readFunc    func() (any, error)
-}
-
-// NewResource creates a new resource builder.
-func NewResource(uri string) *ResourceBuilder {
-	return &ResourceBuilder{
-		uri:      uri,
-		mimeType: "application/json",
-	}
-}
-
-func (b *ResourceBuilder) WithName(name string) *ResourceBuilder {
-	b.name = name
-	return b
-}
-
-func (b *ResourceBuilder) WithDescription(desc string) *ResourceBuilder {
-	b.description = desc
-	return b
-}
-
-func (b *ResourceBuilder) WithMimeType(mimeType string) *ResourceBuilder {
-	b.mimeType = mimeType
-	return b
-}
-
-func (b *ResourceBuilder) WithRead(fn func() (any, error)) *ResourceBuilder {
-	b.readFunc = fn
-	return b
-}
-
-func (b *ResourceBuilder) Build() Resource {
-	return &SimpleResource{
-		URIFunc:         func() string { return b.uri },
-		NameFunc:        func() string { return b.name },
-		DescriptionFunc: func() string { return b.description },
-		MimeTypeFunc:    func() string { return b.mimeType },
-		ReadFunc:        b.readFunc,
-		ListFunc:        func() ([]string, error) { return []string{b.uri}, nil },
 	}
 }
 

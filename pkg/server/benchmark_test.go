@@ -47,7 +47,6 @@ func BenchmarkSecureAPI(b *testing.B) {
 
 	// Add typical security middleware stack
 	srv.AddMiddleware("*", RequestLoggerMiddleware)
-	srv.AddMiddleware("*", TraceMiddleware)
 	srv.AddMiddleware("/api", RateLimitMiddleware(srv))
 	srv.AddMiddleware("/api", AuthMiddleware(srv.Options))
 	srv.AddMiddleware("*", HeadersMiddleware(srv.Options))
@@ -81,10 +80,6 @@ func BenchmarkIndividualMiddleware(b *testing.B) {
 		{
 			name:       "RequestLogger",
 			middleware: RequestLoggerMiddleware,
-		},
-		{
-			name:       "Trace",
-			middleware: TraceMiddleware,
 		},
 		{
 			name:       "Recovery",
@@ -450,7 +445,6 @@ func BenchmarkMCPWithMiddleware(b *testing.B) {
 
 	// Add middleware stack
 	srv.AddMiddleware("", RequestLoggerMiddleware)
-	srv.AddMiddleware("", TraceMiddleware)
 	srv.AddMiddleware("/mcp", RateLimitMiddleware(srv))
 	srv.AddMiddleware("/mcp", AuthMiddleware(srv.Options))
 

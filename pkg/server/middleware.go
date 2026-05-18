@@ -34,9 +34,8 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"sort"
+	"slices"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -55,8 +54,14 @@ type MiddlewareStack []MiddlewareFunc
 const GlobalMiddlewareRoute = "*"
 
 // MiddlewareRegistry manages middleware stacks for different routes.
+//
+// `sortedRoutes` is a precomputed view of non-global route keys, ordered by
+// ascending length (ties alphabetical), so more-specific prefixes wrap the
+// handler more tightly. It is rebuilt only inside Add(); the request hot
+// path reads it and never allocates a key slice or runs a sort.
 type MiddlewareRegistry struct {
-	middleware map[string]MiddlewareStack
+	middleware   map[string]MiddlewareStack
+	sortedRoutes []string
 }
 
 // NewMiddlewareRegistry creates a new MiddlewareRegistry with optional global middleware.
@@ -72,39 +77,35 @@ func NewMiddlewareRegistry(globalMiddleware MiddlewareStack) *MiddlewareRegistry
 	return ret
 }
 
-// applyToMux returns an http.Handler that, per request, chains the global
-// stack ("*") plus every route-specific stack whose key is a prefix of the
-// request path. Route keys are sorted by ascending length (ties alphabetical)
-// so more-specific prefixes wrap the handler more tightly and ordering is
-// deterministic across requests — Go's map-iteration randomness must not
-// leak into middleware order.
+// applyToMux returns an http.Handler that chains the global stack ("*") with
+// every route-specific stack whose key is a prefix of the request path. The
+// route ordering (ascending length, ties alphabetical) is fixed at Add() time
+// so the request path does no sorting and allocates no key slice. Only the
+// per-middleware closures (intrinsic to the design) allocate per request.
 func (mwr *MiddlewareRegistry) applyToMux(mux *http.ServeMux) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
 		finalHandler := http.Handler(mux)
 
-		var applicableMiddleware []MiddlewareFunc
-		if globalStack, exists := mwr.middleware[GlobalMiddlewareRoute]; exists {
-			applicableMiddleware = append(applicableMiddleware, globalStack...)
-		}
-
-		routeKeys := make([]string, 0, len(mwr.middleware))
-		for k := range mwr.middleware {
-			if k != GlobalMiddlewareRoute && strings.HasPrefix(r.URL.Path, k) {
-				routeKeys = append(routeKeys, k)
+		// Walk routes from longest to shortest so deeper prefixes wrap
+		// closest to the mux. sortedRoutes is ascending, so we iterate in
+		// reverse; the inner stack also wraps in reverse so handler[0]
+		// is the outermost middleware in its stack.
+		for i := len(mwr.sortedRoutes) - 1; i >= 0; i-- {
+			key := mwr.sortedRoutes[i]
+			if !strings.HasPrefix(path, key) {
+				continue
+			}
+			stack := mwr.middleware[key]
+			for j := len(stack) - 1; j >= 0; j-- {
+				finalHandler = stack[j](finalHandler)
 			}
 		}
-		sort.Slice(routeKeys, func(i, j int) bool {
-			if len(routeKeys[i]) != len(routeKeys[j]) {
-				return len(routeKeys[i]) < len(routeKeys[j])
-			}
-			return routeKeys[i] < routeKeys[j]
-		})
-		for _, route := range routeKeys {
-			applicableMiddleware = append(applicableMiddleware, mwr.middleware[route]...)
-		}
 
-		for i := len(applicableMiddleware) - 1; i >= 0; i-- {
-			finalHandler = applicableMiddleware[i](finalHandler)
+		// Global stack wraps everything (outermost).
+		global := mwr.middleware[GlobalMiddlewareRoute]
+		for j := len(global) - 1; j >= 0; j-- {
+			finalHandler = global[j](finalHandler)
 		}
 
 		finalHandler.ServeHTTP(w, r)
@@ -121,6 +122,27 @@ func (mwr *MiddlewareRegistry) Add(route string, middleware MiddlewareStack) {
 		// Create new entry
 		mwr.middleware[route] = middleware
 	}
+	mwr.rebuildSorted()
+}
+
+// rebuildSorted refreshes the cached route ordering after a mutation. Add()
+// is the only mutator of the registry; tests with direct map access exist
+// but never read sortedRoutes, so calling this here is sufficient.
+func (mwr *MiddlewareRegistry) rebuildSorted() {
+	keys := make([]string, 0, len(mwr.middleware))
+	for k := range mwr.middleware {
+		if k == GlobalMiddlewareRoute {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	slices.SortFunc(keys, func(a, b string) int {
+		if d := len(a) - len(b); d != 0 {
+			return d
+		}
+		return strings.Compare(a, b)
+	})
+	mwr.sortedRoutes = keys
 }
 
 // Get retrieves the MiddlewareStack for a specific route.
@@ -167,7 +189,6 @@ const (
 	authorizationHeader            = "Authorization"
 	bearerTokenPrefix              = "Bearer "
 	sessionIDKey        contextKey = "sessionID"
-	traceIDKey          contextKey = "traceID"
 )
 
 // header is an internal key/value pair used by the static securityHeaders
@@ -257,10 +278,6 @@ func RequestLoggerMiddleware(next http.Handler) http.HandlerFunc {
 		lrw := &loggingResponseWriter{w, http.StatusOK, 0}
 
 		ip, _, _ := net.SplitHostPort(r.RemoteAddr)
-		traceID := r.Context().Value(traceIDKey)
-		if traceID == nil {
-			traceID = ""
-		}
 
 		start := time.Now()
 		next.ServeHTTP(lrw, r)
@@ -269,7 +286,6 @@ func RequestLoggerMiddleware(next http.Handler) http.HandlerFunc {
 			"from", ip,
 			"method", r.Method,
 			"url", r.URL.String(),
-			"trace_id", traceID,
 			"status", lrw.statusCode,
 			"bytes", lrw.bytesWritten,
 			"duration", duration)
@@ -486,23 +502,6 @@ func addVaryHeader(w http.ResponseWriter, value string) {
 	}
 	w.Header().Add("Vary", value)
 }
-
-// TraceMiddleware returns a middleware function that adds trace IDs to requests.
-// Generates unique trace IDs for request tracking and distributed tracing.
-func TraceMiddleware(next http.Handler) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		traceID := generateTraceID()
-		ctx := context.WithValue(r.Context(), traceIDKey, traceID)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	}
-}
-
-func generateTraceID() string {
-	counter := requestCounter.Add(1)
-	return fmt.Sprintf("%d-%d", counter, time.Now().UnixNano())
-}
-
-var requestCounter atomic.Int64
 
 type loggingResponseWriter struct {
 	http.ResponseWriter
