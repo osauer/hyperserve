@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.0] - 2026-05-18
+
+Feature release. Adds method-aware route helpers so handlers no longer
+have to switch on `r.Method`. Backwards-compatible — `HandleFunc` is
+untouched and remains the lower-level escape hatch for one handler
+covering all methods.
+
+### Added
+
+- **`srv.GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, `OPTIONS`**
+  (`pkg/server/server.go`). Thin wrappers that prepend the method to the
+  pattern and delegate to `HandleFunc`, exposing the stdlib 1.22+
+  `"METHOD /path"` syntax under a method-keyed API:
+
+  ```go
+  srv.GET("/users/{id}", getUser)
+  srv.POST("/users", server.JSONHandler(createUser))
+  srv.PUT("/users/{id}", server.JSONHandler(updateUser))
+  ```
+
+  Wrong-method requests get an automatic 405 from the mux with a
+  populated `Allow` header. Path wildcards work as usual via
+  `r.PathValue`. The helpers pick up the same middleware chain as
+  `HandleFunc` since they call the same registration path.
+
+### Changed
+
+- **`examples/binding/`** now registers routes via `srv.POST` instead of
+  `srv.HandleFunc("POST /users", …)`. Combined with `JSONHandler`, a
+  CRUD endpoint collapses to: business function + one route line.
+
 ## [0.28.0] - 2026-05-18
 
 Feature release. Adds a typed JSON handler wrapper that absorbs the

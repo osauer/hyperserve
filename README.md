@@ -45,6 +45,8 @@ go get github.com/osauer/hyperserve/pkg/server
 ## What's in the box
 
 - HTTP server built on `net/http`, with grouping, middleware chain, and graceful shutdown.
+- Method-aware route registration (`srv.GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, `OPTIONS`)
+  on top of stdlib 1.22+ pattern syntax — wrong-method requests get an automatic 405.
 - MCP server (HTTP, SSE, stdio transports) with discovery endpoints and namespace support.
 - WebSocket implementation (RFC 6455).
 - JSON-RPC 2.0 engine reused by MCP.
@@ -108,7 +110,7 @@ type CreateUser struct {
     Role  string `json:"role"  validate:"required,oneof=admin user guest"`
 }
 
-srv.HandleFunc("POST /users", server.JSONHandler(
+srv.POST("/users", server.JSONHandler(
     func(ctx context.Context, in CreateUser) (User, error) {
         return createUser(ctx, in)
     },

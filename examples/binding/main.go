@@ -3,11 +3,11 @@
 // Both endpoints accept the same JSON payload and produce the same shape of
 // 200 / 400 response. The difference is mechanical, not behavioural:
 //
-//   POST /users         — uses server.JSONHandler. One function, business
-//                         logic only. Bind, validate, render are wrapped.
-//   POST /users-manual  — uses the lower-level server.BindJSON and renders
-//                         the 400 envelope by hand. Useful when you need
-//                         to add headers, stream, or build a custom shape.
+//	POST /users         — uses server.JSONHandler. One function, business
+//	                      logic only. Bind, validate, render are wrapped.
+//	POST /users-manual  — uses the lower-level server.BindJSON and renders
+//	                      the 400 envelope by hand. Useful when you need
+//	                      to add headers, stream, or build a custom shape.
 //
 // Try it:
 //
@@ -64,12 +64,13 @@ func main() {
 	}
 
 	// High-level: server.JSONHandler does bind + validate + JSON respond.
-	// Method-prefix in the pattern is Go 1.22+ http.ServeMux syntax.
-	srv.HandleFunc("POST /users", server.JSONHandler(createUser))
+	// srv.POST routes by HTTP method — the mux returns 405 automatically on
+	// the wrong verb, so the handler never has to switch on r.Method.
+	srv.POST("/users", server.JSONHandler(createUser))
 
 	// Low-level: same behaviour, hand-rolled. Use this shape when you
 	// need to set custom headers, write a non-JSON body, or stream.
-	srv.HandleFunc("POST /users-manual", func(w http.ResponseWriter, r *http.Request) {
+	srv.POST("/users-manual", func(w http.ResponseWriter, r *http.Request) {
 		var in CreateUser
 		if err := server.BindJSON(r, &in); err != nil {
 			var verr *server.ValidationError

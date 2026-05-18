@@ -1183,6 +1183,51 @@ func (srv *Server) HandleFunc(pattern string, handler http.HandlerFunc) {
 	srv.mux.HandleFunc(pattern, handler)
 }
 
+// GET, POST, PUT, PATCH, DELETE, HEAD, and OPTIONS are method-aware shortcuts
+// for HandleFunc. They prepend the method to the pattern, relying on the
+// net/http 1.22+ "METHOD /path" syntax — wrong-method requests are rejected
+// by the mux with 405 Method Not Allowed, so handlers no longer need to
+// switch on r.Method themselves. Pattern wildcards (`/users/{id}`) work as
+// usual via r.PathValue.
+//
+// HandleFunc remains the lower-level escape hatch for one handler covering
+// all methods or for the legacy pattern syntax.
+
+// GET registers handler for GET requests matching pattern.
+func (srv *Server) GET(pattern string, handler http.HandlerFunc) {
+	srv.HandleFunc(http.MethodGet+" "+pattern, handler)
+}
+
+// POST registers handler for POST requests matching pattern.
+func (srv *Server) POST(pattern string, handler http.HandlerFunc) {
+	srv.HandleFunc(http.MethodPost+" "+pattern, handler)
+}
+
+// PUT registers handler for PUT requests matching pattern.
+func (srv *Server) PUT(pattern string, handler http.HandlerFunc) {
+	srv.HandleFunc(http.MethodPut+" "+pattern, handler)
+}
+
+// PATCH registers handler for PATCH requests matching pattern.
+func (srv *Server) PATCH(pattern string, handler http.HandlerFunc) {
+	srv.HandleFunc(http.MethodPatch+" "+pattern, handler)
+}
+
+// DELETE registers handler for DELETE requests matching pattern.
+func (srv *Server) DELETE(pattern string, handler http.HandlerFunc) {
+	srv.HandleFunc(http.MethodDelete+" "+pattern, handler)
+}
+
+// HEAD registers handler for HEAD requests matching pattern.
+func (srv *Server) HEAD(pattern string, handler http.HandlerFunc) {
+	srv.HandleFunc(http.MethodHead+" "+pattern, handler)
+}
+
+// OPTIONS registers handler for OPTIONS requests matching pattern.
+func (srv *Server) OPTIONS(pattern string, handler http.HandlerFunc) {
+	srv.HandleFunc(http.MethodOptions+" "+pattern, handler)
+}
+
 // HandleFuncDynamic registers a handler that renders templates with dynamic data.
 // The dataFunc is called for each request to generate the data passed to the template.
 // Returns an error if template parsing fails.

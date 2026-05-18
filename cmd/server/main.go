@@ -67,7 +67,10 @@ func main() {
 </html>`))
 	})
 
-	srv.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	// Method-aware registration: srv.GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS
+	// route by verb so handlers don't have to switch on r.Method. Wrong-method
+	// requests get an automatic 405 from the mux.
+	srv.GET("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"healthy","service":"hyperserve-go"}`))
 	})
