@@ -5,6 +5,132 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.32.0] - 2026-05-18
+
+Stabilisation sweep. Fixes five HIGH bugs surfaced by a senior taste
+review, removes dead surface, splits options out of `server.go`, makes
+the per-request middleware chain non-allocating in the steady state,
+and brings the docs back in sync with the code. Pre-1.0 means breaking
+subtractions are allowed in minor releases — call sites for the
+removed types are listed below.
+
+### Fixed
+
+- **HSTS now sent only over TLS, with one consistent value**
+  (`pkg/server/middleware.go`). The previous shape unconditionally set
+  `Strict-Transport-Security: max-age=31536000; includeSubDomains; preload`
+  in the static security-headers table, and then *overwrote* it with
+  `max-age=63072000; includeSubDomains` (no `preload`) when
+  `EnableTLS`. Plaintext responses shipped the preload variant; TLS
+  responses shipped the supposedly-stronger variant without it. The
+  fix collapses to one TLS-gated write of
+  `max-age=63072000; includeSubDomains; preload`, and a new
+  `TestHSTSOnlyOverTLS` pins the contract.
+
+- **`logServerMetrics` no longer always reports zero** (`pkg/server/server.go`).
+  The prior formula `totalRequests / totalResponseTime_µs` collapsed
+  to 0 for any realistic workload because the denominator is 1000–1M×
+  the numerator. The log line now reports `avg-µs-per-req` =
+  `totalResponseTime / totalRequests`, with the same renaming applied
+  to the log key.
+
+- **WebSocket upgrades no longer double-count `totalRequests`**
+  (`pkg/server/server.go`). `MetricsMiddleware` already increments
+  the counter for every request that reaches the handler; the
+  `WebSocketUpgrader.BeforeUpgrade` hook was bumping it again. The hook
+  now only updates the WS-specific `totalWebSocketUpgrades` counter,
+  and `TestWebSocketTelemetry` asserts exact-by-1.
+
+- **`handleToolsCall` no longer silently drops a `json.Marshal` error**
+  (`pkg/mcp/handler.go`). The result-normalisation switch is extracted
+  to a `toToolContent` + `marshalAsText` helper pair. The prior shape
+  had a sub-branch (`existingContent.([]any)` with a non-map element)
+  that used `_ := json.Marshal(v)` and overwrote partial results
+  with a single text frame, leaving consumers no signal that something
+  went wrong.
+
+- **`initHealthServer` no longer races a 100 ms timer** (`pkg/server/server.go`).
+  The bind step is now synchronous via `net.Listen` and the goroutine
+  only runs `Serve(ln)`. `EADDRINUSE` (and friends) surface immediately
+  as the function's return value, matching the main HTTP server's
+  pattern.
+
+### Removed (breaking)
+
+- **`mcp.SimpleResource` + `mcp.ResourceBuilder` + `mcp.NewResource` +
+  `(*ResourceBuilder).WithName/WithMimeType/WithRead/Build`** — deleted
+  entirely from `pkg/mcp/builders.go`. ~140 LOC with zero callers in
+  this repo, in `examples/`, or in any test. The MCP resource path was
+  unused public surface; the tool builder (`mcp.NewTool().WithParameter(...)`)
+  remains kept-on-purpose alongside `mcp.NewTypedTool`.
+
+- **`mcp.SimpleTool` unexported to `simpleTool`**. The function-field
+  Tool implementation was only reachable via `ToolBuilder.Build()` —
+  nobody constructed it directly. Direct struct literal users (none
+  detected in the wild) need to switch to the builder.
+
+- **`server.TraceMiddleware` + `generateTraceID` + `requestCounter`**
+  — deleted. The middleware was never registered in `DefaultMiddleware`,
+  `SecureAPI`, or `SecureWeb`, and the `traceID` field it would have
+  populated in `RequestLoggerMiddleware` was empty in 100% of real
+  deployments. The `trace_id` field is also removed from the request
+  log line; bring your own correlation ID middleware if needed.
+
+- **`server.ServerOptions.TLSHealthAddr`** field deleted. Defaulted to
+  `:9443` since v0.x but never read anywhere — no `WithTLSHealthAddr`
+  option, no env binding, no use in health server startup.
+
+### Changed
+
+- **17 `With*` option closures moved from `pkg/server/server.go` to
+  `pkg/server/options.go`**. The closures wrap `ServerOptions` and
+  belong next to it, mirroring the convention already enforced for
+  MCP options (`options_mcp.go`, `options_mcp_discovery.go`). No
+  behaviour change; `server.go` drops from 1858 to 1631 LOC.
+
+- **`MiddlewareRegistry` now precomputes the route ordering at
+  `Add()` time** (`pkg/server/middleware.go`). The per-request hot
+  path no longer allocates a route-key slice, no longer calls
+  `sort.Slice`, and no longer builds an intermediate "applicable
+  middleware" slice. The middleware-closure allocations intrinsic to
+  the design remain — every other allocation site is gone.
+
+### Documentation
+
+- **`docs/MCP_GUIDE.md`** SSE flow taught a request shape that
+  returns 403 today (only `X-SSE-Client-ID`, missing `X-SSE-Binding`).
+  Rewritten to cover the binding-token capability, both shell and
+  JavaScript samples.
+
+- **`docs/API_STABILITY.md`** rewritten. The prior doc claimed
+  "v0.9.x" and locked signatures (`AddMiddleware(...)` variadic,
+  `MCPTool`/`MCPResource` interfaces) the code no longer has. The
+  new shape: promise is process not signatures until v1.0.0 —
+  CHANGELOG accuracy, breaking-change call-outs, `make check` as the
+  floor.
+
+- **`docs/ROADMAP.md`** version stamp moved from v0.27.0 to v0.32.0.
+
+- **`docs/EXAMPLES_GUIDE.md`** and **`docs/mcp-sse.md`** deleted.
+  Unreferenced from anywhere; the first duplicated `examples/README.md`
+  and the second taught a pre-binding-token SSE flow.
+
+- **22 example directories tracked** for the first time. The
+  `.gitignore` allow-list (`!examples/**/`, `!examples/**/*.go`, etc.)
+  was already wired, but the directories had never been committed.
+  CI can now vet what `README.md` links to.
+
+- **5 missing READMEs added** (`binding`, `deferred-init`, `devops`,
+  `htmx-dynamic`, `htmx-stream`) so every example matches the cohort.
+
+- **`docs/posts/hyperserve-vs-gin.svg`** moved from repo root into
+  `docs/posts/` next to the post it accompanies, and the post now
+  references it inline.
+
+- **Go reference badge in `README.md`** now links to the module root
+  (`pkg.go.dev/github.com/osauer/hyperserve`) so the sub-package
+  navigation is the landing experience.
+
 ## [0.31.0] - 2026-05-18
 
 Feature release. Adds `mcp.NewTypedTool[In, Out]` — typed MCP tool
