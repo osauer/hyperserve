@@ -21,7 +21,10 @@ release, with a one-paragraph migration note.
   MCP surface; v0.26 ran a full taste-review sweep and dropped exports
   that had accreted. v0.27 introduced the binding + validation API.
   v0.28–v0.31 layered typed handlers, method-aware route helpers, and
-  typed MCP tools on top. Read the release notes — the surface moves
+  typed MCP tools on top. v0.32 stabilised the security headers + the
+  middleware hot path. **v0.33 is the final breaking sweep** — unexport
+  pass on the SSE state machine, `Get*` accessor renames, dead MCP
+  metrics removal. Read the release notes — the surface moves
   intentionally.
 - **Examples drift with the API.** When a release changes an example's
   shape, the example is updated in the same commit.
@@ -40,8 +43,9 @@ release, with a one-paragraph migration note.
 
 ## What v1.0.0 will mean
 
-When the library reaches v1.0.0, this document will lock the public
-surface, and these rules will apply:
+v1.0.0 is **next**, scheduled after v0.33.0 stabilises in production
+use. When it lands, this document will lock the public surface, and
+these rules will apply:
 
 - **PATCH (`1.0.x`)** — bug fixes, no API changes.
 - **MINOR (`1.x.0`)** — additive only. Existing signatures, struct
@@ -49,7 +53,12 @@ surface, and these rules will apply:
 - **MAJOR (`2.0.0`)** — only if absolutely necessary, with migration
   guide and overlap window.
 
-Until then, treat this library as "stable in shape, mobile in detail".
+**No breaking subtractions in 1.x minors.** That is the headline
+contract v1.0.0 adds over the current pre-1.0 process: a deletion or
+rename of an exported symbol requires v2.0.0, not a minor bump.
+
+Until v1.0.0 lands, treat this library as "stable in shape, mobile in
+detail".
 
 ## Deprecation policy (pre-1.0)
 

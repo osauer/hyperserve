@@ -5,6 +5,126 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.0] - 2026-05-18
+
+**Final breaking sweep before v1.0.** Closes the one MEDIUM security
+finding from the post-v0.32.0 security review (cache poisoning on the
+authenticated discovery policy), deletes the write-only MCP metrics
+machinery, unexports the SSE state machine, drops `Get*` accessor
+prefixes, removes the stale `spec/` directory, fixes the discovery
+substring leak, and raises `pkg/mcp` test coverage from 35.8 % to
+52.1 %. After v0.33.0 stabilises in use, v1.0.0 freezes the surface
+and `API_STABILITY.md` gains teeth — no more breaking subtractions
+in minors.
+
+### Security
+
+- **Discovery cache-poisoning fix** (`pkg/server/mcp.go`). Both
+  `/.well-known/mcp.json` and `<MCPEndpoint>/discover` now emit
+  `Vary: Authorization` on every response, and switch
+  `Cache-Control` from `public, max-age=300` to `private, max-age=60`
+  when `MCPDiscoveryPolicy == DiscoveryAuthenticated`. Under the
+  prior shape the response body was content-negotiated on the
+  `Authorization` header while the handler set `public` cache
+  semantics; any CDN/reverse proxy keyed on URL alone would cache
+  an authenticated response and replay it to anonymous clients
+  within the 300-second TTL, defeating the discovery policy the
+  operator opted into. `TestDiscoveryEndpointCacheVary` pins the
+  contract across all four policies and both endpoints.
+
+### Removed (breaking)
+
+- **`pkg/mcp/metrics.go` deleted entirely.** 170 LOC of
+  `*Metrics` struct, `durationStats`, `executionStats`,
+  `recordRequest`, `recordToolExecution`, `recordResourceRead`,
+  and `GetMetricsSummary` — recorded per-method/tool/resource
+  execution stats on every JSON-RPC dispatch, but the single
+  reader `Handler.GetMetrics` had exactly one caller (a unit
+  test). Nothing in docs, examples, `MetricsResource`, or
+  downstream ever consumed it. The deletion also removes an
+  unguarded `float64(totalErrors) / float64(totalRequests)`
+  that returned `NaN` before any request was recorded, which
+  `json.Marshal` then errored on. If MCP-level observability is
+  wanted later, plumb it through `MetricsResource`
+  (`metrics://server/stats`), not a write-only mutex side channel.
+
+- **SSE state-machine types unexported** (`pkg/mcp/transport_sse.go`).
+  Zero out-of-package callers across this repo, examples, and tests:
+  - `SSEClient` → `sseClient`
+  - `SSEManager` → `sseManager`
+  - `NewSSEManager` → `newSSEManager`
+  Methods on the types remain capitalised — Go idiom keeps
+  `Close`/`Send`/`IsReady`/`SetX` consistent, and methods on an
+  unexported type are not visible in godoc anyway.
+
+- **`Get*` accessor prefix dropped** across the public API
+  (Effective Go: "Get prefix is neither idiomatic nor necessary"):
+  - `Handler.GetRegisteredTools`     → `Handler.RegisteredTools`
+  - `Handler.GetRegisteredResources` → `Handler.RegisteredResources`
+  - `Handler.GetToolByName`          → `Handler.Tool(name) (Tool, bool)`
+  - `Engine.GetRegisteredMethods`    → `Engine.RegisteredMethods`
+  - `server.GetVersionInfo`          → `server.VersionInfo`
+  - `sseManager.GetClientCount`      → `sseManager.ClientCount`
+  The rest of the framework already followed `ToolCount`/`HasTool`
+  style; these were the inconsistent outliers.
+
+- **`spec/` directory deleted.** Three markdown files (`README.md`,
+  `api.md`, `mcp-protocol.md`) that specced a Rust+Go dual
+  implementation removed in commit `cc135e9` (Sep 2025). `spec/api.md`
+  still listed `HEALTH_ADDR :9080` against the current Go default of
+  `:8081`. `README.md`'s "API specification" link now points at
+  `pkg.go.dev`.
+
+### Changed
+
+- **Discovery substring sniffing removed** (`pkg/mcp/discovery.go`).
+  The protocol package no longer pattern-matches tool names against
+  `"debug"`, `"admin"`, or `"server_control"` to hide them from the
+  discovery payload. That was a leaky guess at user intent — a
+  legitimate user tool named `tax_admin_lookup` got silently hidden —
+  and a dependency-direction inversion: `pkg/mcp` was reaching down
+  into `pkg/mcp/builtin` domain knowledge. Tools opt out of discovery
+  by implementing `interface{ IsDiscoverable() bool }`; the
+  `internal_` / `_` prefix convention still applies. Built-in
+  dev-only tools (`server_control`, `route_inspector`, `dev_guide`)
+  are gated at registration time, not at discovery time, so they
+  are unaffected when running outside developer mode.
+
+- **`docs/API_STABILITY.md`** — documents v0.33.0 as the final
+  breaking sweep and adds the "no breaking subtractions in 1.x
+  minors" contract that v1.0.0 introduces.
+
+- **`docs/ROADMAP.md`** — top item is now the v1.0 freeze plan; the
+  `hyperserve init` line was struck (already shipped). Timestamps
+  on both ROADMAP and API_STABILITY normalised to the
+  `YYYY-MM-DD HH:MM TZ` form mandated by the project's contributor
+  guide.
+
+### Added
+
+- **`pkg/server/mcp_discovery_test.go`** — pins the cache
+  `Vary`/`Cache-Control` contract across all four discovery
+  policies and both endpoints (8 cases).
+
+- **`pkg/mcp/discovery_test.go`** — covers `BuildDiscoveryInfo`
+  basics, `X-Forwarded-Proto` scheme detection,
+  `StdioTransport` capability inclusion,
+  `shouldIncludeToolList` for every policy,
+  `shouldExposeToolInDiscovery` for the
+  `IsDiscoverable`/internal-prefix/custom-Filter branches, and
+  the regression that names containing "admin"/"debug" are no
+  longer hidden.
+
+- **`pkg/mcp/handler_test.go`** — covers `RegisterTool` (incl.
+  namespace prefix + `cmp.Or` fallback), `RegisterResource` (incl.
+  empty-namespace rejection), `RegisterNamespace` via
+  `WithNamespaceTools/Resources` (incl. empty-name error),
+  `Capabilities`, `ServeHTTP` GET-with-JSON-Accept, `ServeHTTP`
+  POST `tools/call` dispatch, the JSON-RPC error envelope for
+  unknown methods, and `isJSONAccepted` parsing variants.
+
+- `pkg/mcp` package coverage: **35.8 % → 52.1 %**.
+
 ## [0.32.0] - 2026-05-18
 
 Stabilisation sweep. Fixes five HIGH bugs surfaced by a senior taste
