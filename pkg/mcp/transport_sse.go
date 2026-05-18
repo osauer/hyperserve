@@ -1,12 +1,14 @@
 package mcp
 
 import (
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"maps"
-	"math/rand"
 	"net/http"
 	"slices"
 	"sync"
@@ -17,9 +19,15 @@ import (
 
 // SSEClient represents a connected SSE client.
 type SSEClient struct {
-	id            string
-	w             http.ResponseWriter
-	flusher       http.Flusher
+	id      string
+	w       http.ResponseWriter
+	flusher http.Flusher
+	// bindingToken is a per-client capability that routed POSTs must present
+	// (via X-SSE-Binding header) to be queued on this client's request
+	// channel. Generated alongside the client ID; never transmitted in URLs
+	// or logs. Empty for legacy clients (compatibility shim only — new
+	// connections always get one).
+	bindingToken  string
 	messageChan   chan *jsonrpc.Response
 	closeChan     chan struct{}
 	closeOnce     sync.Once
@@ -30,9 +38,14 @@ type SSEClient struct {
 	mu            sync.RWMutex
 }
 
-// SSEManager manages SSE connections for MCP.
+// SSEManager owns the per-connection client state plus the per-client
+// request channels used by the SSE-routed POST flow. Previously the channel
+// map lived on Handler (`sseRequests`/`sseMutex`), forming a parallel state
+// machine; consolidated here so HandleSSE and handleSSERoutedRequest agree
+// on a single source of truth.
 type SSEManager struct {
 	clients      map[string]*SSEClient
+	requestChans map[string]chan *jsonrpc.Request
 	mu           sync.RWMutex
 	logger       *slog.Logger
 	pingInterval time.Duration
@@ -42,20 +55,61 @@ type SSEManager struct {
 func NewSSEManager() *SSEManager {
 	return &SSEManager{
 		clients:      make(map[string]*SSEClient),
+		requestChans: make(map[string]chan *jsonrpc.Request),
 		logger:       logger,
 		pingInterval: 30 * time.Second,
 	}
 }
 
-func newSSEClient(id string, w http.ResponseWriter, flusher http.Flusher) *SSEClient {
-	return &SSEClient{
-		id:          id,
-		w:           w,
-		flusher:     flusher,
-		messageChan: make(chan *jsonrpc.Response, 100),
-		closeChan:   make(chan struct{}),
-		logger:      logger,
+// registerRequestChan creates the per-client request channel that routed
+// POSTs are queued onto. Caller (HandleSSE) must hold no locks; this method
+// takes the manager's write lock.
+func (m *SSEManager) registerRequestChan(clientID string) chan *jsonrpc.Request {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ch := make(chan *jsonrpc.Request, 10)
+	m.requestChans[clientID] = ch
+	return ch
+}
+
+// unregisterRequestChan closes and removes the per-client request channel.
+func (m *SSEManager) unregisterRequestChan(clientID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if ch, ok := m.requestChans[clientID]; ok {
+		close(ch)
+		delete(m.requestChans, clientID)
 	}
+}
+
+// requestChanFor returns the channel for clientID, or nil if unknown.
+func (m *SSEManager) requestChanFor(clientID string) (chan *jsonrpc.Request, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	ch, ok := m.requestChans[clientID]
+	return ch, ok
+}
+
+func newSSEClient(id, bindingToken string, w http.ResponseWriter, flusher http.Flusher) *SSEClient {
+	return &SSEClient{
+		id:           id,
+		bindingToken: bindingToken,
+		w:            w,
+		flusher:      flusher,
+		messageChan:  make(chan *jsonrpc.Response, 100),
+		closeChan:    make(chan struct{}),
+		logger:       logger,
+	}
+}
+
+// VerifyBinding constant-time-compares the supplied token to this client's
+// binding token. Returns false for empty supplied token (no compatibility
+// shortcut for missing header).
+func (c *SSEClient) VerifyBinding(supplied string) bool {
+	if c.bindingToken == "" || supplied == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(c.bindingToken), []byte(supplied)) == 1
 }
 
 // Send sends a JSON-RPC response to the SSE client.
@@ -131,25 +185,39 @@ func (m *SSEManager) HandleSSE(w http.ResponseWriter, r *http.Request, mcpHandle
 		return
 	}
 
+	// Generate IDs FIRST, then bail out before any wire side effect or
+	// registry insertion if crypto/rand failed. The previous shape wrote
+	// the connection event and added to m.clients before checking, so a
+	// degraded RNG would still leak an empty-token connection event to
+	// the wire (even though routing was still fail-closed).
+	clientID, bindingToken := generateClientIDAndBinding()
+	if clientID == "" || bindingToken == "" {
+		http.Error(w, "Unable to allocate SSE session", http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	clientID := generateClientID()
-	client := newSSEClient(clientID, w, flusher)
+	client := newSSEClient(clientID, bindingToken, w, flusher)
 	m.addClient(clientID, client)
 	defer m.removeClient(clientID)
 
-	requestChan := mcpHandler.RegisterSSEClient(clientID)
-	defer mcpHandler.UnregisterSSEClient(clientID)
+	requestChan := m.registerRequestChan(clientID)
+	defer m.unregisterRequestChan(clientID)
 
 	m.logger.Info("SSE client connected", "client", clientID)
 
 	initialEvent := map[string]any{
 		"type":     "connection",
 		"clientId": clientID,
-		"message":  "Connected to MCP SSE endpoint",
+		// bindingToken is the capability that routed POSTs must echo back
+		// via the X-SSE-Binding header. Knowing the clientId alone is not
+		// enough to inject requests into another client's stream.
+		"bindingToken": bindingToken,
+		"message":      "Connected to MCP SSE endpoint",
 	}
 	if data, err := json.Marshal(initialEvent); err == nil {
 		_ = client.writeSSEMessage("connection", data)
@@ -259,6 +327,14 @@ func (m *SSEManager) GetClientCount() int {
 	return len(m.clients)
 }
 
+// lookup returns the client registered under id, or (nil, false) if absent.
+func (m *SSEManager) lookup(id string) (*SSEClient, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	c, ok := m.clients[id]
+	return c, ok
+}
+
 func (m *SSEManager) addClient(id string, client *SSEClient) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -274,8 +350,25 @@ func (m *SSEManager) removeClient(id string) {
 	}
 }
 
-func generateClientID() string {
-	return fmt.Sprintf("sse-%d-%d", time.Now().UnixNano(), rand.Int())
+// generateClientIDAndBinding returns a (clientID, bindingToken) pair sourced
+// from crypto/rand. The clientID is the routing key; the bindingToken is the
+// per-client capability that subsequent X-SSE-Binding headers must echo back
+// to be queued onto this client's request channel. Using crypto/rand means
+// state recovery from observed IDs is not feasible (math/rand was).
+func generateClientIDAndBinding() (string, string) {
+	idBytes := make([]byte, 16)
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(idBytes); err != nil {
+		// crypto/rand failure on a unix system means /dev/urandom is
+		// unavailable — the server is in deep trouble. Refuse to fabricate
+		// a predictable ID; the caller (HandleSSE) treats an empty token as
+		// "binding unavailable" and rejects all subsequent routed POSTs.
+		return "", ""
+	}
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return "", ""
+	}
+	return "sse-" + hex.EncodeToString(idBytes), hex.EncodeToString(tokenBytes)
 }
 
 // sseTransport implements Transport for SSE-based communication.

@@ -77,10 +77,14 @@ Both implementations MUST support MCP version `2024-11-05`.
 
 When `HS_MCP_TOOLS_ENABLED=true`:
 
-1. **read_file** - Read file contents
-2. **list_directory** - List directory contents
-3. **http_request** - Make HTTP requests
-4. **calculator** - Basic arithmetic
+1. **read_file** - Read file contents (requires `WithMCPFileToolRoot`, sandboxed via `os.Root`)
+2. **list_directory** - List directory contents (same sandbox requirement)
+3. **calculator** - Basic arithmetic
+
+The `http_request` tool that previously shipped here was removed: it
+allowed any MCP caller to make outbound HTTP requests from the server
+process (SSRF / cloud-metadata exfil). If you need outbound HTTP, ship
+a domain-allowlisted tool from your own code.
 
 ## Built-in Resources (When Enabled)
 

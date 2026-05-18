@@ -33,7 +33,11 @@ type Conn struct {
 	handlerMu sync.Mutex
 }
 
-// Upgrader upgrades HTTP connections to WebSocket connections
+// Upgrader upgrades HTTP connections to WebSocket connections.
+// The previously-advertised WriteBufferSize, ReadBufferSize, and
+// EnableCompression fields were silent no-ops (never read by Upgrade) and
+// were removed in this release; if you need compression negotiation or
+// buffer tuning, ship a real implementation rather than a label.
 type Upgrader struct {
 	// CheckOrigin returns true if the request Origin header is acceptable
 	// If nil, a safe default is used that checks for same-origin requests
@@ -48,17 +52,8 @@ type Upgrader struct {
 	// MaxMessageSize is the maximum size for a message read from the peer
 	MaxMessageSize int64
 
-	// WriteBufferSize is the size of the write buffer
-	WriteBufferSize int
-
-	// ReadBufferSize is the size of the read buffer
-	ReadBufferSize int
-
 	// HandshakeTimeout specifies the duration for the handshake to complete
 	HandshakeTimeout time.Duration
-
-	// EnableCompression specifies if the server should attempt to negotiate compression
-	EnableCompression bool
 
 	// BeforeUpgrade is called after origin check but before sending upgrade response
 	// This can be used for authentication, rate limiting, or other pre-upgrade checks

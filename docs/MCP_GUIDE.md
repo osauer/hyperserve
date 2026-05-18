@@ -112,8 +112,6 @@ go build -o myapp
 ### Available Tools
 
 **mcp__hyperserve__server_control**
-- `restart` - Restart the server process
-- `reload` - Reload configuration without restart
 - `set_log_level` - Change log level (DEBUG, INFO, WARN, ERROR)
 - `get_status` - Get server status
 
@@ -122,14 +120,14 @@ go build -o myapp
 - View middleware chains
 - Filter routes by pattern
 
-**mcp__hyperserve__request_debugger**
-- Capture HTTP requests
-- List captured requests
-- Replay requests with modifications
+**mcp__hyperserve__dev_guide**
+- Reference card for the developer toolkit (tools, resources, workflows).
 
 ### Security Warning
 
-⚠️ **Never use MCPDev() in production!** It enables dangerous operations like server restart.
+⚠️ **Never use MCPDev() in production.** It exposes server-introspection
+endpoints (log-level switching, route enumeration) that should not be on
+an internet-facing interface.
 
 ## Production Observability
 

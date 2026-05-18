@@ -84,6 +84,7 @@ type ServerOptions struct {
 	MCPResourcesEnabled bool                                        `json:"mcp_resources_enabled,omitempty"`
 	MCPFileToolRoot     string                                      `json:"mcp_file_tool_root,omitempty"`
 	MCPLogResourceSize  int                                         `json:"mcp_log_resource_size,omitempty"`
+	MCPToolCallTimeout  time.Duration                               `json:"mcp_tool_call_timeout,omitempty"`
 	MCPTransport        mcp.TransportType                           `json:"mcp_transport,omitempty"`
 	MCPDev              bool                                        `json:"mcp_dev,omitempty"`
 	MCPObservability    bool                                        `json:"mcp_observability,omitempty"`
@@ -141,6 +142,7 @@ var defaultServerOptions = &ServerOptions{
 	MCPResourcesEnabled: false, // Disabled by default - users must opt-in
 	MCPFileToolRoot:     "",
 	MCPLogResourceSize:  100,
+	MCPToolCallTimeout:  30 * time.Second,
 	MCPTransport:        mcp.HTTPTransport,
 	MCPDev:              false, // Disabled by default - security sensitive
 	MCPObservability:    false, // Disabled by default - users must opt-in

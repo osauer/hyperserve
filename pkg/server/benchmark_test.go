@@ -294,15 +294,16 @@ func BenchmarkMCPToolExecution(b *testing.B) {
 			},
 		},
 		{
-			name: "HTTPRequest",
+			name: "Calculator",
 			request: map[string]any{
 				"jsonrpc": "2.0",
 				"method":  "tools/call",
 				"params": map[string]any{
-					"name": "mcp__hyperserve__http_request",
+					"name": "mcp__hyperserve__calculator",
 					"arguments": map[string]any{
-						"url":    "https://httpbin.org/json",
-						"method": "GET",
+						"operation": "add",
+						"a":         2.0,
+						"b":         3.0,
 					},
 				},
 				"id": 4,

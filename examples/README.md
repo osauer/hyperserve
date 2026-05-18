@@ -11,6 +11,7 @@ Each subdirectory is a self-contained `main` package. Run with `go run ./example
 | [json-api](./json-api/) | REST API: CRUD over an in-memory TODO list with request parsing and error handling. |
 | [middleware-basics](./middleware-basics/) | Building a middleware stack (logging, rate limiting, CORS) step by step. |
 | [configuration](./configuration/) | Env vars, JSON config files, programmatic `With*` options, and their precedence. |
+| [binding](./binding/) | `BindJSON`/`BindQuery`/`BindForm` + struct-tag validation, with structured 400 responses. |
 
 ## HTMX / templating
 

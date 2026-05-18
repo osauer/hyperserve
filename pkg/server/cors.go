@@ -37,6 +37,15 @@ func normalizeCORSOptions(opts *CORSOptions) *CORSOptions {
 		MaxAgeSeconds:    opts.MaxAgeSeconds,
 	}
 
+	// Refuse the wildcard + credentials combination. The Fetch spec forbids it
+	// because reflecting the request Origin while sending credentials defeats
+	// the same-origin policy. Drop credentials so the server cannot be
+	// configured into a state where any site can read authenticated responses.
+	if copy.AllowCredentials && slices.Contains(copy.AllowedOrigins, "*") {
+		copy.AllowCredentials = false
+		logger.Warn("CORS: AllowCredentials=true is incompatible with AllowedOrigins=[\"*\"] (Fetch spec); credentials disabled. Specify exact origins to allow credentials.")
+	}
+
 	if len(copy.AllowedMethods) == 0 {
 		copy.AllowedMethods = slices.Clone(defaultCORSMethods)
 	}
@@ -92,9 +101,8 @@ func (c *CORSOptions) resolveAllowedOrigin(origin string) (string, bool) {
 	lowerOrigin := strings.ToLower(origin)
 	for _, allowed := range c.AllowedOrigins {
 		if allowed == "*" {
-			if c.AllowCredentials {
-				return origin, true
-			}
+			// AllowCredentials with "*" is refused at normalize time; here we
+			// can safely return the wildcard.
 			return "*", true
 		}
 		if matchOrigin(allowed, lowerOrigin) {

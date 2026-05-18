@@ -127,9 +127,11 @@ func TestMCPBuiltinDefaults(t *testing.T) {
 			t.Fatal("Expected tools to be an array")
 		}
 
-		// Should have built-in tools
-		if len(tools) < 2 {
-			t.Errorf("Expected at least 2 built-in tools, got %d", len(tools))
+		// Built-in tools without a sandbox root: only Calculator is
+		// registered. File tools require WithMCPFileToolRoot and are
+		// skipped (with a warn log) when it's not set.
+		if len(tools) < 1 {
+			t.Errorf("Expected at least 1 built-in tool, got %d", len(tools))
 		}
 
 		// Check for specific tools
@@ -143,12 +145,12 @@ func TestMCPBuiltinDefaults(t *testing.T) {
 			}
 		}
 
-		// Verify calculator and http_request are present
 		if !toolNames["mcp__hyperserve__calculator"] {
 			t.Error("Expected mcp__hyperserve__calculator tool to be present")
 		}
-		if !toolNames["mcp__hyperserve__http_request"] {
-			t.Error("Expected mcp__hyperserve__http_request tool to be present")
+		// http_request was deleted (SSRF surface); verify it is NOT present.
+		if toolNames["mcp__hyperserve__http_request"] {
+			t.Error("http_request tool was removed; it must not be registered")
 		}
 	})
 

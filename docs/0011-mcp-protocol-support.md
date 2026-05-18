@@ -98,9 +98,8 @@ type ServerOptions struct {
 ### Built-in Capabilities
 
 **Tools:**
-- `read_file`: Read file contents (sandboxed)
-- `list_directory`: List directory contents (sandboxed)
-- `http_request`: Make HTTP requests to external services
+- `read_file`: Read file contents (sandboxed; requires `WithMCPFileToolRoot`)
+- `list_directory`: List directory contents (same sandbox requirement)
 - `calculator`: Basic mathematical operations
 
 **Resources:**

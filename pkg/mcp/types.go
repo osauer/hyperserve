@@ -27,10 +27,9 @@ const (
 // in Handler.Capabilities() and exercised on the wire; advertising an
 // unsupported capability is worse than omitting it.
 type Capabilities struct {
-	Experimental map[string]any       `json:"experimental,omitempty"`
-	Resources    *ResourcesCapability `json:"resources,omitempty"`
-	Tools        *ToolsCapability     `json:"tools,omitempty"`
-	SSE          *SSECapability       `json:"sse,omitempty"`
+	Resources *ResourcesCapability `json:"resources,omitempty"`
+	Tools     *ToolsCapability     `json:"tools,omitempty"`
+	SSE       *SSECapability       `json:"sse,omitempty"`
 }
 
 // ResourcesCapability represents the server's resource management capabilities.
@@ -134,18 +133,8 @@ type ToolResult struct {
 	IsError bool             `json:"isError,omitempty"`
 }
 
+// logger is the package-level slog instance for the mcp package. The
+// previously-exported DefaultLogger/SetDefaultLogger pair had no callers in
+// production or examples (the server-side logger is wired via
+// server.SetDefaultLogger / the slog default) and was removed.
 var logger = slog.Default()
-
-// DefaultLogger returns the logger used by the mcp package.
-func DefaultLogger() *slog.Logger {
-	return logger
-}
-
-// SetDefaultLogger overrides the logger used by the mcp package.
-func SetDefaultLogger(l *slog.Logger) {
-	if l == nil {
-		logger = slog.Default()
-		return
-	}
-	logger = l
-}

@@ -10,40 +10,54 @@ import (
 	"net/http"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	jsonrpc "github.com/osauer/hyperserve/pkg/jsonrpc"
 )
 
 // Handler manages MCP protocol communication with multiple namespace support.
+// The SSE state machine (client registry + per-client request channels) lives
+// entirely in sseManager — Handler stays focused on JSON-RPC dispatch.
 type Handler struct {
-	tools       map[string]Tool
-	resources   map[string]Resource
-	namespaces  map[string]*Namespace
-	rpcEngine   *jsonrpc.Engine
-	serverInfo  ServerInfo
-	logger      *slog.Logger
-	metrics     *Metrics
-	cache       *resourceCache
-	sseManager  *SSEManager
-	sseRequests map[string]chan *jsonrpc.Request
-	sseMutex    sync.RWMutex
+	tools           map[string]Tool
+	resources       map[string]Resource
+	namespaces      map[string]*Namespace
+	rpcEngine       *jsonrpc.Engine
+	serverInfo      ServerInfo
+	logger          *slog.Logger
+	metrics         *Metrics
+	cache           *resourceCache
+	sseManager      *SSEManager
+	toolCallTimeout time.Duration // Set via SetToolCallTimeout; defaults to 30s when zero.
+}
+
+// defaultToolCallTimeout is the per-tool execution budget. Tools that exceed
+// this return context.DeadlineExceeded to the caller; see the caveat in
+// contextToolWrapper.ExecuteWithContext for what happens to the goroutine.
+const defaultToolCallTimeout = 30 * time.Second
+
+// SetToolCallTimeout overrides the per-call timeout used when dispatching
+// tools/call. Zero or negative values reset to defaultToolCallTimeout.
+func (h *Handler) SetToolCallTimeout(d time.Duration) {
+	if d <= 0 {
+		h.toolCallTimeout = 0
+		return
+	}
+	h.toolCallTimeout = d
 }
 
 // NewHandler creates a new MCP handler instance.
 func NewHandler(serverInfo ServerInfo) *Handler {
 	handler := &Handler{
-		tools:       make(map[string]Tool),
-		resources:   make(map[string]Resource),
-		namespaces:  make(map[string]*Namespace),
-		rpcEngine:   jsonrpc.NewEngine(logger),
-		serverInfo:  serverInfo,
-		logger:      logger,
-		metrics:     newMetrics(),
-		cache:       newResourceCache(100),
-		sseManager:  NewSSEManager(),
-		sseRequests: make(map[string]chan *jsonrpc.Request),
+		tools:      make(map[string]Tool),
+		resources:  make(map[string]Resource),
+		namespaces: make(map[string]*Namespace),
+		rpcEngine:  jsonrpc.NewEngine(logger),
+		serverInfo: serverInfo,
+		logger:     logger,
+		metrics:    newMetrics(),
+		cache:      newResourceCache(100),
+		sseManager: NewSSEManager(),
 	}
 	handler.registerMCPMethods()
 	return handler
@@ -356,6 +370,15 @@ func (h *Handler) handleResourcesRead(params any) (any, error) {
 	var readParams ResourceReadParams
 
 	if params != nil {
+		// "arguments" is a tools/call concept; resources/read takes "uri".
+		// Catching the mismatch up front gives a clearer error than letting
+		// json.Unmarshal succeed-with-empty-fields and then "uri is required".
+		if paramsMap, ok := params.(map[string]any); ok {
+			if _, hasArguments := paramsMap["arguments"]; hasArguments {
+				return nil, fmt.Errorf("invalid parameters: resources/read expects 'uri' parameter, not 'arguments'. Use tools/call for tool execution")
+			}
+		}
+
 		paramBytes, err := json.Marshal(params)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal params: %w", err)
@@ -364,17 +387,7 @@ func (h *Handler) handleResourcesRead(params any) (any, error) {
 			h.logger.Debug("MCP resources/read parameters received", "params", string(paramBytes))
 		}
 		if err := json.Unmarshal(paramBytes, &readParams); err != nil {
-			if paramsMap, ok := params.(map[string]any); ok {
-				if _, hasArguments := paramsMap["arguments"]; hasArguments {
-					return nil, fmt.Errorf("invalid parameters: resources/read expects 'uri' parameter, not 'arguments'. Use tools/call for tool execution")
-				}
-			}
 			return nil, fmt.Errorf("failed to unmarshal read params: %w", err)
-		}
-		if paramsMap, ok := params.(map[string]any); ok {
-			if _, hasArguments := paramsMap["arguments"]; hasArguments {
-				return nil, fmt.Errorf("invalid parameters: resources/read expects 'uri' parameter, not 'arguments'. Use tools/call for tool execution")
-			}
 		}
 	}
 
@@ -459,8 +472,12 @@ func (h *Handler) handleToolsCall(params any) (any, error) {
 		return nil, fmt.Errorf("tool not found: %s", callParams.Name)
 	}
 
+	timeout := h.toolCallTimeout
+	if timeout <= 0 {
+		timeout = defaultToolCallTimeout
+	}
 	ctxTool := wrapToolWithContext(tool)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	result, err := ctxTool.ExecuteWithContext(ctx, callParams.Arguments)
 
@@ -522,22 +539,34 @@ func (h *Handler) handlePing(_ any) (any, error) {
 }
 
 // handleSSERoutedRequest handles HTTP POSTs whose responses must be delivered
-// over a previously-established SSE connection.
+// over a previously-established SSE connection. The caller must present the
+// X-SSE-Binding header that was issued in the connection event; mere
+// possession of the client ID is not sufficient. This closes the
+// session-injection class of attacks where a leaked or guessed ID could be
+// used to inject requests into another client's stream.
 func (h *Handler) handleSSERoutedRequest(w http.ResponseWriter, r *http.Request, clientID string) {
-	h.sseMutex.RLock()
-	requestChan, exists := h.sseRequests[clientID]
-	h.sseMutex.RUnlock()
-
-	if !exists {
-		http.Error(w, "Invalid SSE client ID", http.StatusBadRequest)
-		return
-	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if !strings.Contains(r.Header.Get("Content-Type"), "application/json") {
 		http.Error(w, "Content-Type must be application/json", http.StatusBadRequest)
+		return
+	}
+
+	// Verify the supplied binding token before we read or queue anything.
+	// A wrong/missing token returns 403 — indistinguishable from "no such
+	// client" to avoid leaking which IDs are active.
+	supplied := r.Header.Get("X-SSE-Binding")
+	client, ok := h.sseManager.lookup(clientID)
+	if !ok || !client.VerifyBinding(supplied) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	requestChan, exists := h.sseManager.requestChanFor(clientID)
+	if !exists {
+		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -559,39 +588,10 @@ func (h *Handler) handleSSERoutedRequest(w http.ResponseWriter, r *http.Request,
 	}
 }
 
-// RegisterSSEClient registers a new SSE client for request routing.
-func (h *Handler) RegisterSSEClient(clientID string) chan *jsonrpc.Request {
-	h.sseMutex.Lock()
-	defer h.sseMutex.Unlock()
-	requestChan := make(chan *jsonrpc.Request, 10)
-	h.sseRequests[clientID] = requestChan
-	return requestChan
-}
-
-// UnregisterSSEClient removes an SSE client.
-func (h *Handler) UnregisterSSEClient(clientID string) {
-	h.sseMutex.Lock()
-	defer h.sseMutex.Unlock()
-	if ch, exists := h.sseRequests[clientID]; exists {
-		close(ch)
-		delete(h.sseRequests, clientID)
-	}
-}
-
-// SendSSENotification sends a notification to a specific SSE client.
-func (h *Handler) SendSSENotification(clientID string, method string, params any) error {
-	notification := map[string]any{
-		"jsonrpc": jsonrpc.Version,
-		"method":  method,
-		"params":  params,
-	}
-	response := &jsonrpc.Response{
-		JSONRPC: jsonrpc.Version,
-		Result:  notification,
-		ID:      nil,
-	}
-	return h.sseManager.SendToClient(clientID, response)
-}
+// (Previously: RegisterSSEClient/UnregisterSSEClient/SendSSENotification.
+// SendSSENotification had zero callers; the Register/Unregister pair was
+// moved into SSEManager.registerRequestChan/unregisterRequestChan as the
+// SSE state machine now lives entirely in one place.)
 
 const htmlHelpTemplate = `<!DOCTYPE html>
 <html>

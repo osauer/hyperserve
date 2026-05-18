@@ -9,7 +9,6 @@ hyperserve/
 ├── cmd/
 │   ├── server/           # Feature-complete CLI wrapping the library
 │   └── hyperserve-init/  # Project scaffolding CLI
-├── configs/              # Configuration examples (JSON)
 ├── docs/                 # ADRs and guides
 ├── examples/             # Self-contained `go run .` examples
 ├── internal/
@@ -27,7 +26,7 @@ hyperserve/
 
 - `pkg/server` — HTTP server, middleware registry, deferred-init lifecycle, MCP wiring options.
 - `pkg/mcp` — Standalone MCP protocol surface. No dependency on `pkg/server`.
-- `pkg/mcp/builtin` — Optional built-in MCP tools (Calculator, FileRead, HTTPRequest, ListDirectory) and resources (Config, Metrics, System, ServerLog, ServerHealth). Blank-import to wire the `WithMCPBuiltinTools/Resources(true)` and `MCPDev()` / `MCPObservability()` presets.
+- `pkg/mcp/builtin` — Optional built-in MCP tools (Calculator + sandboxed FileRead / ListDirectory when `WithMCPFileToolRoot` is set) and resources (Config, Metrics, System, ServerLog, ServerHealth). Blank-import to wire the `WithMCPBuiltinTools/Resources(true)` and `MCPDev()` / `MCPObservability()` presets. The previously-bundled `HTTPRequest` tool was removed (SSRF surface); `RequestDebuggerTool` was removed (credential capture).
 - `pkg/websocket` — WebSocket upgrader, low-level framing, origin checks.
 - `pkg/jsonrpc` — Standalone JSON-RPC 2.0 engine used by `pkg/mcp`.
 

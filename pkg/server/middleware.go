@@ -134,12 +134,6 @@ func (mwr *MiddlewareRegistry) Get(route string) MiddlewareStack {
 	return ret
 }
 
-// RemoveStack removes all middleware for a specific route from the registry.
-// Does nothing if no middleware is registered for the route.
-func (mwr *MiddlewareRegistry) RemoveStack(route string) {
-	delete(mwr.middleware, route)
-}
-
 // DefaultMiddleware returns a predefined middleware stack with essential server functionality.
 // Includes metrics collection, request logging, and panic recovery.
 // This middleware is applied by default unless explicitly excluded.
@@ -176,8 +170,10 @@ const (
 	traceIDKey          contextKey = "traceID"
 )
 
-// Header represents an HTTP header key-value pair used in middleware configuration.
-type Header struct {
+// header is an internal key/value pair used by the static securityHeaders
+// table. It is intentionally unexported — the previous public Header type
+// had unexported fields, making it impossible for callers to construct one.
+type header struct {
 	key   string
 	value string
 }
@@ -275,6 +271,7 @@ func RequestLoggerMiddleware(next http.Handler) http.HandlerFunc {
 			"url", r.URL.String(),
 			"trace_id", traceID,
 			"status", lrw.statusCode,
+			"bytes", lrw.bytesWritten,
 			"duration", duration)
 	}
 }
@@ -341,7 +338,7 @@ func RateLimitMiddleware(srv *Server) MiddlewareFunc {
 }
 
 // securityHeaders provide headers for HeadersMiddleware
-var securityHeaders = []Header{
+var securityHeaders = []header{
 	{"X-Content-Type-Options", "nosniff"},                                         // Prevent MIME-type sniffing
 	{"X-Frame-Options", "DENY"},                                                   // Mitigate clickjacking
 	{"Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload"}, // Enforce HTTPS with preload

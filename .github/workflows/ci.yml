@@ -26,6 +26,12 @@ jobs:
     - name: make test (runs check gate + go test)
       run: make test
 
+    - name: Race detector
+      run: make test-race
+
+    - name: Fuzz smoke (15s × 4 targets)
+      run: make fuzz-smoke
+
     - name: Build
       run: go build -v ./...
 

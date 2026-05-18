@@ -85,8 +85,7 @@ Dependency direction is one-way: `pkg/mcp/builtin` → `pkg/server` + `pkg/mcp`;
 │   └── jsonrpc/      # JSON-RPC 2.0 engine
 ├── examples/         # Self-contained `go run .` examples
 ├── docs/             # ADRs and guides
-├── benchmarks/       # Performance benchmarks
-├── configs/          # Configuration examples
+├── benchmarks/       # Go micro-benchmarks + wrk load script
 └── go.{mod,sum}
 ```
 

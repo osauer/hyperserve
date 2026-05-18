@@ -242,6 +242,7 @@ type rateLimiterPool struct {
 	mu            sync.RWMutex
 	cleanupTicker *time.Ticker
 	cleanupDone   chan bool
+	stopOnce      sync.Once // Idempotent stopCleanup; covers convergent shutdown paths.
 }
 
 // deferredLifecycle tracks the state machine for WithDeferredInit / WithOnReady:
@@ -414,6 +415,7 @@ func initializeMCPHandler(srv *Server) {
 		Version: srv.Options.MCPServerVersion,
 	}
 	srv.mcpHandler = mcp.NewHandler(serverInfo)
+	srv.mcpHandler.SetToolCallTimeout(srv.Options.MCPToolCallTimeout)
 
 	if srv.Options.mcpTransportOpts.DeveloperMode {
 		logger.Warn("⚠️  MCP DEVELOPER MODE ENABLED ⚠️",
@@ -703,52 +705,61 @@ func (srv *Server) handleShutdown(serverErr chan error, deferredErr chan error) 
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	defer signal.Stop(quit)
 
-	deferredChan := deferredErr
-
+	// deferredErr may legitimately fire nil first (success); only a non-nil
+	// error counts as a shutdown trigger.
 	for {
 		select {
 		case sig := <-quit:
 			logger.Info("Shutting down server.", "reason", sig)
-			srv.isReady.Store(false)
-			srv.isRunning.Store(false)
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			err := srv.shutdown(ctx)
-			cancel()
-			return err
-		case err := <-deferredChan:
+			return srv.shutdownAfter(nil)
+		case err := <-deferredErr:
 			if err == nil {
 				continue
 			}
 			logger.Error("Deferred initialization failed", "error", err)
-			srv.isReady.Store(false)
-			srv.isRunning.Store(false)
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			shutdownErr := srv.shutdown(ctx)
-			cancel()
-			if shutdownErr != nil {
-				return errors.Join(err, fmt.Errorf("shutdown error: %w", shutdownErr))
-			}
-			return err
+			return srv.shutdownAfter(err)
 		case err := <-serverErr:
-			srv.isRunning.Store(false)
-			srv.isReady.Store(false)
-			if srv.deferred.cancel != nil {
-				srv.deferred.cancel()
-			}
-			if err != nil && !errors.Is(err, http.ErrServerClosed) {
-				srv.stopCleanup()
-				return err
-			}
-
-			if derr := srv.getDeferredInitError(); derr != nil && !errors.Is(derr, context.Canceled) {
-				srv.stopCleanup()
-				return derr
-			}
-
-			srv.stopCleanup()
-			return err
+			return srv.handleServerExit(err)
 		}
 	}
+}
+
+// shutdownAfter performs the standard pre-shutdown state flip plus
+// `shutdown` with a 10s budget, and (when `originalErr` is non-nil) joins
+// any shutdown error with the original cause.
+func (srv *Server) shutdownAfter(originalErr error) error {
+	srv.isReady.Store(false)
+	srv.isRunning.Store(false)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	shutdownErr := srv.shutdown(ctx)
+	if originalErr == nil {
+		return shutdownErr
+	}
+	if shutdownErr != nil {
+		return errors.Join(originalErr, fmt.Errorf("shutdown error: %w", shutdownErr))
+	}
+	return originalErr
+}
+
+// handleServerExit handles the case where the HTTP server's Serve returned
+// — usually because we initiated shutdown, but possibly because the listen
+// died. Cleans up rate-limiter resources unconditionally; rejoins the
+// deferred-init error chain when present.
+func (srv *Server) handleServerExit(err error) error {
+	srv.isRunning.Store(false)
+	srv.isReady.Store(false)
+	if srv.deferred.cancel != nil {
+		srv.deferred.cancel()
+	}
+	defer srv.stopCleanup()
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	if derr := srv.getDeferredInitError(); derr != nil && !errors.Is(derr, context.Canceled) {
+		return derr
+	}
+	return err
 }
 
 func (srv *Server) startDeferredInit(errChan chan<- error) {
@@ -1436,17 +1447,9 @@ func WithTLS(certFile, keyFile string) ServerOptionFunc {
 	}
 }
 
-// WithLoglevel sets the global log level for the server.
-// Accepts slog.Level values (LevelDebug, LevelInfo, LevelWarn, LevelError).
-func WithLoglevel(level slog.Level) ServerOptionFunc {
-	return func(srv *Server) error {
-		slog.SetLogLoggerLevel(level)
-		return nil
-	}
-}
-
 // WithDebugMode enables debug logging and additional debug features.
-// This is equivalent to WithLoglevel(LevelDebug) plus additional debug information.
+// (The previously-exported WithLoglevel had no callers; use WithDebugMode
+// or the HS_LOG_LEVEL env var to change the log level.)
 func WithDebugMode() ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.DebugMode = true
@@ -1462,14 +1465,6 @@ func WithDebugMode() ServerOptionFunc {
 func WithSuppressBanner(suppress bool) ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.SuppressBanner = suppress
-		return nil
-	}
-}
-
-// WithBannerColor enables or disables ANSI color output for the startup banner.
-func WithBannerColor(enabled bool) ServerOptionFunc {
-	return func(srv *Server) error {
-		srv.Options.BannerColor = enabled
 		return nil
 	}
 }
@@ -1560,39 +1555,6 @@ func WithAddr(addr string) ServerOptionFunc {
 func WithTimeouts(readTimeout, writeTimeout, idleTimeout time.Duration) ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.setTimeouts(readTimeout, writeTimeout, idleTimeout)
-		return nil
-	}
-}
-
-// WithReadTimeout sets the maximum duration for reading the entire request.
-func WithReadTimeout(timeout time.Duration) ServerOptionFunc {
-	return func(srv *Server) error {
-		srv.Options.ReadTimeout = timeout
-		return nil
-	}
-}
-
-// WithWriteTimeout sets the maximum duration before timing out writes of the response.
-func WithWriteTimeout(timeout time.Duration) ServerOptionFunc {
-	return func(srv *Server) error {
-		srv.Options.WriteTimeout = timeout
-		return nil
-	}
-}
-
-// WithIdleTimeout sets the maximum time to wait for the next request when keep-alives are enabled.
-func WithIdleTimeout(timeout time.Duration) ServerOptionFunc {
-	return func(srv *Server) error {
-		srv.Options.IdleTimeout = timeout
-		return nil
-	}
-}
-
-// WithReadHeaderTimeout sets the amount of time allowed to read request headers.
-// This helps prevent Slowloris attacks.
-func WithReadHeaderTimeout(timeout time.Duration) ServerOptionFunc {
-	return func(srv *Server) error {
-		srv.Options.ReadHeaderTimeout = timeout
 		return nil
 	}
 }
@@ -1713,16 +1675,22 @@ func (srv *Server) cleanupRateLimiters() {
 	}
 }
 
-// stopCleanup stops the rate limiter cleanup goroutine
+// stopCleanup stops the rate limiter cleanup goroutine. Idempotent via
+// sync.Once: shutdown paths can converge (e.g. serverErr fires while a
+// separate shutdownAfter has already run), and calling close() twice
+// would otherwise panic. We intentionally do NOT nil the ticker/done
+// fields — the cleanup goroutine reads them without locking, so writing
+// to them after start would race the reader. The Once-guarded stop is
+// enough; the goroutine exits via cleanupDone's close signal.
 func (srv *Server) stopCleanup() {
-	if srv.rateLimiters.cleanupTicker != nil {
-		srv.rateLimiters.cleanupTicker.Stop()
-		srv.rateLimiters.cleanupTicker = nil
-	}
-	if srv.rateLimiters.cleanupDone != nil {
-		close(srv.rateLimiters.cleanupDone)
-		srv.rateLimiters.cleanupDone = nil
-	}
+	srv.rateLimiters.stopOnce.Do(func() {
+		if srv.rateLimiters.cleanupTicker != nil {
+			srv.rateLimiters.cleanupTicker.Stop()
+		}
+		if srv.rateLimiters.cleanupDone != nil {
+			close(srv.rateLimiters.cleanupDone)
+		}
+	})
 }
 
 // =============================================================================

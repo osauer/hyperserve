@@ -16,7 +16,7 @@ func TestSSEManager(t *testing.T) {
 		w := httptest.NewRecorder()
 		flusher := &mockFlusher{w: w}
 
-		client := newSSEClient("test-client-1", w, flusher)
+		client := newSSEClient("test-client-1", "test-binding-1", w, flusher)
 		manager.addClient("test-client-1", client)
 
 		if count := manager.GetClientCount(); count != 1 {
@@ -42,7 +42,7 @@ func TestSSEManager(t *testing.T) {
 		for i := range 3 {
 			w := httptest.NewRecorder()
 			flusher := &mockFlusher{w: w}
-			client := newSSEClient(fmt.Sprintf("client-%d", i), w, flusher)
+			client := newSSEClient(fmt.Sprintf("client-%d", i), fmt.Sprintf("binding-%d", i), w, flusher)
 			manager.addClient(fmt.Sprintf("client-%d", i), client)
 		}
 
@@ -70,7 +70,7 @@ func (f *mockFlusher) Flush() { f.flushed = true }
 func TestSSEClientLifecycle(t *testing.T) {
 	w := httptest.NewRecorder()
 	flusher := &mockFlusher{w: w}
-	client := newSSEClient("test-client", w, flusher)
+	client := newSSEClient("test-client", "test-binding", w, flusher)
 
 	t.Run("State Transitions", func(t *testing.T) {
 		if client.IsReady() {

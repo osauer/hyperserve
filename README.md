@@ -51,6 +51,10 @@ go get github.com/osauer/hyperserve/pkg/server
 - Middleware: recovery, request logging, metrics, CORS, security headers, rate limiting, auth.
 - Static file serving sandboxed via `os.Root`.
 - Deferred-init lifecycle: serve `/healthz` immediately while bootstrap work runs in the background.
+- **Request binding + validation** (`server.Bind`, `server.BindJSON`, `server.BindQuery`, `server.BindForm`)
+  with struct-tag rules (`required,min,max,len,email,url,oneof`) and structured
+  `*ValidationError` for per-field 400 responses. No external dependencies. See
+  [examples/binding](./examples/binding/).
 
 ## Scaffold a new service
 
@@ -83,6 +87,48 @@ srv, _ := server.NewServer(
 ```
 
 Built-in MCP tools and resources are off by default; you opt in per server.
+
+## Request binding & validation
+
+Parse a JSON body, query string, or form into a typed struct, then validate
+against struct-tag rules. Zero external dependencies; the rules cover the
+checks that show up in 90% of input-handling code.
+
+```go
+type createUser struct {
+    Name  string `json:"name"  validate:"required,min=2,max=64"`
+    Email string `json:"email" validate:"required,email"`
+    Age   int    `json:"age"   validate:"required,min=13,max=120"`
+    Role  string `json:"role"  validate:"oneof=admin user guest"`
+}
+
+srv.HandleFunc("/users", func(w http.ResponseWriter, r *http.Request) {
+    var u createUser
+    if err := server.BindJSON(r, &u); err != nil {
+        var verr *server.ValidationError
+        if errors.As(err, &verr) {
+            // verr.Fields is []*FieldError — one entry per failing rule,
+            // ready to render as a structured 400 response.
+        }
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
+    // u is valid; carry on.
+})
+```
+
+Available rules: `required, min, max, len, email, url, oneof`.
+
+Entry points:
+
+- `server.Bind(r, dst)` — picks JSON / form / query by `Content-Type`.
+- `server.BindJSON(r, dst)` — JSON with `DisallowUnknownFields` and a 1 MiB body cap.
+- `server.BindQuery(r, dst)` — URL query parameters (slices via repeated keys).
+- `server.BindForm(r, dst)` — `application/x-www-form-urlencoded` or `multipart/form-data`.
+- `server.Validate(dst)` — run rules without binding.
+
+See [examples/binding](./examples/binding/) for a working endpoint with
+structured 400 responses.
 
 ## Middleware
 

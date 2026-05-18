@@ -21,26 +21,36 @@ func init() {
 	)
 }
 
-// registerBuiltinTools registers the four general-purpose tools
-// (read_file, list_directory, http_request, calculator) under the
-// "hyperserve" namespace. File tools are sandboxed when MCPFileToolRoot is
-// configured.
+// registerBuiltinTools registers the general-purpose tools (calculator plus
+// sandboxed file tools when MCPFileToolRoot is configured) under the
+// "hyperserve" namespace. File tools require a non-empty
+// Options.MCPFileToolRoot — if unset, they are skipped with a warning rather
+// than silently registered against the host filesystem.
+//
+// The http_request tool that previously shipped here was removed: it allowed
+// any unauthenticated MCP client to make outbound HTTP calls from the server
+// process (SSRF / cloud metadata exfil). If you need outbound HTTP, register
+// a domain-allowlisted tool from your own code.
 func registerBuiltinTools(srv *server.Server) {
 	h := srv.MCPHandler()
 	if h == nil {
 		return
 	}
-	if fileReadTool, err := NewFileReadTool(srv.Options.MCPFileToolRoot); err != nil {
-		logger.Warn("Failed to create file read tool", "error", err)
+	if srv.Options.MCPFileToolRoot != "" {
+		if fileReadTool, err := NewFileReadTool(srv.Options.MCPFileToolRoot); err != nil {
+			logger.Warn("Failed to create file read tool", "error", err)
+		} else {
+			h.RegisterToolInNamespace(fileReadTool, "hyperserve")
+		}
+		if listDirTool, err := NewListDirectoryTool(srv.Options.MCPFileToolRoot); err != nil {
+			logger.Warn("Failed to create list directory tool", "error", err)
+		} else {
+			h.RegisterToolInNamespace(listDirTool, "hyperserve")
+		}
 	} else {
-		h.RegisterToolInNamespace(fileReadTool, "hyperserve")
+		logger.Warn("Builtin file tools (read_file, list_directory) not registered: no sandbox root configured",
+			"fix", "set WithMCPFileToolRoot(\"/path/to/safe/dir\") to enable")
 	}
-	if listDirTool, err := NewListDirectoryTool(srv.Options.MCPFileToolRoot); err != nil {
-		logger.Warn("Failed to create list directory tool", "error", err)
-	} else {
-		h.RegisterToolInNamespace(listDirTool, "hyperserve")
-	}
-	h.RegisterToolInNamespace(NewHTTPRequestTool(), "hyperserve")
 	h.RegisterToolInNamespace(NewCalculatorTool(), "hyperserve")
 }
 
@@ -57,7 +67,7 @@ func registerStandardResources(srv *server.Server) {
 	h.RegisterResource(NewServerLogResource(srv.Options.MCPLogResourceSize))
 }
 
-// RegisterObservability wires the minimal "observability" preset onto an MCP
+// registerObservability wires the minimal "observability" preset onto an MCP
 // handler:
 //   - config://server/current
 //   - health://server/status
@@ -65,7 +75,7 @@ func registerStandardResources(srv *server.Server) {
 //
 // When server debug mode is enabled, the log resource also intercepts the
 // default logger so /recent reflects live output.
-func RegisterObservability(srv *server.Server, handler *mcp.Handler) {
+func registerObservability(srv *server.Server, handler *mcp.Handler) {
 	if handler == nil {
 		logger.Warn("Cannot register observability MCP resources: MCP handler not initialized")
 		return
@@ -90,32 +100,27 @@ func RegisterObservability(srv *server.Server, handler *mcp.Handler) {
 }
 
 func registerObservabilityResources(srv *server.Server) {
-	RegisterObservability(srv, srv.MCPHandler())
+	registerObservability(srv, srv.MCPHandler())
 }
 
-// RegisterDeveloper wires the developer preset onto an MCP handler:
-//   - tools: server_control, route_inspector, request_debugger, dev_guide
+// registerDeveloper wires the developer preset onto an MCP handler:
+//   - tools: server_control, route_inspector, dev_guide
 //   - resources: logs://server/stream, routes://server/all
-//   - middleware: request capture (globally) for the debugger
-func RegisterDeveloper(srv *server.Server, handler *mcp.Handler) {
+//
+// The request_debugger tool that previously shipped here was removed: it
+// captured every request's headers (including Authorization, Cookie, API
+// keys) into a process-wide store readable by any MCP caller. If you need
+// request inspection in development, wire a per-route handler that scrubs
+// credentials before logging.
+func registerDeveloper(srv *server.Server, handler *mcp.Handler) {
 	if handler == nil {
 		logger.Warn("Cannot register developer MCP tools: MCP handler not initialized")
 		return
 	}
 
-	// The big "MCP DEVELOPER MODE ENABLED" warning is emitted by pkg/server's
-	// NewServer when the dev preset is enabled, regardless of whether this
-	// hook gets installed. We just log what we register.
-
-	debugger := NewRequestDebuggerTool(srv)
-
 	handler.RegisterToolInNamespace(NewServerControlTool(srv), "hyperserve")
 	handler.RegisterToolInNamespace(NewRouteInspectorTool(srv), "hyperserve")
-	handler.RegisterToolInNamespace(debugger, "hyperserve")
 	handler.RegisterToolInNamespace(NewDevGuideTool(srv), "hyperserve")
-
-	srv.AddMiddleware("*", RequestCaptureMiddleware(debugger))
-	logger.Info("Request capture middleware registered for MCP dev mode")
 
 	handler.RegisterResource(&StreamingLogResource{
 		ServerLogResource: NewServerLogResource(1000),
@@ -126,7 +131,6 @@ func RegisterDeveloper(srv *server.Server, handler *mcp.Handler) {
 		"tools", []string{
 			"mcp__hyperserve__server_control",
 			"mcp__hyperserve__route_inspector",
-			"mcp__hyperserve__request_debugger",
 			"mcp__hyperserve__dev_guide",
 		},
 		"resources", []string{"logs://server/stream", "routes://server/all"},
@@ -134,5 +138,5 @@ func RegisterDeveloper(srv *server.Server, handler *mcp.Handler) {
 }
 
 func registerDeveloperPreset(srv *server.Server) {
-	RegisterDeveloper(srv, srv.MCPHandler())
+	registerDeveloper(srv, srv.MCPHandler())
 }

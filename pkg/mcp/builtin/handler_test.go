@@ -565,11 +565,11 @@ func TestMCPHandler_MultipleNamespaces(t *testing.T) {
 
 	// Create test tools for different namespaces
 	calcTool := NewCalculatorTool()
-	httpTool := NewHTTPRequestTool()
+	calcTool2 := NewCalculatorTool()
 
 	// Register tools in different namespaces
 	handler.RegisterToolInNamespace(calcTool, "math")
-	handler.RegisterToolInNamespace(httpTool, "web")
+	handler.RegisterToolInNamespace(calcTool2, "web")
 
 	// Register a tool in the default namespace (backward compatibility)
 	defaultTool := NewCalculatorTool()
@@ -577,9 +577,9 @@ func TestMCPHandler_MultipleNamespaces(t *testing.T) {
 
 	// Test that tools are registered with appropriate names
 	expectedTools := []string{
-		"mcp__math__calculator",  // namespace-specific tool
-		"mcp__web__http_request", // namespace-specific tool
-		"calculator",             // backward compatible tool (no prefix)
+		"mcp__math__calculator", // namespace-specific tool
+		"mcp__web__calculator",  // namespace-specific tool
+		"calculator",            // backward compatible tool (no prefix)
 	}
 
 	if handler.ToolCount() != 3 {

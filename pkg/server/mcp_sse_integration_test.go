@@ -88,8 +88,10 @@ func TestMCPWithSSEIntegration(t *testing.T) {
 			}
 		}()
 
-		// Get client ID from connection event
-		var clientID string
+		// Get client ID + binding token from connection event. The
+		// binding token must accompany every routed POST; missing or
+		// wrong binding → 403.
+		var clientID, bindingToken string
 		select {
 		case event := <-events:
 			var connEvent map[string]any
@@ -100,8 +102,9 @@ func TestMCPWithSSEIntegration(t *testing.T) {
 				t.Fatalf("Expected connection event, got %v", connEvent["type"])
 			}
 			clientID = connEvent["clientId"].(string)
-			if clientID == "" {
-				t.Fatal("No client ID in connection event")
+			bindingToken = connEvent["bindingToken"].(string)
+			if clientID == "" || bindingToken == "" {
+				t.Fatal("Missing clientId or bindingToken in connection event")
 			}
 		case <-time.After(2 * time.Second):
 			t.Fatal("Timeout waiting for connection event")
@@ -129,6 +132,7 @@ func TestMCPWithSSEIntegration(t *testing.T) {
 		}
 		httpReq.Header.Set("Content-Type", "application/json")
 		httpReq.Header.Set("X-SSE-Client-ID", clientID)
+		httpReq.Header.Set("X-SSE-Binding", bindingToken)
 
 		httpResp, err := http.DefaultClient.Do(httpReq)
 		if err != nil {
@@ -181,6 +185,7 @@ func TestMCPWithSSEIntegration(t *testing.T) {
 		}
 		httpReq.Header.Set("Content-Type", "application/json")
 		httpReq.Header.Set("X-SSE-Client-ID", clientID)
+		httpReq.Header.Set("X-SSE-Binding", bindingToken)
 
 		httpResp, err = http.DefaultClient.Do(httpReq)
 		if err != nil {

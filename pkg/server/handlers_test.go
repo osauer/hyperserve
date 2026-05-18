@@ -58,10 +58,18 @@ func TestTemplateHandlerReturnsErrorOnMissingTemplate(t *testing.T) {
 	}
 }
 
+// healthNoContent is the test-only handler that previously lived in
+// handlers.go as exported HealthCheckHandler. The exported version had no
+// production caller; the canonical health path goes through
+// healthzHandler/readyzHandler/livezHandler.
+func healthNoContent(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func TestHealthCheckHandlerReturnsNoContent(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 	rec := httptest.NewRecorder()
-	HealthCheckHandler(rec, req)
+	healthNoContent(rec, req)
 	if rec.Code != http.StatusNoContent {
 		t.Errorf("expected status %v, got %v", http.StatusNoContent, rec.Code)
 	}
@@ -151,6 +159,12 @@ func TestHealthzHandlerReturnsUnhealthyWhenNotRunning(t *testing.T) {
 	}
 }
 
+// panicTestHandler used to be exported as PanicHandler in handlers.go. It
+// existed only for this test and was removed from the public API.
+func panicTestHandler(_ http.ResponseWriter, _ *http.Request) {
+	panic("Intentional panic.")
+}
+
 func TestPanicHandlerCausesPanic(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {
@@ -159,5 +173,5 @@ func TestPanicHandlerCausesPanic(t *testing.T) {
 	}()
 	req := httptest.NewRequest("GET", "/", nil)
 	rec := httptest.NewRecorder()
-	PanicHandler(rec, req)
+	panicTestHandler(rec, req)
 }

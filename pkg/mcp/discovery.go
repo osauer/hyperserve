@@ -154,23 +154,17 @@ func shouldIncludeToolList(policy DiscoveryPolicy, r *http.Request) bool {
 }
 
 // shouldExposeToolInDiscovery applies the policy + custom filter to a single
-// tool name.
+// tool name. By the time it runs, shouldIncludeToolList has already gated
+// the policy — DiscoveryNone and DiscoveryCount can never reach this
+// function, so this switch only needs to handle the policies that allow
+// listing.
 func (h *Handler) shouldExposeToolInDiscovery(toolName string, r *http.Request, cfg DiscoveryConfig) bool {
 	if cfg.Filter != nil {
 		return cfg.Filter(toolName, r)
 	}
 
-	switch cfg.Policy {
-	case DiscoveryNone:
+	if cfg.Policy == DiscoveryAuthenticated && r.Header.Get("Authorization") == "" {
 		return false
-	case DiscoveryCount:
-		return false
-	case DiscoveryAuthenticated:
-		if r.Header.Get("Authorization") == "" {
-			return false
-		}
-	case DiscoveryPublic:
-		// fall through to default rules
 	}
 
 	if strings.HasPrefix(toolName, "internal_") || strings.HasPrefix(toolName, "_") {
@@ -181,7 +175,7 @@ func (h *Handler) shouldExposeToolInDiscovery(toolName string, r *http.Request, 
 		if strings.Contains(toolName, "debug") || strings.Contains(toolName, "admin") {
 			return false
 		}
-		if toolName == "server_control" || toolName == "request_debugger" {
+		if toolName == "server_control" {
 			return false
 		}
 	}

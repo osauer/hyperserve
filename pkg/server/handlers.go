@@ -31,12 +31,6 @@ func (srv *Server) templateHandler(templateName string, data any) http.HandlerFu
 	}
 }
 
-// HealthCheckHandler returns a 204 No Content status code for basic health checks.
-// This handler can be used as a simple liveness or readiness probe.
-func HealthCheckHandler(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNoContent)
-}
-
 // SSEMessage represents a Server-Sent Events message with an optional event type and data payload.
 // It follows the SSE format with event and data fields that can be sent to clients.
 type SSEMessage struct {
@@ -84,10 +78,4 @@ func (srv *Server) healthHandlerHelper(w http.ResponseWriter, request *http.Requ
 			logger.Error(fmt.Sprintf("error writing endpoint status (%s)", probe), "error", err)
 		}
 	}
-}
-
-// PanicHandler simulates a panic situation in a handler to test proper recovery middleware.
-// This handler is intended for testing purposes only and should not be used in production.
-func PanicHandler(w http.ResponseWriter, r *http.Request) {
-	panic("Intentional panic.")
 }

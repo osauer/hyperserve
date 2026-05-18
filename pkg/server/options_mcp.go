@@ -1,6 +1,8 @@
 package server
 
 import (
+	"time"
+
 	mcp "github.com/osauer/hyperserve/pkg/mcp"
 )
 
@@ -78,10 +80,23 @@ func WithMCPFileToolRoot(rootDir string) ServerOptionFunc {
 	}
 }
 
-// WithMCPBuiltinTools toggles the built-in MCP tools (Calculator, FileRead,
-// HTTPRequest, ListDirectory). Default off. Requires
-// `_ "github.com/osauer/hyperserve/pkg/mcp/builtin"` to be blank-imported by
-// the consumer; otherwise NewServer logs a warning and registers nothing.
+// WithMCPToolCallTimeout sets the per-tool execution budget enforced by the
+// MCP handler. Tools that exceed the timeout return context.DeadlineExceeded
+// to the caller; see the caveat in contextToolWrapper for what happens to
+// the underlying goroutine. Zero or negative values fall back to the
+// package default (30s).
+func WithMCPToolCallTimeout(d time.Duration) ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.MCPToolCallTimeout = d
+		return nil
+	}
+}
+
+// WithMCPBuiltinTools toggles the built-in MCP tools (Calculator plus
+// sandboxed FileRead / ListDirectory when WithMCPFileToolRoot is set).
+// Default off. Requires `_ "github.com/osauer/hyperserve/pkg/mcp/builtin"`
+// to be blank-imported by the consumer; otherwise NewServer logs a warning
+// and registers nothing.
 func WithMCPBuiltinTools(enabled bool) ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.MCPToolsEnabled = enabled

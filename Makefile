@@ -7,7 +7,7 @@ BUILD_TIME := $(shell date -u +"%Y-%m-%d_%H:%M:%S_UTC" || echo "unknown")
 # Stamped into pkg/server.Version/BuildHash/BuildTime via -X.
 LDFLAGS := -ldflags "-X github.com/osauer/hyperserve/pkg/server.Version=$(VERSION) -X github.com/osauer/hyperserve/pkg/server.BuildHash=$(BUILD_HASH) -X github.com/osauer/hyperserve/pkg/server.BuildTime=$(BUILD_TIME)"
 
-.PHONY: build install test clean version check vet fmt modernize modernize-check staticcheck govulncheck
+.PHONY: build install test test-race fuzz-smoke clean version check vet fmt modernize modernize-check staticcheck govulncheck
 
 build: ## Compile cmd/server with version stamped via ldflags
 	go build $(LDFLAGS) -o hyperserve ./cmd/server
@@ -15,8 +15,28 @@ build: ## Compile cmd/server with version stamped via ldflags
 install: ## Install hyperserve via `go install`
 	go install $(LDFLAGS) ./cmd/server
 
+# `test` keeps the historical "check + verbose tests" shape. CI should call
+# test-race additionally — race detection is slow enough that we don't make
+# it the default for `make test`.
 test: check ## Run the check gate, then `go test -v ./...`
 	go test -v ./...
+
+test-race: ## Run the full test suite under the race detector.
+	go test -race ./...
+
+# fuzz-smoke runs every fuzz target for a short, fixed budget so CI catches
+# panics in the parsers without committing to a long fuzz run. Tune the
+# duration upward (5m / 30m / hour) in nightly jobs.
+#
+# `set -e` + no `|| true` = a fuzzing failure on any target fails the whole
+# target. The earlier shape used `|| true` and was incapable of gating; this
+# one will surface a discovered crash as a non-zero make exit.
+fuzz-smoke: ## Short fuzz pass over every Fuzz* target (15s each).
+	@set -e; \
+	go test -run=^$$ -fuzz=FuzzJSONRPCParse        -fuzztime=15s ./pkg/jsonrpc; \
+	go test -run=^$$ -fuzz=FuzzWebSocketFrameParse -fuzztime=15s ./pkg/websocket; \
+	go test -run=^$$ -fuzz=FuzzCORSOriginMatch     -fuzztime=15s ./pkg/server; \
+	go test -run=^$$ -fuzz=FuzzValidateEmail       -fuzztime=15s ./pkg/server
 
 clean:
 	rm -f hyperserve

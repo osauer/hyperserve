@@ -136,9 +136,11 @@ func TestMCPSSEEndpoint(t *testing.T) {
 		}
 		defer resp.Body.Close()
 
-		// Read connection event to get client ID
+		// Read connection event to get the (clientID, bindingToken) pair.
+		// Both are required on subsequent POSTs; without the binding the
+		// server returns 403.
 		reader := bufio.NewReader(resp.Body)
-		var clientID string
+		var clientID, bindingToken string
 
 		for {
 			line, err := reader.ReadString('\n')
@@ -147,28 +149,31 @@ func TestMCPSSEEndpoint(t *testing.T) {
 			}
 
 			if after, ok := strings.CutPrefix(line, "data: "); ok {
-				eventData := after
-				eventData = strings.TrimSpace(eventData)
-
+				eventData := strings.TrimSpace(after)
 				var connEvent map[string]any
 				if err := json.Unmarshal([]byte(eventData), &connEvent); err == nil {
 					if id, ok := connEvent["clientId"].(string); ok {
 						clientID = id
+					}
+					if tok, ok := connEvent["bindingToken"].(string); ok {
+						bindingToken = tok
+					}
+					if clientID != "" && bindingToken != "" {
 						break
 					}
 				}
 			}
 		}
 
-		// Now send a request with the SSE client ID
+		// Routed POST with both required headers — expect 202.
 		reqBody := bytes.NewBufferString(`{"jsonrpc":"2.0","method":"ping","id":1}`)
 		req2, err := http.NewRequest("POST", baseURL+"/mcp", reqBody)
 		if err != nil {
 			t.Fatal(err)
 		}
-
 		req2.Header.Set("Content-Type", "application/json")
 		req2.Header.Set("X-SSE-Client-ID", clientID)
+		req2.Header.Set("X-SSE-Binding", bindingToken)
 
 		resp2, err := http.DefaultClient.Do(req2)
 		if err != nil {
@@ -176,10 +181,28 @@ func TestMCPSSEEndpoint(t *testing.T) {
 		}
 		defer resp2.Body.Close()
 
-		// Should get 202 Accepted
 		if resp2.StatusCode != http.StatusAccepted {
 			body, _ := io.ReadAll(resp2.Body)
 			t.Errorf("Expected status 202, got %d: %s", resp2.StatusCode, body)
+		}
+
+		// Same POST without the binding header must be rejected (403)
+		// — the regression guard for the binding requirement.
+		reqBodyBad := bytes.NewBufferString(`{"jsonrpc":"2.0","method":"ping","id":2}`)
+		req3, err := http.NewRequest("POST", baseURL+"/mcp", reqBodyBad)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req3.Header.Set("Content-Type", "application/json")
+		req3.Header.Set("X-SSE-Client-ID", clientID)
+		// intentionally no X-SSE-Binding
+		resp3, err := http.DefaultClient.Do(req3)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp3.Body.Close()
+		if resp3.StatusCode != http.StatusForbidden {
+			t.Errorf("Expected status 403 without X-SSE-Binding, got %d", resp3.StatusCode)
 		}
 	})
 }

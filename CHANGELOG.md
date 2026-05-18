@@ -5,6 +5,172 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.0] - 2026-05-18
+
+Security + feature release. Closes seven concrete vulnerability classes in
+the built-in MCP surface and ships request binding & validation as a
+first-class API. Net change: **−1,012 LOC** across 44 files. Breaking — see
+Migration.
+
+### Added
+
+- **Request binding & validation** (`pkg/server/binding.go`). New API for
+  parsing JSON / form / query bodies into typed structs with struct-tag
+  rules — no external dependencies.
+  - `server.Bind(r, dst)` — Content-Type-aware dispatch.
+  - `server.BindJSON(r, dst)` — `DisallowUnknownFields`, 1 MiB body cap.
+  - `server.BindQuery(r, dst)`, `server.BindForm(r, dst)` — same struct,
+    different decoder; slices populate from repeated keys.
+  - `server.Validate(dst)` — run rules without binding.
+  - Tags: `required`, `min=N`, `max=N`, `len=N`, `email`, `url`,
+    `oneof=A B C`. Composable (`validate:"required,min=3,max=64"`).
+  - `*server.ValidationError` carries one `*FieldError` per failing rule
+    (`Field`, `Tag`, `Param`, `Value`, `Message`) so 400 responses can be
+    structured per-field. See [examples/binding](examples/binding/).
+- **SSE binding tokens.** The unified `/mcp` endpoint's SSE connection
+  event now carries a `bindingToken` alongside `clientId`. Routed POSTs
+  must echo it back via `X-SSE-Binding` or receive `403 Forbidden` —
+  closes the cross-client request-injection class. Token is 32 random
+  hex characters from `crypto/rand`; comparison is constant-time.
+- **`WithMCPToolCallTimeout(d)`** — functional option for the per-tool
+  execution budget enforced by the MCP handler. Default 30s. Replaces
+  the previously-hardcoded literal.
+- **Fuzz tests** for `pkg/jsonrpc` (request parser), `pkg/websocket`
+  (frame reader), `pkg/server` (CORS origin matcher, email validator).
+  - New `make fuzz-smoke` target runs each for 15s; CI runs it on
+    every push and gates on failure (no `|| true` suppression).
+- **`make test-race`** target wires the race detector into CI. The
+  rate-limiter cleanup tick had a latent close-on-closed-channel race
+  on shutdown convergence; fixed via `sync.Once`.
+
+### Security
+
+- **`http_request` built-in MCP tool removed.** Allowed any MCP caller to
+  make outbound HTTP requests from the server process (SSRF / cloud-metadata
+  exfiltration). No replacement; ship a domain-allowlisted tool from your
+  own code if you need this primitive.
+- **`request_debugger` built-in MCP tool removed,** along with
+  `RequestCaptureMiddleware`. The tool stored `r.Header` verbatim
+  (including `Authorization`, `Cookie`, `X-API-Key`) in a process-wide
+  store readable by any MCP caller — a credential-exfiltration path
+  enabled by `MCPDev()`. The `dev_guide` topic strings and ADR-0011 docs
+  no longer reference either tool.
+- **File tools require a sandbox root.** `NewFileReadTool("")` and
+  `NewListDirectoryTool("")` now return an error; the unsandboxed
+  `os.ReadFile` / `os.ReadDir` fallback was deleted. Builtin registration
+  skips both tools with a warn-log when `WithMCPFileToolRoot` is unset.
+- **SSE client IDs sourced from `crypto/rand`.** Previously `math/rand`,
+  whose state can be recovered from observed outputs. New IDs are 32
+  random hex characters; binding tokens are 64.
+- **CORS refuses `AllowedOrigins=["*"] + AllowCredentials=true`.**
+  `normalizeCORSOptions` downgrades the combination at construction time
+  with a warn-log, matching the Fetch spec.
+- **`examples/auth`: substring-admin bypass closed.** Permission gating
+  in the auth example previously evaluated `!strings.Contains(authHeader, "admin")`
+  — any token containing the substring `admin` granted access. The new
+  flow uses `requireRole` / `requirePermission` sourced from the validator's
+  `SessionInfo`. A `multiAuthMiddleware` wrapper accepts Bearer, APIKey,
+  and Basic schemes (previous flow only accepted Bearer at the framework
+  middleware layer, contradicting the example's own setup).
+
+### Changed
+
+- **SSE state machine consolidated** onto `SSEManager`. `Handler` no
+  longer maintains a parallel `sseRequests` / `sseMutex` pair; the
+  per-client request channels live alongside the client map under one
+  lock. `Handler.RegisterSSEClient` / `UnregisterSSEClient` /
+  `SendSSENotification` removed (the third had zero callers).
+- **`handleShutdown` rewritten.** The previous `for { select }`
+  could only iterate once and copy-pasted the same five state mutations
+  into each case. Now top-down with named helpers `shutdownAfter` and
+  `handleServerExit`; each select arm is a single line.
+- **`handleResourcesRead` deduped.** The "`arguments` is a tools/call
+  parameter, not a resources/read parameter" guard ran twice; now once
+  before the unmarshal.
+- **`bytesWritten` is now in the request log line.** The accumulator was
+  tracked but never logged — the doc on `RequestLoggerMiddleware` claimed
+  to log "response size in bytes" but didn't. Now it does.
+- **CLAUDE.md rewritten.** The previous file claimed library files lived
+  at the repository root — three releases stale.
+
+### Removed
+
+- Exported orphans, all with zero callers across the tree:
+  - `mcp.OverHTTP`, `mcp.OverSSE` — HTTP is the default; SSE shares the
+    same endpoint via Accept-header routing.
+  - `mcp.Capabilities.Experimental` field — never assigned; violated the
+    struct's own "advertise only what's wired" comment.
+  - `mcp.DefaultLogger`, `mcp.SetDefaultLogger`, `builtin.SetDefaultLogger`
+    — `server.DefaultLogger` / `SetDefaultLogger` was the only used pair.
+  - `WithLoglevel`, `WithBannerColor`, `WithReadTimeout`,
+    `WithWriteTimeout`, `WithIdleTimeout`, `WithReadHeaderTimeout` —
+    each had zero non-test callers. Use `WithDebugMode` /
+    `WithTimeouts(read, write, idle)` instead.
+  - `MiddlewareRegistry.RemoveStack` — no caller.
+  - `HealthCheckHandler`, `PanicHandler` — exported test-only helpers
+    that didn't belong in the public API. Moved to `handlers_test.go`.
+  - `websocket.Upgrader.{EnableCompression, WriteBufferSize, ReadBufferSize}`
+    — silent no-ops; never read by `Upgrade`.
+- Unreachable code:
+  - `DiscoveryNone` and `DiscoveryCount` switch cases in
+    `shouldExposeToolInDiscovery` were dead branches (the policies
+    are already gated by `shouldIncludeToolList`).
+- Speculative / stale artifacts:
+  - `docs/LESSONS_LEARNED.md` — one-author retrospective with the AI
+    sign-off intact after a prior cleanup commit claimed to remove it.
+  - `docs/BUNDLE_EXPLORATION.md` — proposed a `hyperserve bundle`
+    command that doesn't exist in code.
+  - `configs/` — three files (GitHub OpenAPI spec, HTMX attribute list,
+    Qodana config) that nothing in the codebase referenced.
+  - `docs/guides/` — empty for 10 months.
+  - `.gocache/` — 258-entry stale GOCACHE-style directory in the repo
+    root, untouched in 8 months.
+
+### Fixed
+
+- **Rate-limiter cleanup race.** Convergent shutdown paths could
+  call `stopCleanup` more than once, double-closing the `cleanupDone`
+  channel. `sync.Once` makes it idempotent without writing to the
+  fields the unlocked cleanup goroutine reads from.
+- **MCP tool-call timeout was hardcoded** at 30s in
+  `handleToolsCall`. Now configurable; the wrapper's leaked-goroutine
+  caveat is documented honestly rather than hidden.
+
+### Migration
+
+- Rename `mcp.OverHTTP(endpoint)` and `mcp.OverSSE(endpoint)` call sites
+  to `server.WithMCPEndpoint(endpoint)`. The default transport is HTTP
+  and SSE shares the same endpoint; the `Over*` constructors had no
+  callers.
+- Replace `server.WithReadTimeout(d)` / `WithWriteTimeout(d)` /
+  `WithIdleTimeout(d)` / `WithReadHeaderTimeout(d)` with the single
+  `server.WithTimeouts(read, write, idle)`.
+- If you have an SSE client that posts to the routed-POST endpoint,
+  read `bindingToken` from the initial `connection` event and pass it
+  as `X-SSE-Binding` on every POST. Missing or wrong → 403.
+- If you previously called `srv.MCPHandler()` to register tools via the
+  removed `RequestDebuggerTool` or `HTTPRequestTool` constructors,
+  those types are gone. Calculator, file tools (sandboxed), server
+  control, route inspector, and dev guide remain.
+- If you constructed `FileReadTool` / `ListDirectoryTool` with an empty
+  string, you'll now get an error. Configure `WithMCPFileToolRoot` to
+  the directory you want the tools to be confined to.
+
+### Verification
+
+- `make check` (gofmt + vet + staticcheck + govulncheck + modernize):
+  zero-drift on Go 1.26.
+- `go test ./...`: green.
+- `go test -race ./...`: green.
+- `make fuzz-smoke`: four targets × 15s, all PASS, 6M+ execs total.
+- Built `cmd/server` smoke-tested: `/.well-known/mcp.json` (calculator
+  only), `tools/call` calculator (5 for 2+3), SSE initial event carries
+  `bindingToken`, routed POST without binding → 403.
+- `examples/auth` smoke-tested: admin-only routes return 200 with admin
+  key, 403 with user key, 401 with any "admin"-substring forged token.
+- `examples/binding` smoke-tested: 200 for valid, 400 with structured
+  `fields[]` for each failing rule.
+
 ## [0.26.1] - 2026-05-18
 
 Small dev-affordance increment on top of v0.26.0. No API or wire-shape changes.

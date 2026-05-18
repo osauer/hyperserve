@@ -199,8 +199,10 @@ func TestListDirectoryTool(t *testing.T) {
 		t.Fatalf("Failed to create test directory: %v", err)
 	}
 
-	// Test without root directory restriction
-	tool, err := NewListDirectoryTool("")
+	// Sandbox root is now mandatory; point it at the tempDir we just
+	// populated so the .Execute call below resolves relative paths
+	// against that tree.
+	tool, err := NewListDirectoryTool(tempDir)
 	if err != nil {
 		t.Fatalf("Failed to create list directory tool: %v", err)
 	}
@@ -219,9 +221,9 @@ func TestListDirectoryTool(t *testing.T) {
 		t.Error("Schema should not be nil")
 	}
 
-	// Test listing directory
+	// Test listing the sandbox root (relative path ".").
 	result, err := tool.Execute(map[string]any{
-		"path": tempDir,
+		"path": ".",
 	})
 	if err != nil {
 		t.Fatalf("Failed to list directory: %v", err)
@@ -263,47 +265,12 @@ func TestListDirectoryTool(t *testing.T) {
 		t.Error("Not all expected entries were found")
 	}
 
-	// Test listing non-existent directory
+	// Test listing non-existent path (relative within sandbox).
 	_, err = tool.Execute(map[string]any{
-		"path": "/nonexistent/directory",
+		"path": "nonexistent/directory",
 	})
 	if err == nil {
 		t.Error("Expected error listing non-existent directory")
-	}
-}
-
-func TestHTTPRequestTool(t *testing.T) {
-	tool := NewHTTPRequestTool()
-
-	// Test tool metadata
-	if tool.Name() != "http_request" {
-		t.Errorf("Expected name 'http_request', got %s", tool.Name())
-	}
-
-	if tool.Description() == "" {
-		t.Error("Description should not be empty")
-	}
-
-	schema := tool.Schema()
-	if schema == nil {
-		t.Error("Schema should not be nil")
-	}
-
-	// Note: For a comprehensive test, we would need a test HTTP server
-	// For now, test error conditions
-
-	// Test missing URL parameter
-	_, err := tool.Execute(map[string]any{})
-	if err == nil {
-		t.Error("Expected error for missing URL parameter")
-	}
-
-	// Test invalid URL
-	_, err = tool.Execute(map[string]any{
-		"url": "not-a-valid-url",
-	})
-	if err == nil {
-		t.Error("Expected error for invalid URL")
 	}
 }
 
@@ -326,36 +293,15 @@ func TestCalculatorTool_IntegerParams(t *testing.T) {
 	}
 }
 
-func TestFileReadTool_WithoutRoot(t *testing.T) {
-	// Test file read tool without root directory restriction
-	tool, err := NewFileReadTool("")
-	if err != nil {
-		t.Fatalf("Failed to create file read tool: %v", err)
+// TestFileReadTool_EmptyRoot verifies the unsandboxed fallback was removed.
+// NewFileReadTool("") must return a non-nil error rather than silently
+// granting host-wide read access.
+func TestFileReadTool_EmptyRoot(t *testing.T) {
+	if _, err := NewFileReadTool(""); err == nil {
+		t.Error("Expected error from NewFileReadTool with empty rootDir")
 	}
-
-	// Create a temporary file
-	tempFile, err := os.CreateTemp("", "hyperserve_test_*.txt")
-	if err != nil {
-		t.Fatalf("Failed to create temp file: %v", err)
-	}
-	defer os.Remove(tempFile.Name())
-
-	testContent := "Test content without root restriction"
-	if _, err := tempFile.WriteString(testContent); err != nil {
-		t.Fatalf("Failed to write to temp file: %v", err)
-	}
-	tempFile.Close()
-
-	// Test reading the file
-	result, err := tool.Execute(map[string]any{
-		"path": tempFile.Name(),
-	})
-	if err != nil {
-		t.Fatalf("Failed to read file: %v", err)
-	}
-
-	if result != testContent {
-		t.Errorf("Expected content '%s', got '%v'", testContent, result)
+	if _, err := NewListDirectoryTool(""); err == nil {
+		t.Error("Expected error from NewListDirectoryTool with empty rootDir")
 	}
 }
 

@@ -20,7 +20,7 @@ func TestSlowlorisProtection(t *testing.T) {
 
 	// Example configuration for Slowloris protection:
 	// srv, _ := server.NewServer(
-	//     server.WithReadHeaderTimeout(5*time.Second),
+	//     server.WithTimeouts(5*time.Second, 30*time.Second, 120*time.Second),
 	// )
 }
 
@@ -29,9 +29,7 @@ func TestHealthServerTimeoutConfiguration(t *testing.T) {
 	srv, err := NewServer(
 		WithAddr(":0"),
 		WithHealthServer(),
-		WithReadTimeout(10*time.Second),
-		WithWriteTimeout(15*time.Second),
-		WithIdleTimeout(30*time.Second),
+		WithTimeouts(10*time.Second, 15*time.Second, 30*time.Second),
 	)
 	if err != nil {
 		t.Fatalf("failed to create server: %v", err)

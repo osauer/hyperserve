@@ -45,17 +45,16 @@ func SetBuiltinPresetHooks(tools, standardResources, observability, developer fu
 
 // MCPDev configures MCP with developer tools for local development.
 //
-// SECURITY WARNING: Only use in development environments. Enables powerful
-// tools that can restart your server and modify its behavior.
+// SECURITY WARNING: Only use in development environments. Enables tools
+// that can modify server behavior (log level, route introspection).
 //
 // Tools provided:
 //   - mcp__hyperserve__server_control
 //   - mcp__hyperserve__route_inspector
-//   - mcp__hyperserve__request_debugger
 //   - mcp__hyperserve__dev_guide
 //
 // Resources provided:
-//   - logs://server/stream, routes://server/all, requests://debug/recent
+//   - logs://server/stream, routes://server/all
 func MCPDev() mcp.TransportConfig { return mcp.WithDeveloperMode() }
 
 // MCPObservability configures MCP with observability resources for production use.

@@ -1,9 +1,15 @@
 // Package builtin provides ready-to-register MCP tools and resources.
 //
-// The pure tools (Calculator, HTTPRequest, FileRead, ListDirectory) and the
-// pure resources (Config, Metrics, System) have no dependency on the
-// HyperServe server. Server-aware tools and resources live in server_tools.go
-// and server_resources.go; they need *server.Server.
+// The pure tools (Calculator, FileRead, ListDirectory) and the pure resources
+// (Config, Metrics, System) have no dependency on the HyperServe server.
+// Server-aware tools and resources live in server_tools.go and
+// server_resources.go; they need *server.Server.
+//
+// File tools are always sandboxed: NewFileReadTool and NewListDirectoryTool
+// require a non-empty rootDir and return an error otherwise. There is no
+// unsandboxed fallback. Callers that enable WithMCPBuiltinTools(true) without
+// configuring WithMCPFileToolRoot will see a warn-log and the file tools will
+// not be registered.
 package builtin
 
 import (
@@ -11,23 +17,16 @@ import (
 	"io"
 	"log/slog"
 	"math"
-	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
 var logger = slog.Default()
 
-// SetDefaultLogger overrides the logger used by the builtin package.
-func SetDefaultLogger(l *slog.Logger) {
-	if l == nil {
-		logger = slog.Default()
-		return
-	}
-	logger = l
-}
+// The previously-exported SetDefaultLogger had zero callers and was removed.
+// Builtin tools use the package logger; server-side logger injection happens
+// via slog.SetDefault at server-init time.
 
 // closeWithLog closes an io.Closer and logs any error.
 func closeWithLog(c io.Closer, name string) {
@@ -39,29 +38,30 @@ func closeWithLog(c io.Closer, name string) {
 	}
 }
 
-// FileReadTool implements an MCP tool that reads files from the filesystem.
+// FileReadTool implements an MCP tool that reads files from a sandboxed root.
 type FileReadTool struct {
-	root *os.Root // Secure file access via os.Root
+	root *os.Root // Secure file access via os.Root, never nil.
 }
 
-// NewFileReadTool creates a FileReadTool. If rootDir is non-empty, all reads
-// are restricted to that directory via os.OpenRoot.
+// NewFileReadTool creates a FileReadTool sandboxed to rootDir.
+// Returns an error when rootDir is empty: the unsandboxed fallback that
+// previously existed allowed arbitrary file reads with the process UID and
+// is intentionally not reachable.
 func NewFileReadTool(rootDir string) (*FileReadTool, error) {
-	var root *os.Root
-	if rootDir != "" {
-		r, err := os.OpenRoot(rootDir)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open root directory: %w", err)
-		}
-		root = r
+	if rootDir == "" {
+		return nil, fmt.Errorf("file read tool requires a non-empty rootDir; configure WithMCPFileToolRoot")
 	}
-	return &FileReadTool{root: root}, nil
+	r, err := os.OpenRoot(rootDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open root directory %q: %w", rootDir, err)
+	}
+	return &FileReadTool{root: r}, nil
 }
 
 func (t *FileReadTool) Name() string { return "read_file" }
 
 func (t *FileReadTool) Description() string {
-	return "Read the contents of a file from the filesystem"
+	return "Read the contents of a file within the configured sandbox root"
 }
 
 func (t *FileReadTool) Schema() map[string]any {
@@ -70,7 +70,7 @@ func (t *FileReadTool) Schema() map[string]any {
 		"properties": map[string]any{
 			"path": map[string]any{
 				"type":        "string",
-				"description": "Path to the file to read",
+				"description": "Path to the file to read (relative to the sandbox root)",
 			},
 		},
 		"required": []string{"path"},
@@ -84,50 +84,43 @@ func (t *FileReadTool) Execute(params map[string]any) (any, error) {
 	}
 	path = filepath.Clean(path)
 
-	var content []byte
-	var err error
-	if t.root != nil {
-		file, err := t.root.Open(path)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open file: %w", err)
-		}
-		defer closeWithLog(file, path)
+	file, err := t.root.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open file: %w", err)
+	}
+	defer closeWithLog(file, path)
 
-		content, err = io.ReadAll(file)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read file: %w", err)
-		}
-	} else {
-		content, err = os.ReadFile(path)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read file: %w", err)
-		}
+	content, err := io.ReadAll(file)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 	return string(content), nil
 }
 
-// ListDirectoryTool implements an MCP tool that lists directory contents.
+// ListDirectoryTool implements an MCP tool that lists directory contents
+// within a sandboxed root.
 type ListDirectoryTool struct {
-	root *os.Root
+	root *os.Root // never nil
 }
 
-// NewListDirectoryTool creates a ListDirectoryTool. If rootDir is non-empty,
-// all listings are restricted to that directory via os.OpenRoot.
+// NewListDirectoryTool creates a ListDirectoryTool sandboxed to rootDir.
+// Returns an error when rootDir is empty (see NewFileReadTool).
 func NewListDirectoryTool(rootDir string) (*ListDirectoryTool, error) {
-	var root *os.Root
-	if rootDir != "" {
-		r, err := os.OpenRoot(rootDir)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open root directory: %w", err)
-		}
-		root = r
+	if rootDir == "" {
+		return nil, fmt.Errorf("list directory tool requires a non-empty rootDir; configure WithMCPFileToolRoot")
 	}
-	return &ListDirectoryTool{root: root}, nil
+	r, err := os.OpenRoot(rootDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open root directory %q: %w", rootDir, err)
+	}
+	return &ListDirectoryTool{root: r}, nil
 }
 
 func (t *ListDirectoryTool) Name() string { return "list_directory" }
 
-func (t *ListDirectoryTool) Description() string { return "List the contents of a directory" }
+func (t *ListDirectoryTool) Description() string {
+	return "List the contents of a directory within the configured sandbox root"
+}
 
 func (t *ListDirectoryTool) Schema() map[string]any {
 	return map[string]any{
@@ -135,7 +128,7 @@ func (t *ListDirectoryTool) Schema() map[string]any {
 		"properties": map[string]any{
 			"path": map[string]any{
 				"type":        "string",
-				"description": "Path to the directory to list",
+				"description": "Path to the directory to list (relative to the sandbox root)",
 				"default":     ".",
 			},
 		},
@@ -149,24 +142,15 @@ func (t *ListDirectoryTool) Execute(params map[string]any) (any, error) {
 	}
 	path = filepath.Clean(path)
 
-	var entries []os.DirEntry
-	var err error
-	if t.root != nil {
-		file, err := t.root.Open(path)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open directory: %w", err)
-		}
-		defer closeWithLog(file, path)
+	file, err := t.root.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open directory: %w", err)
+	}
+	defer closeWithLog(file, path)
 
-		entries, err = file.ReadDir(-1)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read directory: %w", err)
-		}
-	} else {
-		entries, err = os.ReadDir(path)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read directory: %w", err)
-		}
+	entries, err := file.ReadDir(-1)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read directory: %w", err)
 	}
 
 	var files []map[string]any
@@ -190,94 +174,6 @@ func fileType(entry os.DirEntry) string {
 		return "directory"
 	}
 	return "file"
-}
-
-// HTTPRequestTool implements an MCP tool that makes external HTTP requests.
-type HTTPRequestTool struct {
-	client *http.Client
-}
-
-// NewHTTPRequestTool creates an HTTPRequestTool with a 30s default timeout.
-func NewHTTPRequestTool() *HTTPRequestTool {
-	return &HTTPRequestTool{
-		client: &http.Client{Timeout: 30 * time.Second},
-	}
-}
-
-func (t *HTTPRequestTool) Name() string { return "http_request" }
-
-func (t *HTTPRequestTool) Description() string {
-	return "Make HTTP requests to external services"
-}
-
-func (t *HTTPRequestTool) Schema() map[string]any {
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"url": map[string]any{
-				"type":        "string",
-				"description": "URL to make the request to",
-			},
-			"method": map[string]any{
-				"type":        "string",
-				"description": "HTTP method (GET, POST, PUT, DELETE, etc.)",
-				"default":     "GET",
-			},
-			"headers": map[string]any{
-				"type":        "object",
-				"description": "HTTP headers as key-value pairs",
-			},
-			"body": map[string]any{
-				"type":        "string",
-				"description": "Request body (for POST, PUT, etc.)",
-			},
-		},
-		"required": []string{"url"},
-	}
-}
-
-func (t *HTTPRequestTool) Execute(params map[string]any) (any, error) {
-	url, ok := params["url"].(string)
-	if !ok {
-		return nil, fmt.Errorf("url parameter is required and must be a string")
-	}
-	method := "GET"
-	if m, ok := params["method"].(string); ok {
-		method = strings.ToUpper(m)
-	}
-	var body io.Reader
-	if b, ok := params["body"].(string); ok {
-		body = strings.NewReader(b)
-	}
-
-	req, err := http.NewRequest(method, url, body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	if headers, ok := params["headers"].(map[string]any); ok {
-		for key, value := range headers {
-			if strValue, ok := value.(string); ok {
-				req.Header.Set(key, strValue)
-			}
-		}
-	}
-
-	resp, err := t.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to make request: %w", err)
-	}
-	defer closeWithLog(resp.Body, "HTTP response body")
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-	return map[string]any{
-		"status":     resp.Status,
-		"statusCode": resp.StatusCode,
-		"headers":    resp.Header,
-		"body":       string(respBody),
-	}, nil
 }
 
 // CalculatorTool implements an MCP tool for basic arithmetic.
