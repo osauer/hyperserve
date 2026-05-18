@@ -98,8 +98,8 @@ func TestMCPHandler_ToolResponseFormatting(t *testing.T) {
 			tool:         &mockStringTool{},
 			expectedType: "text",
 			validateResult: func(t *testing.T, result any) {
-				response := result.(map[string]any)
-				content := response["content"].([]map[string]any)
+				response := result.(ToolResult)
+				content := response.Content
 				if len(content) == 0 {
 					t.Fatal("Expected at least one content item")
 				}
@@ -117,8 +117,8 @@ func TestMCPHandler_ToolResponseFormatting(t *testing.T) {
 			tool:         &mockMapTool{},
 			expectedType: "text",
 			validateResult: func(t *testing.T, result any) {
-				response := result.(map[string]any)
-				content := response["content"].([]map[string]any)
+				response := result.(ToolResult)
+				content := response.Content
 				if len(content) == 0 {
 					t.Fatal("Expected at least one content item")
 				}
@@ -141,8 +141,8 @@ func TestMCPHandler_ToolResponseFormatting(t *testing.T) {
 			tool:         &mockMCPFormattedTool{},
 			expectedType: "text",
 			validateResult: func(t *testing.T, result any) {
-				response := result.(map[string]any)
-				content := response["content"].([]map[string]any)
+				response := result.(ToolResult)
+				content := response.Content
 				if len(content) != 2 {
 					t.Errorf("Expected 2 content items, got %d", len(content))
 				}
@@ -157,11 +157,11 @@ func TestMCPHandler_ToolResponseFormatting(t *testing.T) {
 			tool:         &mockErrorTool{},
 			expectedType: "text",
 			validateResult: func(t *testing.T, result any) {
-				response := result.(map[string]any)
-				if !response["isError"].(bool) {
+				response := result.(ToolResult)
+				if !response.IsError {
 					t.Error("Expected isError to be true")
 				}
-				content := response["content"].([]map[string]any)
+				content := response.Content
 				if len(content) == 0 {
 					t.Fatal("Expected at least one content item")
 				}
@@ -176,8 +176,8 @@ func TestMCPHandler_ToolResponseFormatting(t *testing.T) {
 			tool:         &mockArrayTool{},
 			expectedType: "text",
 			validateResult: func(t *testing.T, result any) {
-				response := result.(map[string]any)
-				content := response["content"].([]map[string]any)
+				response := result.(ToolResult)
+				content := response.Content
 				if len(content) == 0 {
 					t.Fatal("Expected at least one content item")
 				}
@@ -235,8 +235,8 @@ func TestMCPHandler_ComplexContentTypes(t *testing.T) {
 		t.Fatalf("Tool call failed: %v", err)
 	}
 
-	response := result.(map[string]any)
-	content := response["content"].([]map[string]any)
+	response := result.(ToolResult)
+	content := response.Content
 
 	if len(content) != 3 {
 		t.Fatalf("Expected 3 content items, got %d", len(content))

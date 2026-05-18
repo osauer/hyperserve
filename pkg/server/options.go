@@ -106,9 +106,6 @@ type ServerOptions struct {
 	// Errors from hooks are logged but don't prevent shutdown.
 	OnShutdownHooks []func(context.Context) error `json:"-"`
 
-	// DeferredInit is an optional callback that runs after the server listener is up but before
-	// the server is marked ready. While it executes, regular handlers return 503 responses.
-	DeferredInit func(context.Context, *Server) error `json:"-"`
 	// OnReadyHooks run after deferred initialization succeeds and before the server is marked ready.
 	OnReadyHooks []func(context.Context, *Server) error `json:"-"`
 	// StopOnDeferredInitFailure indicates whether the server should shut down if deferred init fails.
@@ -189,178 +186,128 @@ func NewServerOptions() *ServerOptions {
 // It follows the functional options pattern for flexible server configuration.
 type ServerOptionFunc func(srv *Server) error
 
-// helper to read environment variables and apply them to the options
+// envBinding maps one HS_ environment variable to one field-write closure.
+// The previous implementation unrolled this as ~180 lines of cut-and-paste
+// branches; a single table is easier to scan and to extend.
+type envBinding struct {
+	name  string
+	apply func(value string, c *ServerOptions)
+}
+
+// parseEnvBool reports whether `v` looks like a "true"-ish value. Returns
+// (set=false) when the input doesn't match any known form, leaving the
+// caller's field untouched. Accepts the canonical pair plus yes/no/on/off
+// because BannerColor historically accepted them and reusing this helper
+// avoids two parsers.
+func parseEnvBool(v string) (set, value bool) {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "true", "1", "yes", "on":
+		return true, true
+	case "false", "0", "no", "off":
+		return true, false
+	}
+	return false, false
+}
+
+func envBool(setter func(*ServerOptions, bool)) func(string, *ServerOptions) {
+	return func(v string, c *ServerOptions) {
+		if set, b := parseEnvBool(v); set {
+			setter(c, b)
+		}
+	}
+}
+
+func defaultEnvBindings() []envBinding {
+	return []envBinding{
+		// String fields — assign verbatim when non-empty.
+		{paramServerAddr, func(v string, c *ServerOptions) { c.Addr = v }},
+		{paramHealthAddr, func(v string, c *ServerOptions) { c.HealthAddr = v }},
+		{paramMCPEndpoint, func(v string, c *ServerOptions) { c.MCPEndpoint = v }},
+		{paramMCPServerName, func(v string, c *ServerOptions) { c.MCPServerName = v }},
+		{paramMCPServerVersion, func(v string, c *ServerOptions) { c.MCPServerVersion = v }},
+		{paramMCPFileToolRoot, func(v string, c *ServerOptions) { c.MCPFileToolRoot = v }},
+		{paramLogLevel, func(v string, c *ServerOptions) { c.LogLevel = v }},
+
+		// Bool fields — only honour known truthy/falsy spellings.
+		{paramHardenedMode, envBool(func(c *ServerOptions, b bool) {
+			if b {
+				c.HardenedMode = true
+			}
+		})},
+		{paramMCPEnabled, envBool(func(c *ServerOptions, b bool) { c.MCPEnabled = b })},
+		{paramMCPToolsEnabled, envBool(func(c *ServerOptions, b bool) { c.MCPToolsEnabled = b })},
+		{paramMCPResourcesEnabled, envBool(func(c *ServerOptions, b bool) { c.MCPResourcesEnabled = b })},
+		{paramMCPDev, envBool(func(c *ServerOptions, b bool) { c.MCPDev = b })},
+		{paramMCPObservability, envBool(func(c *ServerOptions, b bool) { c.MCPObservability = b })},
+		{paramCSPWebWorkerSupport, envBool(func(c *ServerOptions, b bool) { c.CSPWebWorkerSupport = b })},
+		{paramSuppressBanner, envBool(func(c *ServerOptions, b bool) { c.SuppressBanner = b })},
+		{paramBannerColor, envBool(func(c *ServerOptions, b bool) { c.BannerColor = b })},
+
+		// Debug mode is a bool with a side effect (forces LogLevel=DEBUG)
+		// so it doesn't fit the simple bool binding.
+		{paramDebugMode, func(v string, c *ServerOptions) {
+			set, b := parseEnvBool(v)
+			if !set {
+				return
+			}
+			c.DebugMode = b
+			if b {
+				c.LogLevel = "DEBUG"
+			}
+		}},
+
+		// MCP transport is an enum decoded into mcp.TransportType.
+		{paramMCPTransport, func(v string, c *ServerOptions) {
+			switch v {
+			case "stdio":
+				c.MCPTransport = mcp.StdioTransport
+			case "http":
+				c.MCPTransport = mcp.HTTPTransport
+			}
+		}},
+	}
+}
+
+// applyEnvVars reads HS_-prefixed environment variables onto `config`.
+// Bindings are table-driven (defaultEnvBindings); CORS variables stay
+// inline below because each one feeds a different field on the nested
+// CORSOptions struct and needs the same "lazy allocate, normalise once"
+// post-pass.
 func applyEnvVars(config *ServerOptions) *ServerOptions {
-	if addr := os.Getenv(paramServerAddr); addr != "" {
-		config.Addr = addr
-		logger.Debug("Server address set from environment variable", "variable", paramServerAddr, "addr", addr)
-	}
-	if healthAddr := os.Getenv(paramHealthAddr); healthAddr != "" {
-		config.HealthAddr = healthAddr
-		logger.Debug("Health endpoint address set from environment variable", "variable", paramHealthAddr, "addr", healthAddr)
-	}
-	if hardenedMode := os.Getenv(paramHardenedMode); hardenedMode != "" {
-		if hardenedMode == "true" || hardenedMode == "1" {
-			config.HardenedMode = true
-			logger.Debug("Hardened mode enabled from environment variable", "variable", paramHardenedMode)
+	for _, b := range defaultEnvBindings() {
+		if v := os.Getenv(b.name); v != "" {
+			b.apply(v, config)
 		}
 	}
 
-	// MCP (Model Context Protocol) environment variables
-	if mcpEnabled := os.Getenv(paramMCPEnabled); mcpEnabled != "" {
-		if mcpEnabled == "true" || mcpEnabled == "1" {
-			config.MCPEnabled = true
-			logger.Debug("MCP enabled from environment variable", "variable", paramMCPEnabled)
-		} else if mcpEnabled == "false" || mcpEnabled == "0" {
-			config.MCPEnabled = false
-			logger.Debug("MCP disabled from environment variable", "variable", paramMCPEnabled)
-		}
-	}
-	if mcpEndpoint := os.Getenv(paramMCPEndpoint); mcpEndpoint != "" {
-		config.MCPEndpoint = mcpEndpoint
-		logger.Debug("MCP endpoint set from environment variable", "variable", paramMCPEndpoint, "endpoint", mcpEndpoint)
-	}
-	if mcpServerName := os.Getenv(paramMCPServerName); mcpServerName != "" {
-		config.MCPServerName = mcpServerName
-		logger.Debug("MCP server name set from environment variable", "variable", paramMCPServerName, "name", mcpServerName)
-	}
-	if mcpServerVersion := os.Getenv(paramMCPServerVersion); mcpServerVersion != "" {
-		config.MCPServerVersion = mcpServerVersion
-		logger.Debug("MCP server version set from environment variable", "variable", paramMCPServerVersion, "version", mcpServerVersion)
-	}
-	if mcpToolsEnabled := os.Getenv(paramMCPToolsEnabled); mcpToolsEnabled != "" {
-		if mcpToolsEnabled == "true" || mcpToolsEnabled == "1" {
-			config.MCPToolsEnabled = true
-			logger.Debug("MCP tools enabled from environment variable", "variable", paramMCPToolsEnabled)
-		} else if mcpToolsEnabled == "false" || mcpToolsEnabled == "0" {
-			config.MCPToolsEnabled = false
-			logger.Debug("MCP tools disabled from environment variable", "variable", paramMCPToolsEnabled)
-		}
-	}
-	if mcpResourcesEnabled := os.Getenv(paramMCPResourcesEnabled); mcpResourcesEnabled != "" {
-		if mcpResourcesEnabled == "true" || mcpResourcesEnabled == "1" {
-			config.MCPResourcesEnabled = true
-			logger.Debug("MCP resources enabled from environment variable", "variable", paramMCPResourcesEnabled)
-		} else if mcpResourcesEnabled == "false" || mcpResourcesEnabled == "0" {
-			config.MCPResourcesEnabled = false
-			logger.Debug("MCP resources disabled from environment variable", "variable", paramMCPResourcesEnabled)
-		}
-	}
-	if mcpFileToolRoot := os.Getenv(paramMCPFileToolRoot); mcpFileToolRoot != "" {
-		config.MCPFileToolRoot = mcpFileToolRoot
-		logger.Debug("MCP file tool root set from environment variable", "variable", paramMCPFileToolRoot, "root", mcpFileToolRoot)
-	}
-	if mcpDev := os.Getenv(paramMCPDev); mcpDev != "" {
-		if mcpDev == "true" || mcpDev == "1" {
-			config.MCPDev = true
-			logger.Debug("MCP developer mode enabled from environment variable", "variable", paramMCPDev)
-		} else if mcpDev == "false" || mcpDev == "0" {
-			config.MCPDev = false
-			logger.Debug("MCP developer mode disabled from environment variable", "variable", paramMCPDev)
-		}
-	}
-	if mcpObservability := os.Getenv(paramMCPObservability); mcpObservability != "" {
-		if mcpObservability == "true" || mcpObservability == "1" {
-			config.MCPObservability = true
-			logger.Debug("MCP observability enabled from environment variable", "variable", paramMCPObservability)
-		} else if mcpObservability == "false" || mcpObservability == "0" {
-			config.MCPObservability = false
-			logger.Debug("MCP observability disabled from environment variable", "variable", paramMCPObservability)
-		}
-	}
-	if mcpTransport := os.Getenv(paramMCPTransport); mcpTransport != "" {
-		if mcpTransport == "stdio" {
-			config.MCPTransport = mcp.StdioTransport
-		} else if mcpTransport == "http" {
-			config.MCPTransport = mcp.HTTPTransport
-		}
-		logger.Debug("MCP transport set from environment variable", "variable", paramMCPTransport, "transport", mcpTransport)
-	}
-
-	// CSP (Content Security Policy) environment variables
-	if cspWebWorkerSupport := os.Getenv(paramCSPWebWorkerSupport); cspWebWorkerSupport != "" {
-		if cspWebWorkerSupport == "true" || cspWebWorkerSupport == "1" {
-			config.CSPWebWorkerSupport = true
-			logger.Debug("CSP Web Worker support enabled from environment variable", "variable", paramCSPWebWorkerSupport)
-		} else if cspWebWorkerSupport == "false" || cspWebWorkerSupport == "0" {
-			config.CSPWebWorkerSupport = false
-			logger.Debug("CSP Web Worker support disabled from environment variable", "variable", paramCSPWebWorkerSupport)
-		}
-	}
-
-	// Logging environment variables
-	if logLevel := os.Getenv(paramLogLevel); logLevel != "" {
-		config.LogLevel = logLevel
-		logger.Debug("Log level set from environment variable", "variable", paramLogLevel, "level", logLevel)
-	}
-	if debugMode := os.Getenv(paramDebugMode); debugMode != "" {
-		if debugMode == "true" || debugMode == "1" {
-			config.DebugMode = true
-			config.LogLevel = "DEBUG" // Debug mode implies debug log level
-			logger.Debug("Debug mode enabled from environment variable", "variable", paramDebugMode)
-		} else if debugMode == "false" || debugMode == "0" {
-			config.DebugMode = false
-			logger.Debug("Debug mode disabled from environment variable", "variable", paramDebugMode)
-		}
-	}
-
-	// Banner configuration
-	if suppressBanner := os.Getenv(paramSuppressBanner); suppressBanner != "" {
-		if suppressBanner == "true" || suppressBanner == "1" {
-			config.SuppressBanner = true
-			logger.Debug("Banner suppression enabled from environment variable", "variable", paramSuppressBanner)
-		} else if suppressBanner == "false" || suppressBanner == "0" {
-			config.SuppressBanner = false
-			logger.Debug("Banner suppression disabled from environment variable", "variable", paramSuppressBanner)
-		}
-	}
-	if bannerColor := os.Getenv(paramBannerColor); bannerColor != "" {
-		switch strings.ToLower(strings.TrimSpace(bannerColor)) {
-		case "true", "1", "yes", "on":
-			config.BannerColor = true
-			logger.Debug("Banner color enabled from environment variable", "variable", paramBannerColor)
-		case "false", "0", "no", "off":
-			config.BannerColor = false
-			logger.Debug("Banner color disabled from environment variable", "variable", paramBannerColor)
-		}
-	}
-
-	// CORS environment variables
+	// CORS environment variables — each one mutates a nested struct that
+	// must exist by the time we write to it, so the inline form stays.
 	corsConfigured := false
 	if allowed := os.Getenv(paramCORSAllowedOrigins); allowed != "" {
-		cors := ensureCORSOptions(config)
-		cors.AllowedOrigins = sanitizeTokens(strings.Split(allowed, ","), false)
+		ensureCORSOptions(config).AllowedOrigins = sanitizeTokens(strings.Split(allowed, ","), false)
 		corsConfigured = true
 	}
 	if methods := os.Getenv(paramCORSAllowedMethods); methods != "" {
-		cors := ensureCORSOptions(config)
-		cors.AllowedMethods = sanitizeTokens(strings.Split(methods, ","), true)
+		ensureCORSOptions(config).AllowedMethods = sanitizeTokens(strings.Split(methods, ","), true)
 		corsConfigured = true
 	}
 	if headers := os.Getenv(paramCORSAllowedHeaders); headers != "" {
-		cors := ensureCORSOptions(config)
-		cors.AllowedHeaders = sanitizeTokens(strings.Split(headers, ","), false)
+		ensureCORSOptions(config).AllowedHeaders = sanitizeTokens(strings.Split(headers, ","), false)
 		corsConfigured = true
 	}
 	if expose := os.Getenv(paramCORSExposeHeaders); expose != "" {
-		cors := ensureCORSOptions(config)
-		cors.ExposeHeaders = sanitizeTokens(strings.Split(expose, ","), false)
+		ensureCORSOptions(config).ExposeHeaders = sanitizeTokens(strings.Split(expose, ","), false)
 		corsConfigured = true
 	}
 	if allowCreds := os.Getenv(paramCORSAllowCredentials); allowCreds != "" {
-		cors := ensureCORSOptions(config)
-		switch strings.ToLower(strings.TrimSpace(allowCreds)) {
-		case "true", "1":
-			cors.AllowCredentials = true
-		case "false", "0":
-			cors.AllowCredentials = false
+		if set, b := parseEnvBool(allowCreds); set {
+			ensureCORSOptions(config).AllowCredentials = b
+			corsConfigured = true
 		}
-		corsConfigured = true
 	}
 	if maxAge := os.Getenv(paramCORSMaxAge); maxAge != "" {
 		if seconds, err := strconv.Atoi(strings.TrimSpace(maxAge)); err == nil && seconds >= 0 {
-			cors := ensureCORSOptions(config)
-			cors.MaxAgeSeconds = seconds
+			ensureCORSOptions(config).MaxAgeSeconds = seconds
 			corsConfigured = true
 		}
 	}
@@ -429,18 +376,17 @@ func mergeConfig(base *ServerOptions, override *ServerOptions) {
 	}
 }
 
-// setTimeouts helper to apply only custom values or retain the server default
+// setTimeouts applies non-zero timeouts to ServerOptions. StartServer reads
+// these when it constructs the underlying *http.Server, so writing to the
+// http.Server directly here would NPE — it is built lazily.
 func (srv *Server) setTimeouts(readTimeout, writeTimeout, idleTimeout time.Duration) {
 	if readTimeout != 0 {
 		srv.Options.ReadTimeout = readTimeout
-		srv.httpServer.ReadTimeout = readTimeout
 	}
 	if writeTimeout != 0 {
 		srv.Options.WriteTimeout = writeTimeout
-		srv.httpServer.WriteTimeout = writeTimeout
 	}
 	if idleTimeout != 0 {
 		srv.Options.IdleTimeout = idleTimeout
-		srv.httpServer.IdleTimeout = idleTimeout
 	}
 }

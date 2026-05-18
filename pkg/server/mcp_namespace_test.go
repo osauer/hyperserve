@@ -276,17 +276,16 @@ func testNamespaceToolExecution(t *testing.T) {
 	}
 
 	// Verify response
-	result, ok := response.Result.(map[string]any)
+	result, ok := response.Result.(mcp.ToolResult)
 	if !ok {
-		t.Fatal("Expected map result")
+		t.Fatalf("Expected ToolResult, got %T", response.Result)
 	}
 
-	content, ok := result["content"].([]map[string]any)
-	if !ok || len(content) == 0 {
+	if len(result.Content) == 0 {
 		t.Fatal("Expected content array in result")
 	}
 
-	text, _ := content[0]["text"].(string)
+	text, _ := result.Content[0]["text"].(string)
 	if !strings.Contains(text, "calculate") || !strings.Contains(text, "2+2") {
 		t.Errorf("Unexpected result text: %s", text)
 	}
@@ -341,7 +340,7 @@ func testNamespaceResourceRead(t *testing.T) {
 	}
 
 	result, _ := response.Result.(map[string]any)
-	resources, _ := result["resources"].([]map[string]any)
+	resources, _ := result["resources"].([]mcp.ResourceInfo)
 
 	// Verify resources have namespace prefixes
 	expectedURIs := map[string]bool{
@@ -350,9 +349,8 @@ func testNamespaceResourceRead(t *testing.T) {
 	}
 
 	for _, resource := range resources {
-		uri, _ := resource["uri"].(string)
-		if _, expected := expectedURIs[uri]; expected {
-			expectedURIs[uri] = true
+		if _, expected := expectedURIs[resource.URI]; expected {
+			expectedURIs[resource.URI] = true
 		}
 	}
 
@@ -378,12 +376,12 @@ func testNamespaceResourceRead(t *testing.T) {
 	}
 
 	result, _ = response.Result.(map[string]any)
-	contents, _ := result["contents"].([]map[string]any)
+	contents, _ := result["contents"].([]mcp.ResourceContent)
 	if len(contents) == 0 {
 		t.Fatal("Expected resource contents")
 	}
 
-	text, _ := contents[0]["text"].(string)
+	text, _ := contents[0].Text.(string)
 	if text != "Content from App Config" {
 		t.Errorf("Unexpected resource content: %s", text)
 	}

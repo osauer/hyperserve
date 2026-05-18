@@ -1,7 +1,9 @@
 # HyperServe
 
-A Go HTTP framework with built-in MCP (Model Context Protocol) support and a single
-transitive dependency (`golang.org/x/time`). `go.sum` has two lines.
+A Go HTTP framework with built-in MCP (Model Context Protocol) support. The runtime
+has one transitive dependency: `golang.org/x/time`. (The `go.mod` `tool` directive
+pulls in `golang.org/x/tools` for the modernize check gate; those are build-time
+only and don't ship in your binary.)
 
 The point: a small `net/http`-shaped server that ships an MCP control plane in the
 same binary, so AI assistants can introspect and operate the server without an
@@ -38,10 +40,10 @@ go get github.com/osauer/hyperserve/pkg/server
 
 - HTTP server built on `net/http`, with grouping, middleware chain, and graceful shutdown.
 - MCP server (HTTP, SSE, stdio transports) with discovery endpoints and namespace support.
-- WebSocket implementation (RFC 6455) with connection pooling.
+- WebSocket implementation (RFC 6455).
 - JSON-RPC 2.0 engine reused by MCP.
 - Middleware: recovery, request logging, metrics, CORS, security headers, rate limiting, auth.
-- Static file serving sandboxed via `os.Root` (Go 1.24).
+- Static file serving sandboxed via `os.Root`.
 - Deferred-init lifecycle: serve `/healthz` immediately while bootstrap work runs in the background.
 
 ## Scaffold a new service
@@ -111,7 +113,7 @@ See [examples/deferred-init](./examples/deferred-init/).
 ## Examples
 
 [examples/](./examples) covers HTTP, WebSocket, MCP (HTTP/SSE/stdio/discovery/extensions),
-auth + RBAC, interceptors, htmx, and static file serving. Each example is a self-contained
+auth + RBAC, htmx, and static file serving. Each example is a self-contained
 `go run .` target.
 
 ## Documentation

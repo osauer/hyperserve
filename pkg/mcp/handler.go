@@ -339,13 +339,13 @@ func (h *Handler) handleInitialized(_ any) (any, error) {
 }
 
 func (h *Handler) handleResourcesList(_ any) (any, error) {
-	resources := make([]map[string]any, 0, len(h.resources))
+	resources := make([]ResourceInfo, 0, len(h.resources))
 	for prefixedURI, resource := range h.resources {
-		resources = append(resources, map[string]any{
-			"uri":         prefixedURI,
-			"name":        resource.Name(),
-			"description": resource.Description(),
-			"mimeType":    resource.MimeType(),
+		resources = append(resources, ResourceInfo{
+			URI:         prefixedURI,
+			Name:        resource.Name(),
+			Description: resource.Description(),
+			MimeType:    resource.MimeType(),
 		})
 	}
 	return map[string]any{"resources": resources}, nil
@@ -393,12 +393,8 @@ func (h *Handler) handleResourcesRead(params any) (any, error) {
 		cacheHit = true
 		h.metrics.recordResourceRead(readParams.URI, time.Since(start), nil, true)
 		return map[string]any{
-			"contents": []map[string]any{
-				{
-					"uri":      resource.URI(),
-					"mimeType": resource.MimeType(),
-					"text":     cachedContent,
-				},
+			"contents": []ResourceContent{
+				{URI: resource.URI(), MimeType: resource.MimeType(), Text: cachedContent},
 			},
 		}, nil
 	}
@@ -426,23 +422,19 @@ func (h *Handler) handleResourcesRead(params any) (any, error) {
 	h.cache.set(cacheKey, textContent, 5*time.Minute)
 
 	return map[string]any{
-		"contents": []map[string]any{
-			{
-				"uri":      resource.URI(),
-				"mimeType": resource.MimeType(),
-				"text":     textContent,
-			},
+		"contents": []ResourceContent{
+			{URI: resource.URI(), MimeType: resource.MimeType(), Text: textContent},
 		},
 	}, nil
 }
 
 func (h *Handler) handleToolsList(_ any) (any, error) {
-	tools := make([]map[string]any, 0, len(h.tools))
+	tools := make([]ToolInfo, 0, len(h.tools))
 	for prefixedName, tool := range h.tools {
-		tools = append(tools, map[string]any{
-			"name":        prefixedName,
-			"description": tool.Description(),
-			"inputSchema": tool.Schema(),
+		tools = append(tools, ToolInfo{
+			Name:        prefixedName,
+			Description: tool.Description(),
+			InputSchema: tool.Schema(),
 		})
 	}
 	return map[string]any{"tools": tools}, nil
@@ -516,10 +508,10 @@ func (h *Handler) handleToolsCall(params any) (any, error) {
 		content = []map[string]any{{"type": "text", "text": string(jsonBytes)}}
 	}
 
-	response := map[string]any{"content": content}
+	response := ToolResult{Content: content}
 	if resultMap, ok := result.(map[string]any); ok {
 		if isError, ok := resultMap["isError"].(bool); ok && isError {
-			response["isError"] = true
+			response.IsError = true
 		}
 	}
 	return response, nil

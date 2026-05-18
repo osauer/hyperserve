@@ -18,7 +18,7 @@ func TestWebSocketTelemetry(t *testing.T) {
 
 	// Get initial metrics
 	initialRequests := srv.totalRequests.Load()
-	initialWebSockets := srv.websocketConnections.Load()
+	initialWebSockets := srv.totalWebSocketUpgrades.Load()
 
 	// Create WebSocket handler using server's upgrader
 	upgrader := srv.WebSocketUpgrader()
@@ -55,7 +55,7 @@ func TestWebSocketTelemetry(t *testing.T) {
 
 	// Check that metrics were updated
 	newRequests := srv.totalRequests.Load()
-	newWebSockets := srv.websocketConnections.Load()
+	newWebSockets := srv.totalWebSocketUpgrades.Load()
 
 	// Note: httptest.ResponseRecorder doesn't support hijacking, so the WebSocket upgrade fails
 	// But we should see that BeforeUpgrade was called and metrics were incremented
@@ -120,7 +120,7 @@ func TestWebSocketMetricsInServerLog(t *testing.T) {
 	}
 
 	// Simulate WebSocket connections
-	srv.websocketConnections.Store(3)
+	srv.totalWebSocketUpgrades.Store(3)
 
 	// Capture the metrics log
 	srv.serverStart = time.Now().Add(-time.Hour) // Pretend server started 1 hour ago
@@ -131,8 +131,8 @@ func TestWebSocketMetricsInServerLog(t *testing.T) {
 		t.Errorf("Expected 5 total requests, got %d", srv.totalRequests.Load())
 	}
 
-	if srv.websocketConnections.Load() != 3 {
-		t.Errorf("Expected 3 WebSocket connections, got %d", srv.websocketConnections.Load())
+	if srv.totalWebSocketUpgrades.Load() != 3 {
+		t.Errorf("Expected 3 WebSocket upgrades, got %d", srv.totalWebSocketUpgrades.Load())
 	}
 }
 

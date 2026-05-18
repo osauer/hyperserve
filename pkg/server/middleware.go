@@ -34,7 +34,7 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"reflect"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -55,10 +55,8 @@ type MiddlewareStack []MiddlewareFunc
 const GlobalMiddlewareRoute = "*"
 
 // MiddlewareRegistry manages middleware stacks for different routes.
-// It allows route-specific middleware configuration and supports exclusion of specific middleware.
 type MiddlewareRegistry struct {
 	middleware map[string]MiddlewareStack
-	exclude    []MiddlewareFunc
 }
 
 // NewMiddlewareRegistry creates a new MiddlewareRegistry with optional global middleware.
@@ -74,54 +72,41 @@ func NewMiddlewareRegistry(globalMiddleware MiddlewareStack) *MiddlewareRegistry
 	return ret
 }
 
-// Filter the MiddlewareRegistry based on include and exclude stacks
-func (mwr *MiddlewareRegistry) filterMiddleware() {
-	// range through the exclude middleware and remove them from the middleware registry
-	for _, excl := range mwr.exclude {
-		// range through all routes in the registry
-		for key, mw := range mwr.middleware {
-			filtered := MiddlewareStack{}
-			for _, m := range mw {
-				// we need to use reflect as Go as of 1.23 does not support direct comparison of func variables
-				if reflect.ValueOf(m) != reflect.ValueOf(excl) {
-					filtered = append(filtered, m)
-				}
-			}
-			mwr.middleware[key] = filtered
-		}
-	}
-}
-
-// applyToMux creates a handler that applies route-specific middleware
+// applyToMux returns an http.Handler that, per request, chains the global
+// stack ("*") plus every route-specific stack whose key is a prefix of the
+// request path. Route keys are sorted by ascending length (ties alphabetical)
+// so more-specific prefixes wrap the handler more tightly and ordering is
+// deterministic across requests — Go's map-iteration randomness must not
+// leak into middleware order.
 func (mwr *MiddlewareRegistry) applyToMux(mux *http.ServeMux) http.Handler {
-	mwr.filterMiddleware()
-
-	// Return a handler that checks routes and applies appropriate middleware
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Start with the original mux as the final handler
 		finalHandler := http.Handler(mux)
 
-		// Collect all applicable middleware for this request path
 		var applicableMiddleware []MiddlewareFunc
-
-		// First, add global middleware (if any)
 		if globalStack, exists := mwr.middleware[GlobalMiddlewareRoute]; exists {
 			applicableMiddleware = append(applicableMiddleware, globalStack...)
 		}
 
-		// Then, add route-specific middleware
-		for route, stack := range mwr.middleware {
-			if route != GlobalMiddlewareRoute && strings.HasPrefix(r.URL.Path, route) {
-				applicableMiddleware = append(applicableMiddleware, stack...)
+		routeKeys := make([]string, 0, len(mwr.middleware))
+		for k := range mwr.middleware {
+			if k != GlobalMiddlewareRoute && strings.HasPrefix(r.URL.Path, k) {
+				routeKeys = append(routeKeys, k)
 			}
 		}
+		sort.Slice(routeKeys, func(i, j int) bool {
+			if len(routeKeys[i]) != len(routeKeys[j]) {
+				return len(routeKeys[i]) < len(routeKeys[j])
+			}
+			return routeKeys[i] < routeKeys[j]
+		})
+		for _, route := range routeKeys {
+			applicableMiddleware = append(applicableMiddleware, mwr.middleware[route]...)
+		}
 
-		// Apply middleware in reverse order (so first registered runs first)
 		for i := len(applicableMiddleware) - 1; i >= 0; i-- {
 			finalHandler = applicableMiddleware[i](finalHandler)
 		}
 
-		// Serve the request with the wrapped handler
 		finalHandler.ServeHTTP(w, r)
 	})
 }
@@ -176,12 +161,6 @@ func SecureAPI(srv *Server) MiddlewareStack {
 // SecureWeb returns a middleware stack configured for secure web endpoints.
 // Includes security headers middleware for web applications.
 func SecureWeb(options *ServerOptions) MiddlewareStack {
-	return MiddlewareStack{HeadersMiddleware(options)}
-}
-
-// FileServer returns a middleware stack optimized for serving static files.
-// Includes appropriate security headers for file serving.
-func FileServer(options *ServerOptions) MiddlewareStack {
 	return MiddlewareStack{HeadersMiddleware(options)}
 }
 
@@ -300,17 +279,6 @@ func RequestLoggerMiddleware(next http.Handler) http.HandlerFunc {
 	}
 }
 
-// ResponseTimeMiddleware returns a middleware function that logs only the request duration.
-// This is a lighter alternative to RequestLoggerMiddleware when only timing information is needed.
-func ResponseTimeMiddleware(next http.Handler) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		next.ServeHTTP(w, r)
-		duration := time.Since(start)
-		logger.Info("Request duration", "duration", duration)
-	}
-}
-
 // RecoveryMiddleware returns a middleware function that recovers from panics in request handlers.
 // Catches panics, logs the error, and returns a 500 Internal Server Error response.
 func RecoveryMiddleware(next http.Handler) http.HandlerFunc {
@@ -346,17 +314,15 @@ func RateLimitMiddleware(srv *Server) MiddlewareFunc {
 				entry, exists = srv.rateLimiters.clients[ip]
 				if !exists {
 					entry = &rateLimiterEntry{
-						limiter:    rate.NewLimiter(srv.Options.RateLimit, srv.Options.Burst),
-						lastAccess: time.Now(),
+						limiter: rate.NewLimiter(srv.Options.RateLimit, srv.Options.Burst),
 					}
+					entry.lastAccessUnixNano.Store(time.Now().UnixNano())
 					srv.rateLimiters.clients[ip] = entry
 				}
 				srv.rateLimiters.mu.Unlock()
 			} else {
-				// Update last access time
-				srv.rateLimiters.mu.Lock()
-				entry.lastAccess = time.Now()
-				srv.rateLimiters.mu.Unlock()
+				// Hot-path timestamp bump — atomic store, no second lock.
+				entry.lastAccessUnixNano.Store(time.Now().UnixNano())
 			}
 
 			if entry.limiter.Allow() {

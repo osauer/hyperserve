@@ -188,10 +188,14 @@ const (
 // RateLimit limits requests per second that can be requested from the httpServer. Requires to add [RateLimitMiddleware]
 type RateLimit = rate.Limit
 
-// rateLimiterEntry stores a rate limiter with last access time for cleanup
+// rateLimiterEntry stores a rate limiter with last access time for cleanup.
+// lastAccessUnixNano is accessed by both the request hot path (every request
+// updates it) and the cleanup ticker (10-min stale eviction). Using an atomic
+// lets the hot path skip the rate-limiter pool's write lock — the prior
+// implementation took the pool's RWMutex.Lock() solely to bump a timestamp.
 type rateLimiterEntry struct {
-	limiter    *rate.Limiter
-	lastAccess time.Time
+	limiter            *rate.Limiter
+	lastAccessUnixNano atomic.Int64
 }
 
 // Server represents an HTTP server with built-in middleware support, health checks,
@@ -210,26 +214,26 @@ type rateLimiterEntry struct {
 //	srv.HandleFunc("/api/users", handleUsers)
 //	srv.Run()
 type Server struct {
-	mux                  *http.ServeMux
-	healthMux            *http.ServeMux
-	httpServer           *http.Server
-	healthServer         *http.Server
-	middleware           *MiddlewareRegistry
-	templates            *template.Template
-	templatesMu          sync.Mutex
-	Options              *ServerOptions
-	isReady              atomic.Bool
-	isRunning            atomic.Bool
-	totalRequests        atomic.Uint64
-	totalResponseTime    atomic.Int64
-	websocketConnections atomic.Uint64
-	serverStart          time.Time
-	routesMu             sync.RWMutex
-	staticRoot           *os.Root
-	templateRoot         *os.Root
-	mcpHandler           *mcp.Handler
-	rateLimiters         rateLimiterPool
-	deferred             deferredLifecycle
+	mux                    *http.ServeMux
+	healthMux              *http.ServeMux
+	httpServer             *http.Server
+	healthServer           *http.Server
+	middleware             *MiddlewareRegistry
+	templates              *template.Template
+	templatesMu            sync.Mutex
+	Options                *ServerOptions
+	isReady                atomic.Bool
+	isRunning              atomic.Bool
+	totalRequests          atomic.Uint64
+	totalResponseTime      atomic.Int64
+	totalWebSocketUpgrades atomic.Uint64
+	serverStart            time.Time
+	routesMu               sync.RWMutex
+	staticRoot             *os.Root
+	templateRoot           *os.Root
+	mcpHandler             *mcp.Handler
+	rateLimiters           rateLimiterPool
+	deferred               deferredLifecycle
 }
 
 // rateLimiterPool owns the per-client rate limiter map and its cleanup ticker.
@@ -271,12 +275,43 @@ type deferredLifecycle struct {
 //
 // Returns an error if any of the options fail to apply.
 func NewServer(opts ...ServerOptionFunc) (*Server, error) {
-	// init new httpServer
-	srv := &Server{
-		mux:         http.NewServeMux(),
-		Options:     NewServerOptions(),
-		templates:   nil,
-		templatesMu: sync.Mutex{},
+	srv := newServerSkeleton()
+
+	applyConfiguredLogLevel(srv.Options)
+
+	srv.middleware = NewMiddlewareRegistry(DefaultMiddleware(srv))
+	logger.Debug("Default middleware registered", "middlewares", []string{"MetricsMiddleware", "RequestLoggerMiddleware", "RecoveryMiddleware"})
+
+	for _, opt := range opts {
+		if err := opt(srv); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := autoConfigureMCPFromEnv(srv); err != nil {
+		return nil, err
+	}
+
+	openTemplateRoot(srv)
+
+	if srv.Options.MCPEnabled {
+		initializeMCPHandler(srv)
+	}
+
+	// Start cleanup ticker for rate limiters (run every 5 minutes)
+	srv.rateLimiters.cleanupTicker = time.NewTicker(5 * time.Minute)
+	go srv.cleanupRateLimiters()
+
+	srv.isReady.Store(srv.deferred.init == nil)
+	return srv, nil
+}
+
+// newServerSkeleton allocates the fields the rest of NewServer expects to
+// find non-nil — mux, options, rate-limiter pool, deferred-init bookkeeping.
+func newServerSkeleton() *Server {
+	return &Server{
+		mux:     http.NewServeMux(),
+		Options: NewServerOptions(),
 		rateLimiters: rateLimiterPool{
 			clients:     make(map[string]*rateLimiterEntry),
 			cleanupDone: make(chan bool),
@@ -290,10 +325,14 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 			routes: make(map[string]struct{}),
 		},
 	}
+}
 
-	// Apply log level from configuration before anything else
-	if srv.Options.LogLevel != "" {
-		switch srv.Options.LogLevel {
+// applyConfiguredLogLevel maps the LogLevel string (or DebugMode flag) onto
+// slog's default logger. Done before option apply so option closures can
+// see the chosen level immediately.
+func applyConfiguredLogLevel(opts *ServerOptions) {
+	if opts.LogLevel != "" {
+		switch opts.LogLevel {
 		case "DEBUG":
 			slog.SetLogLoggerLevel(slog.LevelDebug)
 		case "INFO":
@@ -303,130 +342,113 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 		case "ERROR":
 			slog.SetLogLoggerLevel(slog.LevelError)
 		default:
-			logger.Warn("Unknown log level, using INFO", "level", srv.Options.LogLevel)
+			logger.Warn("Unknown log level, using INFO", "level", opts.LogLevel)
 			slog.SetLogLoggerLevel(slog.LevelInfo)
 		}
 	}
-
-	// Apply debug mode if enabled
-	if srv.Options.DebugMode {
+	if opts.DebugMode {
 		slog.SetLogLoggerLevel(slog.LevelDebug)
 		logger.Debug("Debug mode enabled from configuration")
 	}
+}
 
-	srv.middleware = NewMiddlewareRegistry(DefaultMiddleware(srv))
-	logger.Debug("Default middleware registered", "middlewares", []string{"MetricsMiddleware", "RequestLoggerMiddleware", "RecoveryMiddleware"})
-
-	// apply httpServer options
-	for _, opt := range opts {
-		if err := opt(srv); err != nil {
-			return nil, err
-		}
+// autoConfigureMCPFromEnv handles the "env/flags asked for MCP but no
+// WithMCPSupport was called" path. Programmatic configuration (via
+// WithMCPSupport with explicit modes) always wins.
+func autoConfigureMCPFromEnv(srv *Server) error {
+	if !srv.Options.MCPEnabled || srv.Options.MCPServerName == "" || srv.mcpHandler != nil {
+		return nil
 	}
-	if srv.deferred.init == nil && srv.Options.DeferredInit != nil {
-		srv.deferred.init = srv.Options.DeferredInit
+	if srv.Options.mcpTransportOpts.DeveloperMode || srv.Options.mcpTransportOpts.ObservabilityMode {
+		logger.Debug("MCP already configured programmatically, skipping auto-configuration")
+		return nil
 	}
-
-	// Auto-configure MCP if enabled via environment/flags but not already configured programmatically
-	if srv.Options.MCPEnabled && srv.Options.MCPServerName != "" && srv.mcpHandler == nil {
-		// Check if MCP was already configured programmatically (via WithMCPSupport)
-		if srv.Options.mcpTransportOpts.DeveloperMode || srv.Options.mcpTransportOpts.ObservabilityMode {
-			// MCP was already configured with specific modes, skip auto-configuration
-			logger.Debug("MCP already configured programmatically, skipping auto-configuration")
-		} else if srv.Options.MCPDev || srv.Options.MCPObservability {
-			// Auto-configure from environment/flags
-			var mcpConfigs []mcp.TransportConfig
-
-			// Set transport
-			if srv.Options.MCPTransport == mcp.StdioTransport {
-				mcpConfigs = append(mcpConfigs, mcp.OverStdio())
-			}
-			// HTTP is the default, no need to explicitly add
-
-			// Add developer mode if enabled
-			if srv.Options.MCPDev {
-				mcpConfigs = append(mcpConfigs, MCPDev())
-			}
-
-			// Add observability if enabled
-			if srv.Options.MCPObservability {
-				mcpConfigs = append(mcpConfigs, MCPObservability())
-			}
-
-			// Apply MCP configuration
-			if err := WithMCPSupport(srv.Options.MCPServerName, srv.Options.MCPServerVersion, mcpConfigs...)(srv); err != nil {
-				return nil, fmt.Errorf("failed to auto-configure MCP: %w", err)
-			}
-			logger.Info("MCP auto-configured from environment/flags",
-				"name", srv.Options.MCPServerName,
-				"transport", srv.Options.MCPTransport,
-				"dev", srv.Options.MCPDev,
-				"observability", srv.Options.MCPObservability)
-		}
+	if !srv.Options.MCPDev && !srv.Options.MCPObservability {
+		return nil
 	}
 
-	// Static root will be initialized lazily when HandleStatic is called
-
-	if srv.Options.TemplateDir != "" {
-		templateRoot, err := os.OpenRoot(srv.Options.TemplateDir)
-		if err != nil {
-			logger.Debug("Failed to open template root directory", "error", err, "dir", srv.Options.TemplateDir)
-		} else {
-			srv.templateRoot = templateRoot
-			logger.Debug("Template root initialized", "dir", srv.Options.TemplateDir)
-		}
+	var mcpConfigs []mcp.TransportConfig
+	if srv.Options.MCPTransport == mcp.StdioTransport {
+		mcpConfigs = append(mcpConfigs, mcp.OverStdio())
+	}
+	if srv.Options.MCPDev {
+		mcpConfigs = append(mcpConfigs, MCPDev())
+	}
+	if srv.Options.MCPObservability {
+		mcpConfigs = append(mcpConfigs, MCPObservability())
 	}
 
-	// Initialize MCP handler if enabled
-	if srv.Options.MCPEnabled {
-		serverInfo := mcp.ServerInfo{
-			Name:    srv.Options.MCPServerName,
-			Version: srv.Options.MCPServerVersion,
-		}
-		srv.mcpHandler = mcp.NewHandler(serverInfo)
+	if err := WithMCPSupport(srv.Options.MCPServerName, srv.Options.MCPServerVersion, mcpConfigs...)(srv); err != nil {
+		return fmt.Errorf("failed to auto-configure MCP: %w", err)
+	}
+	logger.Info("MCP auto-configured from environment/flags",
+		"name", srv.Options.MCPServerName,
+		"transport", srv.Options.MCPTransport,
+		"dev", srv.Options.MCPDev,
+		"observability", srv.Options.MCPObservability)
+	return nil
+}
 
-		// Built-in tools/resources are registered by pkg/mcp/builtin via the
-		// preset hooks below. The hooks are installed when pkg/mcp/builtin
-		// is imported (typically transitively, when the user picks a preset).
-		// pkg/server does not import builtin to avoid a circular dependency.
-		if srv.Options.mcpTransportOpts.DeveloperMode {
-			logger.Warn("⚠️  MCP DEVELOPER MODE ENABLED ⚠️",
-				"warning", "This mode allows server restart and configuration changes",
-				"security", "Only use in development environments")
-		}
-		if srv.Options.MCPToolsEnabled && builtinToolsHook != nil {
+// openTemplateRoot lazily opens TemplateDir under an os.Root so template
+// loads can't escape the configured directory. Failure is logged but not
+// fatal — handlers that need templates will report a clearer error later.
+func openTemplateRoot(srv *Server) {
+	if srv.Options.TemplateDir == "" {
+		return
+	}
+	templateRoot, err := os.OpenRoot(srv.Options.TemplateDir)
+	if err != nil {
+		logger.Debug("Failed to open template root directory", "error", err, "dir", srv.Options.TemplateDir)
+		return
+	}
+	srv.templateRoot = templateRoot
+	logger.Debug("Template root initialized", "dir", srv.Options.TemplateDir)
+}
+
+// initializeMCPHandler builds the MCP handler, fires the builtin-preset
+// hooks (registered by `pkg/mcp/builtin` blank-imports), and registers the
+// unified MCP endpoint + discovery routes on the mux.
+func initializeMCPHandler(srv *Server) {
+	serverInfo := mcp.ServerInfo{
+		Name:    srv.Options.MCPServerName,
+		Version: srv.Options.MCPServerVersion,
+	}
+	srv.mcpHandler = mcp.NewHandler(serverInfo)
+
+	if srv.Options.mcpTransportOpts.DeveloperMode {
+		logger.Warn("⚠️  MCP DEVELOPER MODE ENABLED ⚠️",
+			"warning", "This mode allows server restart and configuration changes",
+			"security", "Only use in development environments")
+	}
+	if srv.Options.MCPToolsEnabled {
+		if builtinToolsHook != nil {
 			builtinToolsHook(srv)
+		} else {
+			logger.Warn("WithMCPBuiltinTools(true) was set but no builtin tools are registered",
+				"reason", "missing blank import",
+				"fix", `add: _ "github.com/osauer/hyperserve/pkg/mcp/builtin"`)
 		}
-		if srv.Options.MCPResourcesEnabled {
-			switch {
-			case srv.Options.mcpTransportOpts.ObservabilityMode && builtinObservabilityHook != nil:
-				builtinObservabilityHook(srv)
-			case srv.Options.mcpTransportOpts.DeveloperMode && builtinDeveloperHook != nil:
-				builtinDeveloperHook(srv)
-			case builtinStandardResourcesHook != nil:
-				builtinStandardResourcesHook(srv)
-			}
+	}
+	if srv.Options.MCPResourcesEnabled {
+		switch {
+		case srv.Options.mcpTransportOpts.ObservabilityMode && builtinObservabilityHook != nil:
+			builtinObservabilityHook(srv)
+		case srv.Options.mcpTransportOpts.DeveloperMode && builtinDeveloperHook != nil:
+			builtinDeveloperHook(srv)
+		case builtinStandardResourcesHook != nil:
+			builtinStandardResourcesHook(srv)
+		default:
+			logger.Warn("WithMCPBuiltinResources(true) was set but no builtin resources are registered",
+				"reason", "missing blank import",
+				"fix", `add: _ "github.com/osauer/hyperserve/pkg/mcp/builtin"`)
 		}
-
-		// Register unified MCP endpoint
-		srv.registerRoute(srv.Options.MCPEndpoint)
-		srv.mux.Handle(srv.Options.MCPEndpoint, srv.mcpHandler)
-		logger.Debug("MCP handler initialized", "endpoint", srv.Options.MCPEndpoint)
-
-		// Setup discovery endpoints for Claude Code
-		srv.setupDiscoveryEndpoints()
 	}
 
-	// Start cleanup ticker for rate limiters (run every 5 minutes)
-	srv.rateLimiters.cleanupTicker = time.NewTicker(5 * time.Minute)
-	go srv.cleanupRateLimiters()
+	srv.registerRoute(srv.Options.MCPEndpoint)
+	srv.mux.Handle(srv.Options.MCPEndpoint, srv.mcpHandler)
+	logger.Debug("MCP handler initialized", "endpoint", srv.Options.MCPEndpoint)
 
-	if srv.deferred.init != nil {
-		srv.isReady.Store(false)
-	} else {
-		srv.isReady.Store(true)
-	}
-	return srv, nil
+	srv.setupDiscoveryEndpoints()
 }
 
 // Run starts the server and blocks until a shutdown signal is received.
@@ -569,7 +591,7 @@ func (srv *Server) logServerMetrics() {
 		"up-time", upTime,
 		"µs-in-handlers", resp,
 		"total-req", srv.totalRequests.Load(),
-		"websocket-connections", srv.websocketConnections.Load(),
+		"websocket-upgrades-total", srv.totalWebSocketUpgrades.Load(),
 		"avg-handles-per-µs", tp)
 }
 
@@ -593,7 +615,8 @@ func (srv *Server) tlsConfig() *tls.Config {
 			tls.CurveP256,
 			tls.CurveP384,
 		}
-		logger.Info("TLS configured in FIPS 140-3 mode")
+		logger.Info("TLS configured with FIPS-approved cipher suites and curves",
+			"note", "this is not full FIPS 140-3 compliance; see WithFIPSMode docs")
 	} else {
 		// Standard cipher suites including post-quantum ready
 		config.CipherSuites = []uint16{
@@ -1070,7 +1093,7 @@ func (srv *Server) WebSocketUpgrader() *websocket.Upgrader {
 		BeforeUpgrade: func(w http.ResponseWriter, r *http.Request) error {
 			// Track WebSocket upgrade as a request
 			srv.totalRequests.Add(1)
-			srv.websocketConnections.Add(1)
+			srv.totalWebSocketUpgrades.Add(1)
 			return nil
 		},
 	}
@@ -1091,14 +1114,6 @@ func (srv *Server) Stop() error {
 // server in an initializing state.
 func (srv *Server) CompleteDeferredInit(ctx context.Context, err error) error {
 	return srv.completeDeferredInit(ctx, err, nil)
-}
-
-func (srv *Server) WithOutStack(stack MiddlewareStack) error {
-	if srv.isRunning.Load() {
-		return fmt.Errorf("cannot change middleware after httpServer has started")
-	}
-	srv.middleware.exclude = append(srv.middleware.exclude, stack...)
-	return nil
 }
 
 // Handle registers the handler function for the given pattern.
@@ -1463,7 +1478,6 @@ func WithBannerColor(enabled bool) ServerOptionFunc {
 // the server is marked ready. While the callback is executing, non-health endpoints receive 503.
 func WithDeferredInit(fn func(context.Context, *Server) error) ServerOptionFunc {
 	return func(srv *Server) error {
-		srv.Options.DeferredInit = fn
 		srv.deferred.init = fn
 		return nil
 	}
@@ -1535,15 +1549,6 @@ func WithAddr(addr string) ServerOptionFunc {
 			return err
 		}
 		srv.Options.Addr = addr
-		return nil
-	}
-}
-
-// WithLogger replaces the default logger with a custom slog.Logger instance.
-// This allows for custom log formatting, output destinations, and log levels.
-func WithLogger(l *slog.Logger) ServerOptionFunc {
-	return func(srv *Server) error {
-		logger = l
 		return nil
 	}
 }
@@ -1637,12 +1642,23 @@ func WithAuthTokenValidator(validator func(token string) (bool, error)) ServerOp
 	}
 }
 
-// WithFIPSMode enables FIPS 140-3 compliant mode for government and enterprise deployments.
-// This restricts TLS cipher suites and curves to FIPS-approved algorithms only.
+// WithFIPSMode restricts the TLS handshake to FIPS-approved cipher suites
+// and elliptic curves.
+//
+// This is NOT full FIPS 140-3 compliance:
+//   - it does not switch the Go toolchain into FIPS mode (build with
+//     GOFIPS140 for that);
+//   - it does not constrain non-TLS crypto (hashes, RNGs, signatures
+//     outside TLS);
+//   - it does not invoke a FIPS-validated cryptographic module.
+//
+// Use this for "TLS handshake uses FIPS-approved primitives." For deployments
+// that require true FIPS 140-3 compliance, combine with a FIPS-validated
+// toolchain build.
 func WithFIPSMode() ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.FIPSMode = true
-		logger.Info("FIPS 140-3 mode enabled")
+		logger.Info("FIPS-approved TLS cipher suite restriction enabled")
 		return nil
 	}
 }
@@ -1653,133 +1669,6 @@ func WithHardenedMode() ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.HardenedMode = true
 		logger.Info("Hardened security mode enabled")
-		return nil
-	}
-}
-
-// WithMCPSupport enables MCP (Model Context Protocol) support on the server.
-// This allows AI assistants to connect and use tools/resources provided by the server.
-// Server name and version are required as they identify your server to MCP clients.
-// By default, MCP uses HTTP transport on the "/mcp" endpoint.
-// Example: WithMCPSupport("MyServer", "1.0.0")
-func WithMCPSupport(name, version string, configs ...mcp.TransportConfig) ServerOptionFunc {
-	return func(srv *Server) error {
-		srv.Options.MCPEnabled = true
-		srv.Options.MCPServerName = name
-		srv.Options.MCPServerVersion = version
-
-		// Apply transport configurations
-		if len(configs) == 0 {
-			// Default to HTTP transport on /mcp
-			srv.Options.MCPTransport = mcp.HTTPTransport
-			srv.Options.mcpTransportOpts.Transport = mcp.HTTPTransport
-			srv.Options.mcpTransportOpts.Endpoint = srv.Options.MCPEndpoint
-		} else {
-			// Apply all transport configurations
-			for _, cfg := range configs {
-				cfg(&srv.Options.mcpTransportOpts)
-			}
-			srv.Options.MCPTransport = srv.Options.mcpTransportOpts.Transport
-			if srv.Options.mcpTransportOpts.Endpoint != "" {
-				srv.Options.MCPEndpoint = srv.Options.mcpTransportOpts.Endpoint
-			}
-		}
-
-		// Handle presets
-		if srv.Options.mcpTransportOpts.ObservabilityMode {
-			// Observability: minimal resources only for production monitoring
-			srv.Options.MCPResourcesEnabled = true
-			srv.Options.MCPToolsEnabled = false
-		} else if srv.Options.mcpTransportOpts.DeveloperMode {
-			// Developer mode: enable everything needed for development
-			srv.Options.MCPResourcesEnabled = true
-			srv.Options.MCPToolsEnabled = true
-		}
-
-		transportName := "HTTP"
-		if srv.Options.MCPTransport == mcp.StdioTransport {
-			transportName = "stdio"
-		}
-		logger.Debug("MCP (Model Context Protocol) support enabled",
-			"name", name,
-			"version", version,
-			"transport", transportName,
-			"endpoint", srv.Options.MCPEndpoint,
-			"observabilityMode", srv.Options.mcpTransportOpts.ObservabilityMode,
-			"developerMode", srv.Options.mcpTransportOpts.DeveloperMode,
-		)
-		return nil
-	}
-}
-
-// WithMCPNamespace registers an additional MCP namespace with tools and resources.
-// This allows you to logically separate tools by domain within a single server instance.
-// Example: WithMCPNamespace("daw", mcp.WithNamespaceTools(playTool, stopTool))
-// This creates tools accessible as "mcp__daw__play" and "mcp__daw__stop".
-func WithMCPNamespace(name string, configs ...mcp.NamespaceConfig) ServerOptionFunc {
-	return func(srv *Server) error {
-		if !srv.Options.MCPEnabled {
-			return fmt.Errorf("MCP support must be enabled before registering namespaces. Use WithMCPSupport() first")
-		}
-
-		if srv.mcpHandler == nil {
-			return fmt.Errorf("MCP handler not initialized. This should not happen if MCP is enabled")
-		}
-
-		// Register the namespace
-		if err := srv.mcpHandler.RegisterNamespace(name, configs...); err != nil {
-			return fmt.Errorf("failed to register MCP namespace %s: %w", name, err)
-		}
-
-		logger.Debug("MCP namespace registered via server option", "namespace", name)
-		return nil
-	}
-}
-
-// WithMCPEndpoint configures the MCP endpoint path.
-// Default is "/mcp" if not specified.
-func WithMCPEndpoint(endpoint string) ServerOptionFunc {
-	return func(srv *Server) error {
-		srv.Options.MCPEndpoint = endpoint
-		logger.Debug("MCP endpoint configured", "endpoint", endpoint)
-		return nil
-	}
-}
-
-// WithMCPFileToolRoot configures a root directory for MCP file operations.
-// If specified, file tools will be restricted to this directory using os.Root for security.
-func WithMCPFileToolRoot(rootDir string) ServerOptionFunc {
-	return func(srv *Server) error {
-		srv.Options.MCPFileToolRoot = rootDir
-		logger.Debug("MCP file tool root configured", "root", rootDir)
-		return nil
-	}
-}
-
-// WithMCPBuiltinTools enables the built-in MCP tools (read_file, list_directory, http_request, calculator)
-// By default, built-in tools are disabled and must be explicitly enabled
-func WithMCPBuiltinTools(enabled bool) ServerOptionFunc {
-	return func(srv *Server) error {
-		srv.Options.MCPToolsEnabled = enabled
-		if enabled {
-			logger.Debug("MCP built-in tools enabled")
-		} else {
-			logger.Debug("MCP built-in tools disabled")
-		}
-		return nil
-	}
-}
-
-// WithMCPBuiltinResources enables the built-in MCP resources (config, metrics, system info, logs)
-// By default, built-in resources are disabled and must be explicitly enabled
-func WithMCPBuiltinResources(enabled bool) ServerOptionFunc {
-	return func(srv *Server) error {
-		srv.Options.MCPResourcesEnabled = enabled
-		if enabled {
-			logger.Debug("MCP built-in resources enabled")
-		} else {
-			logger.Debug("MCP built-in resources disabled")
-		}
 		return nil
 	}
 }
@@ -1808,11 +1697,11 @@ func (srv *Server) cleanupRateLimiters() {
 	for {
 		select {
 		case <-ticker.C:
-			now := time.Now()
+			cutoff := time.Now().Add(-10 * time.Minute).UnixNano()
 			srv.rateLimiters.mu.Lock()
 			// Clean up rate limiters that haven't been used in the last 10 minutes
 			for ip, entry := range srv.rateLimiters.clients {
-				if now.Sub(entry.lastAccess) > 10*time.Minute {
+				if entry.lastAccessUnixNano.Load() < cutoff {
 					delete(srv.rateLimiters.clients, ip)
 					logger.Debug("Cleaned up rate limiter", "ip", ip)
 				}

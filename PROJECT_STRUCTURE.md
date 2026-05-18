@@ -5,9 +5,8 @@
 ```
 hyperserve/
 ├── .github/workflows/    # CI/CD
-├── benchmarks/           # Performance benchmarks
+├── benchmarks/           # Performance benchmarks (wrk-based)
 ├── cmd/
-│   ├── example-server/   # Minimal binary used by benchmarks
 │   ├── server/           # Feature-complete CLI wrapping the library
 │   └── hyperserve-init/  # Project scaffolding CLI
 ├── configs/              # Configuration examples (JSON)
@@ -20,17 +19,16 @@ hyperserve/
 │   ├── mcp/              # MCP protocol surface (Handler, transports, discovery, namespaces)
 │   ├── mcp/builtin/      # Opt-in built-in MCP tools and resources
 │   ├── server/           # HTTP server, middleware, deferred-init lifecycle, MCP wiring
-│   └── websocket/        # RFC 6455 WebSocket implementation + pool
-├── spec/                 # API spec + conformance tests
+│   └── websocket/        # RFC 6455 WebSocket implementation
 └── go.{mod,sum}
 ```
 
 ## Public packages
 
-- `pkg/server` — HTTP server, middleware registry, interceptor chain, deferred-init lifecycle, MCP wiring options.
+- `pkg/server` — HTTP server, middleware registry, deferred-init lifecycle, MCP wiring options.
 - `pkg/mcp` — Standalone MCP protocol surface. No dependency on `pkg/server`.
 - `pkg/mcp/builtin` — Optional built-in MCP tools (Calculator, FileRead, HTTPRequest, ListDirectory) and resources (Config, Metrics, System, ServerLog, ServerHealth). Blank-import to wire the `WithMCPBuiltinTools/Resources(true)` and `MCPDev()` / `MCPObservability()` presets.
-- `pkg/websocket` — WebSocket upgrader, low-level framing, connection pool, origin checks.
+- `pkg/websocket` — WebSocket upgrader, low-level framing, origin checks.
 - `pkg/jsonrpc` — Standalone JSON-RPC 2.0 engine used by `pkg/mcp`.
 
 ## Import paths

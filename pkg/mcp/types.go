@@ -23,21 +23,15 @@ const (
 )
 
 // Capabilities represents the server's advertised MCP capabilities.
+// Add fields here only when the corresponding capability is actually wired
+// in Handler.Capabilities() and exercised on the wire; advertising an
+// unsupported capability is worse than omitting it.
 type Capabilities struct {
 	Experimental map[string]any       `json:"experimental,omitempty"`
-	Logging      *LoggingCapability   `json:"logging,omitempty"`
-	Prompts      *PromptsCapability   `json:"prompts,omitempty"`
 	Resources    *ResourcesCapability `json:"resources,omitempty"`
 	Tools        *ToolsCapability     `json:"tools,omitempty"`
-	Sampling     *SamplingCapability  `json:"sampling,omitempty"`
 	SSE          *SSECapability       `json:"sse,omitempty"`
 }
-
-// LoggingCapability represents the server's logging capability.
-type LoggingCapability struct{}
-
-// PromptsCapability represents the server's prompt handling capability.
-type PromptsCapability struct{}
 
 // ResourcesCapability represents the server's resource management capabilities.
 type ResourcesCapability struct {
@@ -49,9 +43,6 @@ type ResourcesCapability struct {
 type ToolsCapability struct {
 	ListChanged bool `json:"listChanged,omitempty"`
 }
-
-// SamplingCapability represents the server's sampling capability.
-type SamplingCapability struct{}
 
 // SSECapability represents the server's Server-Sent Events capability.
 type SSECapability struct {
@@ -140,6 +131,7 @@ type ResourceContent struct {
 // ToolResult represents the result of a tool execution.
 type ToolResult struct {
 	Content []map[string]any `json:"content"`
+	IsError bool             `json:"isError,omitempty"`
 }
 
 var logger = slog.Default()

@@ -18,7 +18,7 @@ func TestRouteInspectorTool(t *testing.T) {
 	srv.AddMiddlewareStack("/api/test", server.DefaultMiddleware(srv))
 	srv.AddMiddlewareStack("/api/users", server.SecureAPI(srv))
 	srv.AddMiddlewareStack("/admin", server.SecureAPI(srv))
-	srv.AddMiddlewareStack("/static", server.FileServer(srv.Options))
+	srv.AddMiddlewareStack("/static", server.SecureWeb(srv.Options))
 
 	tool := &RouteInspectorTool{server: srv}
 

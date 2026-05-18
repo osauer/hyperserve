@@ -12,10 +12,10 @@ flat.
 ### 1. Single Runtime Dependency
 - `golang.org/x/time` for the rate-limiter token bucket.
 - Everything else uses the Go standard library.
-- `go.sum` has two lines; supply-chain audits are short.
+- The `go.mod` `tool` directive brings `golang.org/x/tools` for the modernize check gate; these are build-time only and don't enter the runtime binary.
 
 ### 2. Standard Library First
-- `net/http` for the server, `crypto/tls` for TLS, `os.Root` (Go 1.24) for the static-file sandbox.
+- `net/http` for the server, `crypto/tls` for TLS, `os.Root` for the static-file sandbox.
 - WebSocket and JSON-RPC are implemented in-tree against the standard library, not pulled from third parties.
 
 ### 3. Secure Defaults
@@ -56,19 +56,17 @@ Native MCP implementation providing:
 - Namespace isolation
 
 #### WebSocket Support
-Full WebSocket implementation featuring:
-- Connection pooling
+RFC 6455 implementation featuring:
 - Binary and text message support
 - Automatic ping/pong handling
 - Configurable timeouts
-- Per-connection rate limiting
 
 ### Package Layout
 
-- `pkg/server` — HTTP server, middleware registry, interceptor chain, deferred-init lifecycle, MCP wiring options.
+- `pkg/server` — HTTP server, middleware registry, deferred-init lifecycle, MCP wiring options.
 - `pkg/mcp` — MCP protocol surface. Standalone — no dependency on `pkg/server`.
 - `pkg/mcp/builtin` — Opt-in built-in MCP tools and resources. Depends on both `pkg/server` (for `*Server` access) and `pkg/mcp`.
-- `pkg/websocket` — WebSocket upgrader, low-level framing, connection pool, origin checks.
+- `pkg/websocket` — WebSocket upgrader, low-level framing, origin checks.
 - `pkg/jsonrpc` — Standalone JSON-RPC 2.0 engine used by `pkg/mcp`.
 
 Dependency direction is one-way: `pkg/mcp/builtin` → `pkg/server` + `pkg/mcp`; `pkg/server` → `pkg/mcp`; `pkg/mcp` → `pkg/jsonrpc`. No cycles.
@@ -83,12 +81,11 @@ Dependency direction is one-way: `pkg/mcp/builtin` → `pkg/server` + `pkg/mcp`;
 │   ├── server/       # HTTP server, middleware, deferred-init, MCP wiring
 │   ├── mcp/          # MCP protocol (handler, transports, discovery, namespaces)
 │   │   └── builtin/  # Opt-in built-in MCP tools and resources
-│   ├── websocket/    # RFC 6455 WebSocket implementation + pool
+│   ├── websocket/    # RFC 6455 WebSocket implementation
 │   └── jsonrpc/      # JSON-RPC 2.0 engine
 ├── examples/         # Self-contained `go run .` examples
 ├── docs/             # ADRs and guides
 ├── benchmarks/       # Performance benchmarks
-├── spec/             # API spec + conformance tests
 ├── configs/          # Configuration examples
 └── go.{mod,sum}
 ```
@@ -105,15 +102,14 @@ Dependency direction is one-way: `pkg/mcp/builtin` → `pkg/server` + `pkg/mcp`;
 - TLS 1.2+ default; `WithFIPSMode()` restricts to the FIPS-approved cipher list.
 - Security-header middleware (`SecureWeb`, `SecureAPI`) available out of the box; off by default.
 - Rate limiting is per-route and per-client, with a periodic cleanup ticker.
-- Static file serving is sandboxed via `os.Root` (Go 1.24+).
+- Static file serving is sandboxed via `os.Root`.
 - The MCP discovery filter (`WithMCPDiscoveryFilter`) lets you gate tool visibility on a JWT or RBAC predicate.
 
 ## Performance
 
 - One goroutine per connection (stdlib `net/http`).
 - Atomic counters for request/latency totals.
-- Rate-limiter map uses Swiss Tables (Go 1.24+).
-- Connection pool in `pkg/websocket` maintains a long-lived pool of upgraded connections.
+- Rate-limiter map uses Swiss Tables.
 
 ## Roadmap
 

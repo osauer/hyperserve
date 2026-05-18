@@ -192,21 +192,6 @@ func TestWebSocketHandlerCompatibility(t *testing.T) {
 	})
 }
 
-func TestWebSocketWriteJSON(t *testing.T) {
-	// Skip - requires full WebSocket connection setup
-	t.Skip("Skipping WriteJSON test - requires full connection")
-}
-
-func TestWebSocketReadJSON(t *testing.T) {
-	// Skip - requires full WebSocket connection setup
-	t.Skip("Skipping ReadJSON test - requires full connection")
-}
-
-func TestWebSocketControlMessages(t *testing.T) {
-	// Skip this test as it requires internal implementation details
-	t.Skip("Skipping control message test - requires internal ws.Conn")
-}
-
 func TestIsCloseError(t *testing.T) {
 	// Test with nil error
 	if websocket.IsCloseError(nil, websocket.CloseNormalClosure) {

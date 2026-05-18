@@ -7,6 +7,12 @@ import (
 	"net/http"
 
 	server "github.com/osauer/hyperserve/pkg/server"
+
+	// Register the built-in MCP tool/resource preset hooks so that
+	// WithMCPBuiltinTools/WithMCPBuiltinResources actually have something
+	// to install. pkg/server cannot import this package (cycle), so the
+	// consumer wires it via a blank import here.
+	_ "github.com/osauer/hyperserve/pkg/mcp/builtin"
 )
 
 func main() {

@@ -73,26 +73,9 @@ coverage.html
 /dist/
 .gocache/
 
-# Example binaries
-examples/*/main
-examples/*/*/main
-examples/hello-world/hello-world
-examples/static-files/static-files
-examples/json-api/json-api
-examples/middleware-basics/middleware-basics
-examples/configuration/configuration
-examples/auth/auth
-examples/enterprise/enterprise
-examples/htmx-dynamic/htmx-dynamic
-examples/htmx-stream/htmx-stream
-examples/mcp/mcp
-examples/mcp-*/mcp-*
-examples/mcp/sandbox/
-examples/websocket/websocket
-examples/websocket-*/websocket-*
-examples/devops/devops
-
-# Exclude all compiled Go binaries in examples and go directory
+# Compiled example binaries — keep sources/assets, drop everything else.
+# A single allow-list pattern, not a per-example list, so new examples
+# don't need a .gitignore edit.
 examples/**/*
 !examples/**/*.go
 !examples/**/*.md
@@ -105,11 +88,11 @@ examples/**/*
 !examples/**/go.mod
 !examples/**/go.sum
 !examples/**/.gitkeep
-# Main binary
+
+# Main binary (repo-root build targets)
 /hyperserve
-/server
-/mcp-extensions
-/cmd/hyperserve/hyperserve
+/deferred-init
+/cmd/**/cmd/**
 
 # Python
 __pycache__/

@@ -184,10 +184,9 @@ We maintain backward compatibility through:
 
 If you encounter what appears to be a breaking change in a minor/patch version:
 
-1. **Check the [CHANGELOG.md](../CHANGELOG.md)** for documented changes
-2. **Review [MIGRATION_GUIDE.md](../MIGRATION_GUIDE.md)** for upgrade instructions  
-3. **File an issue** at https://github.com/osauer/hyperserve/issues
-4. **Join discussions** at https://github.com/osauer/hyperserve/discussions
+1. **Check the [CHANGELOG.md](../CHANGELOG.md)** — release-by-release migration notes live here.
+2. **File an issue** at https://github.com/osauer/hyperserve/issues
+3. **Join discussions** at https://github.com/osauer/hyperserve/discussions
 
 ## Commitment Timeline
 

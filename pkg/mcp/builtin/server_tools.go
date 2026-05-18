@@ -29,7 +29,7 @@ func NewServerControlTool(srv *server.Server) *ServerControlTool {
 func (t *ServerControlTool) Name() string { return "server_control" }
 
 func (t *ServerControlTool) Description() string {
-	return "Control HyperServe server lifecycle and configuration. Actions: get_status (check server health), set_log_level (DEBUG/INFO/WARN/ERROR), reload (refresh config), restart (graceful restart)"
+	return "Inspect and adjust the running HyperServe instance. Actions: get_status (check health), set_log_level (DEBUG/INFO/WARN/ERROR)."
 }
 
 func (t *ServerControlTool) Schema() map[string]any {
@@ -38,8 +38,8 @@ func (t *ServerControlTool) Schema() map[string]any {
 		"properties": map[string]any{
 			"action": map[string]any{
 				"type":        "string",
-				"enum":        []string{"restart", "reload", "set_log_level", "get_status"},
-				"description": "Action to perform: get_status (check server health), set_log_level (change logging verbosity), reload (refresh configuration without restart), restart (graceful server restart)",
+				"enum":        []string{"set_log_level", "get_status"},
+				"description": "Action to perform: get_status (read server health) or set_log_level (change logging verbosity).",
 			},
 			"log_level": map[string]any{
 				"type":        "string",
@@ -60,22 +60,6 @@ func (t *ServerControlTool) Execute(params map[string]any) (any, error) {
 	defer t.mu.Unlock()
 
 	switch action {
-	case "restart":
-		logger.Warn("Server restart requested via MCP developer tools")
-		return map[string]any{
-			"status":  "restart_initiated",
-			"message": "Server will restart. Please wait a moment before making new requests.",
-			"note":    "In production, use process managers like systemd or supervisor for restarts.",
-		}, nil
-
-	case "reload":
-		logger.Info("Configuration reload requested via MCP developer tools")
-		return map[string]any{
-			"status":    "reloaded",
-			"timestamp": time.Now().Format(time.RFC3339),
-			"message":   "Configuration and templates reloaded",
-		}, nil
-
 	case "set_log_level":
 		level, ok := params["log_level"].(string)
 		if !ok {
@@ -254,7 +238,7 @@ type CapturedResponse struct {
 	Body    string              `json:"body"`
 }
 
-// RequestDebuggerTool captures HTTP requests for inspection/replay.
+// RequestDebuggerTool captures HTTP requests for inspection.
 type RequestDebuggerTool struct {
 	server           *server.Server
 	captures         sync.Map // map[string]*CapturedRequest
@@ -269,7 +253,7 @@ func NewRequestDebuggerTool(srv *server.Server) *RequestDebuggerTool {
 func (t *RequestDebuggerTool) Name() string { return "request_debugger" }
 
 func (t *RequestDebuggerTool) Description() string {
-	return "Debug HTTP requests in HyperServe. Actions: list (show captured requests), get (inspect request details), replay (resend with modifications), clear (remove all captures). Captures last 100 requests automatically."
+	return "Inspect captured HTTP requests in HyperServe. Actions: list (show captured requests), get (inspect request details), clear (remove all captures). Captures the last 100 requests automatically."
 }
 
 func (t *RequestDebuggerTool) Schema() map[string]any {
@@ -278,26 +262,12 @@ func (t *RequestDebuggerTool) Schema() map[string]any {
 		"properties": map[string]any{
 			"action": map[string]any{
 				"type":        "string",
-				"enum":        []string{"list", "get", "replay", "clear"},
-				"description": "Operation to perform: list (show all captured requests), get (view request details by ID), replay (resend a request), clear (delete all captures)",
+				"enum":        []string{"list", "get", "clear"},
+				"description": "Operation to perform: list (show captured requests), get (read request details by ID), clear (delete all captures).",
 			},
 			"request_id": map[string]any{
 				"type":        "string",
-				"description": "Request ID for get/replay actions. Get the ID from 'list' action first.",
-			},
-			"modifications": map[string]any{
-				"type":        "object",
-				"description": "Optional modifications to apply when replaying a request (for replay action only)",
-				"properties": map[string]any{
-					"headers": map[string]any{
-						"type":        "object",
-						"description": "Headers to add/override as key-value pairs",
-					},
-					"body": map[string]any{
-						"type":        "string",
-						"description": "New request body to use instead of original",
-					},
-				},
+				"description": "Request ID for the get action. Obtain via the list action first.",
 			},
 		},
 		"required": []string{"action"},
@@ -335,12 +305,6 @@ func (t *RequestDebuggerTool) Execute(params map[string]any) (any, error) {
 			return val, nil
 		}
 		return nil, fmt.Errorf("request not found: %s", id)
-
-	case "replay":
-		return map[string]any{
-			"status": "replay_not_implemented",
-			"note":   "Request replay would replay the captured request with modifications",
-		}, nil
 
 	case "clear":
 		t.captures.Range(func(key, value any) bool {
@@ -487,9 +451,9 @@ func (t *DevGuideTool) Execute(params map[string]any) (any, error) {
 		return map[string]any{
 			"description": "HyperServe MCP Developer Tools",
 			"tools": []map[string]any{
-				{"name": "server_control", "purpose": "Manage server lifecycle and configuration", "actions": []string{"get_status", "set_log_level", "reload", "restart"}},
+				{"name": "server_control", "purpose": "Inspect server health and adjust log level", "actions": []string{"get_status", "set_log_level"}},
 				{"name": "route_inspector", "purpose": "View all registered HTTP routes", "features": []string{"filter by pattern", "show middleware chains"}},
-				{"name": "request_debugger", "purpose": "Capture and debug HTTP requests", "actions": []string{"list", "get", "replay", "clear"}},
+				{"name": "request_debugger", "purpose": "Capture and inspect HTTP requests", "actions": []string{"list", "get", "clear"}},
 				{"name": "dev_guide", "purpose": "This help tool", "topics": []string{"overview", "tools", "resources", "examples", "workflows"}},
 			},
 			"resources": []map[string]any{
@@ -507,8 +471,6 @@ func (t *DevGuideTool) Execute(params map[string]any) (any, error) {
 					"actions": map[string]string{
 						"get_status":    "Check if server is running, uptime, current log level",
 						"set_log_level": "Change logging verbosity (DEBUG, INFO, WARN, ERROR)",
-						"reload":        "Reload configuration without restart",
-						"restart":       "Gracefully restart the server",
 					},
 				},
 				{
@@ -521,10 +483,9 @@ func (t *DevGuideTool) Execute(params map[string]any) (any, error) {
 				{
 					"tool": "request_debugger",
 					"actions": map[string]string{
-						"list":   "Show all captured requests",
-						"get":    "View full details of a specific request",
-						"replay": "Resend a request with modifications",
-						"clear":  "Delete all captured requests",
+						"list":  "Show captured requests",
+						"get":   "View full details of a specific request",
+						"clear": "Delete all captured requests",
 					},
 				},
 			},

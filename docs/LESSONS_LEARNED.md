@@ -128,7 +128,6 @@ crypto/subtle.WithDataIndependentTiming(func() {
 ### 2. Essential Files Created
 - PERFORMANCE.md - Relative metrics focus
 - API_STABILITY.md - Clear commitments  
-- MIGRATION_GUIDE.md - Practical examples
 - CLAUDE.md - AI context and patterns
 
 ### 3. Benchmark Documentation

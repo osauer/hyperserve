@@ -609,9 +609,9 @@ func TestMCPHandler_MultipleNamespaces(t *testing.T) {
 		t.Fatalf("Expected result to be a map, got %T", response.Result)
 	}
 
-	tools, ok := result["tools"].([]map[string]any)
+	tools, ok := result["tools"].([]mcp.ToolInfo)
 	if !ok {
-		t.Fatal("tools not found or not a slice")
+		t.Fatalf("tools not found or not a []ToolInfo, got %T", result["tools"])
 	}
 
 	if len(tools) != 3 {
@@ -621,7 +621,7 @@ func TestMCPHandler_MultipleNamespaces(t *testing.T) {
 	// Verify all tools have prefixed names
 	toolNames := make([]string, len(tools))
 	for i, tool := range tools {
-		toolNames[i] = tool["name"].(string)
+		toolNames[i] = tool.Name
 	}
 
 	for _, expectedTool := range expectedTools {
@@ -652,12 +652,12 @@ func TestMCPHandler_MultipleNamespaces(t *testing.T) {
 	}
 
 	// The result should contain the calculation result
-	resultMap, ok := response.Result.(map[string]any)
+	resultMap, ok := response.Result.(mcp.ToolResult)
 	if !ok {
-		t.Fatalf("Expected result to be a map, got %T", response.Result)
+		t.Fatalf("Expected result to be a ToolResult, got %T", response.Result)
 	}
 
-	if resultMap["content"] == nil {
+	if len(resultMap.Content) == 0 {
 		t.Error("Expected content field in tool call response")
 	}
 }

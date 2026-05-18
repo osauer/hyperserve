@@ -49,7 +49,7 @@ wait_for_server() {
 
 # Build the server
 echo -e "${BLUE}Building HyperServe...${NC}"
-go build -o hyperserve-bench ./cmd/hyperserve
+go build -o hyperserve-bench ./cmd/server
 
 # Start the server
 echo -e "${BLUE}Starting HyperServe server...${NC}"

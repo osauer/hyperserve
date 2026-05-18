@@ -123,7 +123,7 @@ srv, err := server.NewServer(
 
 - **Built-in tools and resources are disabled by default** for security reasons
 - Users must explicitly enable them using `WithMCPBuiltinTools(true)` and `WithMCPBuiltinResources(true)`
-- File operations are sandboxed using Go 1.24's `os.Root` when a file tool root is configured
+- File operations are sandboxed using `os.Root` when a file tool root is configured
 
 ### Custom Tools and Resources
 

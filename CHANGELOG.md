@@ -5,6 +5,156 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.0] - 2026-05-18
+
+Taste-review sweep. Targets dead surface, half-wired features, and doc drift
+that survived the 0.25.x cleanups. Net change: **−2,479 LOC** across 38 files
+plus a removed 9.6 MB tracked binary. Breaking — see Migration.
+
+### Added
+- `pkg/server/options_mcp.go` — five MCP option constructors (`WithMCPSupport`,
+  `WithMCPEndpoint`, `WithMCPFileToolRoot`, `WithMCPBuiltinTools`,
+  `WithMCPBuiltinResources`) moved out of `server.go` so the MCP glue lives in
+  one place.
+- Warn-log when `WithMCPBuiltinTools(true)` / `WithMCPBuiltinResources(true)`
+  is set but the `pkg/mcp/builtin` blank-import is missing, with the exact
+  import line to fix it. Closes the silent half-wire that previously made
+  `cmd/server -mcp` advertise tools and register none.
+- `cmd/server/main.go` blank-imports `pkg/mcp/builtin` so the bundled binary
+  actually serves the built-in tools/resources it advertises.
+
+### Changed
+- Minimum Go version bumped to **1.26** (was 1.25). `go.mod`, CI workflows,
+  and `internal/scaffold/templates/go.mod.tmpl` all aligned. See
+  [ADR-0006](docs/0006-go-minimum-version.md).
+- `pkg/mcp.Handler` now builds `tools/list`, `resources/list`,
+  `resources/read`, and `tools/call` responses from the exported `ToolInfo`,
+  `ResourceInfo`, `ResourceContent`, `ToolResult` types instead of
+  `map[string]any` literals. Wire shape is unchanged; in-process callers
+  using `ProcessRequestDirect` see typed structs instead of maps.
+- `ToolResult` gained an `IsError bool` field (`omitempty`) so error
+  responses round-trip through the type.
+- `MiddlewareRegistry.applyToMux` sorts route keys deterministically
+  (ascending length, ties alphabetical) before chaining; map-iteration
+  randomness no longer leaks into middleware order when multiple prefixes
+  match a request.
+- `applyEnvVars` is now table-driven (`defaultEnvBindings` + `parseEnvBool`
+  helpers); ~70 LOC shorter and a new env var is one entry, not nine
+  branches.
+- `NewServer` split into five named helpers (`newServerSkeleton`,
+  `applyConfiguredLogLevel`, `autoConfigureMCPFromEnv`, `openTemplateRoot`,
+  `initializeMCPHandler`); the top-level body is now ~30 LOC of
+  orchestration.
+- `rateLimiterEntry.lastAccess` is now `lastAccessUnixNano atomic.Int64`;
+  hot-path requests bump the timestamp without re-acquiring the
+  rate-limiter pool's write lock.
+- `Server.websocketConnections` renamed to `totalWebSocketUpgrades`; the
+  metrics-log key changed from `websocket-connections` to
+  `websocket-upgrades-total` to reflect that it counts lifetime upgrades,
+  not concurrent sessions.
+- `WithFIPSMode` doc-comment scoped honestly: "FIPS-approved TLS cipher
+  suites + curves" (not "FIPS 140-3 compliance"). The runtime log line
+  matches.
+
+### Removed (breaking)
+- `pkg/server/interceptor.go` and its tests (`InterceptorChain`,
+  `Interceptor`, `InterceptableRequest`, `InterceptableResponse`,
+  `InterceptorResponse`, `AuthTokenInjector`, `RateLimitInterceptor`,
+  `RequestLogger`, `ResponseTransformer`). Parallel pipeline beside
+  `MiddlewareRegistry` with zero non-example callers; `pkg/server/middleware.go`
+  provides equivalent middleware. `examples/interceptors/` removed.
+- `pkg/websocket/websocket_pool.go` and its test (`WebSocketPool`,
+  `pooledConn`). `Get(ctx, endpoint, upgrader, w, r)` returned a connection
+  bound to a previous request's socket without ever upgrading the current
+  request — broken-by-design for server-side WebSocket. `examples/websocket-pool/`
+  removed.
+- `WithOutStack` server method + `MiddlewareRegistry.exclude` field +
+  `filterMiddleware` function. Exported orphan method (zero callers) that
+  dragged a reflect-based comparison loop along.
+- `WithLogger` server option. Mutated a package-global without a mutex.
+  Use `pkg/server.SetDefaultLogger(l)` (or `pkg/mcp.SetDefaultLogger`)
+  instead.
+- `WithMCPNamespace` server option (zero callers). Use
+  `srv.RegisterMCPNamespace(name, configs...)` post-construction.
+- `ResponseTimeMiddleware` (existed only as the prohibited pattern in one
+  log-test assertion).
+- `FileServer` middleware-stack constructor — verbatim copy of `SecureWeb`.
+  Name also collided with `http.FileServer`.
+- `Options.DeferredInit` field (`json:"-"`) and its NewServer
+  reconciliation. `WithDeferredInit` now writes only to
+  `srv.deferred.init`.
+- `pkg/mcp.LoggingCapability`, `PromptsCapability`, `SamplingCapability` —
+  empty structs never instantiated. The MCP `Capabilities` struct keeps
+  only `Resources`, `Tools`, `SSE`, `Experimental`.
+- Three `t.Skip("requires full connection")` stub tests in
+  `pkg/server/websocket_handlers_test.go`.
+- `cmd/example-server/` — 75-line near-duplicate of `cmd/server` with no
+  caller; the PROJECT_STRUCTURE.md claim that benchmarks used it was
+  outdated.
+- `spec/conformance/` — orphan `package main` not invoked by any Makefile
+  target, CI job, or doc command.
+- `docs/MIGRATION_GUIDE.md` (stale 1.24 migration content), 
+  `docs/RELEASE_NOTES.md` (duplicate of CHANGELOG with `interface{}` API
+  examples), `docs/PUBLISH_CHECKLIST.md` (one-shot 2025-06-27 launch
+  checklist).
+- 9.6 MB tracked `deferred-init` Mach-O binary at the repo root, untracked
+  and added to `.gitignore`.
+
+### Fixed
+- `WithTimeouts(...)` no longer panics at `NewServer` time. `setTimeouts`
+  previously wrote `srv.httpServer.X` while `httpServer` was still nil
+  (it's built lazily in `StartServer`); now only `srv.Options.X` is set,
+  which `StartServer` reads when constructing `http.Server`.
+- `cmd/server -mcp` previously advertised built-in tools without
+  registering any (the `pkg/mcp/builtin` blank-import was missing and the
+  hook-nil check was silent). Fixed by adding the blank import and
+  surfacing the misconfiguration as a warn-log.
+- README headline claim "`go.sum` has two lines" reworded to reflect the
+  actual count (`go.sum` is 12 lines after the `tool` directive pulled in
+  the modernize-check transitive deps); ARCHITECTURE.md follows suit.
+- `examples/README.md` enumerates every actual example directory; the
+  stale `examples/mcp/` reference is gone, the AI-tell star-rating ladder
+  is gone, and the v0.25.0 additions (`deferred-init`, `devops`) are now
+  listed.
+- `pkg/mcp/builtin/server_tools.go` `server_control.restart`,
+  `server_control.reload`, and `request_debugger.replay` actions removed
+  from the JSON schema enums, descriptions, and dev_guide. They returned
+  canned success strings without performing the advertised action —
+  direct violation of the project's DoD ("no mocks, stubs, or simulated
+  behaviour unless explicitly asked").
+- PROJECT_STRUCTURE.md, ARCHITECTURE.md, CLAUDE.md, README.md no longer
+  carry stale parenthetical `(Go 1.24)` / `(Go 1.24+)` feature
+  attributions; the minimum lives in `go.mod`.
+- `benchmarks/run_benchmarks.sh` now targets `./cmd/server` (was the
+  stale `./cmd/hyperserve` path).
+
+### Migration
+
+1. **`WithLogger(l)` → `SetDefaultLogger(l)`.** The functional option
+   mutated a package global; the explicit setter is now the only path.
+2. **`WithMCPNamespace(name, configs...)` → `srv.RegisterMCPNamespace(name, configs...)`** after `NewServer`.
+3. **`WithOutStack` callers**: pass a smaller stack to `WithMiddleware`
+   instead of subtracting; there were no known callers.
+4. **`pkg/server.FileServer(opts)` callers**: replace with
+   `pkg/server.SecureWeb(opts)` (the bodies were already identical).
+5. **`ResponseTimeMiddleware` callers**: register
+   `RequestLoggerMiddleware` and read the duration from its log line,
+   or write a one-line custom timing middleware.
+6. **`pkg/server/interceptor.go` consumers**: rewrite on
+   `pkg/server/middleware.go` (`AuthMiddleware`,
+   `RequestLoggerMiddleware`, `RateLimitMiddleware`).
+7. **`pkg/websocket.WebSocketPool` consumers**: there were none in the
+   examples tree because the type was broken-by-design for server-side
+   upgrades.
+8. **`pkg/mcp.LoggingCapability` / `PromptsCapability` /
+   `SamplingCapability`**: these were never instantiated; references will
+   not compile, but no working code path could have used them.
+9. **`pkg/mcp.Handler.ProcessRequestDirect` callers** type-asserting to
+   `map[string]any`: switch to `mcp.ToolResult`, `mcp.ToolInfo`,
+   `mcp.ResourceInfo`, `mcp.ResourceContent` for `tools/call`,
+   `tools/list`, `resources/list`, and `resources/read` payloads
+   respectively.
+
 ## [0.25.1] - 2026-05-17
 
 Patch release. Drives `staticcheck ./...` to zero across pre-existing findings the
@@ -43,7 +193,7 @@ exported names have moved. See the migration notes below.
 - Several test/observation accessors on `*server.Server`: `MCPHandler()`, `IsRunning()`, `IsReady()`, `ServerStart()`, `TotalRequests()`, `TotalResponseTime()`, `ClientLimiterCount()`, `MiddlewareRoutes()`, `Mux()`, `SetMetrics()`, `AddMetrics()` — required by tests and the builtin package now that they live outside `pkg/server`.
 
 ### Changed
-- Minimum Go version bumped to **1.25** (was 1.24). Unlocks `sync.WaitGroup.Go(...)`, `testing/synctest`, and container-aware `GOMAXPROCS`. See [ADR-0006](docs/0006-go-1-25-minimum-version.md).
+- Minimum Go version bumped to **1.25** (was 1.24). Unlocks `sync.WaitGroup.Go(...)`, `testing/synctest`, and container-aware `GOMAXPROCS`. See [ADR-0006](docs/0006-go-minimum-version.md).
 - `Server` struct shrunk from 33 fields to 22; deferred-init lifecycle fields extracted into `deferredLifecycle` sub-struct; rate-limiter pool fields extracted into `rateLimiterPool` sub-struct.
 - `pkg/websocket` collapsed `internal/ws` back into the public package — the internal/external split was unnecessary indirection. (Subagent task.)
 - README, ARCHITECTURE.md, PROJECT_STRUCTURE.md, SCAFFOLDING.md, PRODUCT_VISION.md, MIGRATION_GUIDE.md, RELEASE_NOTES.md, LESSONS_LEARNED.md, and ADR-0006/0009 rewritten to remove AI-generated stylistic tells (adjective stacks, emoji ladders, hollow superlatives) and to reflect the new package layout.
