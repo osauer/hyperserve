@@ -152,36 +152,40 @@ func (srv *Server) setupDiscoveryEndpoints() {
 		}
 	}
 
-	// /.well-known/mcp.json with light caching.
-	srv.registerRoute("/.well-known/mcp.json")
-	srv.mux.HandleFunc("/.well-known/mcp.json", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	// setDiscoveryCacheHeaders writes cache-control headers that respect the
+	// discovery policy. Under DiscoveryAuthenticated the response body varies
+	// on the Authorization header, so the response must not be stored by
+	// shared caches (CDN/reverse proxy) keyed on URL alone — otherwise an
+	// authenticated response replays to anonymous clients. Vary: Authorization
+	// is set unconditionally as defense in depth for caches that honor it.
+	setDiscoveryCacheHeaders := func(w http.ResponseWriter) {
+		w.Header().Set("Vary", "Authorization")
+		if srv.Options.MCPDiscoveryPolicy == mcp.DiscoveryAuthenticated {
+			w.Header().Set("Cache-Control", "private, max-age=60")
 			return
 		}
-		info := srv.mcpHandler.BuildDiscoveryInfo(r, cfg())
-		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "public, max-age=300")
-		if err := json.NewEncoder(w).Encode(info); err != nil {
-			logger.Error("Failed to encode discovery info", "error", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-		}
-	})
+	}
 
-	// <MCPEndpoint>/discover.
-	srv.registerRoute(srv.Options.MCPEndpoint + "/discover")
-	srv.mux.HandleFunc(srv.Options.MCPEndpoint+"/discover", func(w http.ResponseWriter, r *http.Request) {
+	writeDiscovery := func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		info := srv.mcpHandler.BuildDiscoveryInfo(r, cfg())
 		w.Header().Set("Content-Type", "application/json")
+		setDiscoveryCacheHeaders(w)
 		if err := json.NewEncoder(w).Encode(info); err != nil {
 			logger.Error("Failed to encode discovery info", "error", err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 		}
-	})
+	}
+
+	srv.registerRoute("/.well-known/mcp.json")
+	srv.mux.HandleFunc("/.well-known/mcp.json", writeDiscovery)
+
+	srv.registerRoute(srv.Options.MCPEndpoint + "/discover")
+	srv.mux.HandleFunc(srv.Options.MCPEndpoint+"/discover", writeDiscovery)
 
 	logger.Debug("MCP discovery endpoints registered",
 		"endpoints", []string{"/.well-known/mcp.json", srv.Options.MCPEndpoint + "/discover"})
