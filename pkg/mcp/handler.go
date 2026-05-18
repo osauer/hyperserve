@@ -26,7 +26,7 @@ type Handler struct {
 	serverInfo      ServerInfo
 	logger          *slog.Logger
 	cache           *resourceCache
-	sseManager      *SSEManager
+	sseManager      *sseManager
 	toolCallTimeout time.Duration // Set via SetToolCallTimeout; defaults to 30s when zero.
 }
 
@@ -55,7 +55,7 @@ func NewHandler(serverInfo ServerInfo) *Handler {
 		serverInfo: serverInfo,
 		logger:     logger,
 		cache:      newResourceCache(100),
-		sseManager: NewSSEManager(),
+		sseManager: newSSEManager(),
 	}
 	handler.registerMCPMethods()
 	return handler
@@ -166,22 +166,22 @@ func (h *Handler) RegisterNamespace(name string, configs ...NamespaceConfig) err
 	return nil
 }
 
-// GetRegisteredTools returns all registered tool names.
+// RegisteredTools returns all registered tool names.
 // Returns a non-nil slice even when no tools are registered.
-func (h *Handler) GetRegisteredTools() []string {
+func (h *Handler) RegisteredTools() []string {
 	tools := make([]string, 0, len(h.tools))
 	return slices.AppendSeq(tools, maps.Keys(h.tools))
 }
 
-// GetRegisteredResources returns all registered resource URIs.
+// RegisteredResources returns all registered resource URIs.
 // Returns a non-nil slice even when no resources are registered.
-func (h *Handler) GetRegisteredResources() []string {
+func (h *Handler) RegisteredResources() []string {
 	resources := make([]string, 0, len(h.resources))
 	return slices.AppendSeq(resources, maps.Keys(h.resources))
 }
 
-// GetToolByName returns a tool by its (possibly prefixed) name.
-func (h *Handler) GetToolByName(name string) (Tool, bool) {
+// Tool returns a tool by its (possibly prefixed) name.
+func (h *Handler) Tool(name string) (Tool, bool) {
 	tool, exists := h.tools[name]
 	return tool, exists
 }
@@ -583,9 +583,9 @@ func (h *Handler) handleSSERoutedRequest(w http.ResponseWriter, r *http.Request,
 	}
 }
 
-// (Previously: RegisterSSEClient/UnregisterSSEClient/SendSSENotification.
+// (Previously: RegistersseClient/UnregistersseClient/SendSSENotification.
 // SendSSENotification had zero callers; the Register/Unregister pair was
-// moved into SSEManager.registerRequestChan/unregisterRequestChan as the
+// moved into sseManager.registerRequestChan/unregisterRequestChan as the
 // SSE state machine now lives entirely in one place.)
 
 const htmlHelpTemplate = `<!DOCTYPE html>

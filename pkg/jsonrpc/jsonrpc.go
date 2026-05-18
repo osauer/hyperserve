@@ -163,7 +163,7 @@ func (engine *Engine) ProcessRequestDirect(request *Request) *Response {
 	}
 }
 
-// GetRegisteredMethods returns a sorted list of registered method names.
-func (engine *Engine) GetRegisteredMethods() []string {
+// RegisteredMethods returns a sorted list of registered method names.
+func (engine *Engine) RegisteredMethods() []string {
 	return slices.Sorted(maps.Keys(engine.methods))
 }

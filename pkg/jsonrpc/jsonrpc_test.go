@@ -11,7 +11,7 @@ func TestNewEngine(t *testing.T) {
 		t.Fatal("NewEngine returned nil")
 	}
 
-	if got := len(engine.GetRegisteredMethods()); got != 0 {
+	if got := len(engine.RegisteredMethods()); got != 0 {
 		t.Errorf("expected no registered methods, got %d", got)
 	}
 }
@@ -20,7 +20,7 @@ func TestRegisterMethod(t *testing.T) {
 	engine := NewEngine(nil)
 	engine.RegisterMethod("test", func(params any) (any, error) { return "ok", nil })
 
-	methods := engine.GetRegisteredMethods()
+	methods := engine.RegisteredMethods()
 	if len(methods) != 1 || methods[0] != "test" {
 		t.Fatalf("expected method list to contain 'test', got %v", methods)
 	}

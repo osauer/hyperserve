@@ -92,8 +92,8 @@ func (h *Handler) BuildDiscoveryInfo(r *http.Request, cfg DiscoveryConfig) Disco
 		},
 	}
 
-	tools := h.GetRegisteredTools()
-	resources := h.GetRegisteredResources()
+	tools := h.RegisteredTools()
+	resources := h.RegisteredResources()
 
 	toolCapability := map[string]any{
 		"supported": true,
@@ -177,7 +177,7 @@ func (h *Handler) shouldExposeToolInDiscovery(toolName string, r *http.Request, 
 		return false
 	}
 
-	if tool, exists := h.GetToolByName(toolName); exists {
+	if tool, exists := h.Tool(toolName); exists {
 		if discoverable, ok := tool.(interface{ IsDiscoverable() bool }); ok {
 			return discoverable.IsDiscoverable()
 		}

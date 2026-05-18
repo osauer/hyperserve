@@ -10,7 +10,7 @@ import (
 )
 
 func TestSSEManager(t *testing.T) {
-	manager := NewSSEManager()
+	manager := newSSEManager()
 
 	t.Run("Client Management", func(t *testing.T) {
 		w := httptest.NewRecorder()
@@ -19,7 +19,7 @@ func TestSSEManager(t *testing.T) {
 		client := newSSEClient("test-client-1", "test-binding-1", w, flusher)
 		manager.addClient("test-client-1", client)
 
-		if count := manager.GetClientCount(); count != 1 {
+		if count := manager.ClientCount(); count != 1 {
 			t.Errorf("Expected 1 client, got %d", count)
 		}
 
@@ -33,7 +33,7 @@ func TestSSEManager(t *testing.T) {
 		}
 
 		manager.removeClient("test-client-1")
-		if count := manager.GetClientCount(); count != 0 {
+		if count := manager.ClientCount(); count != 0 {
 			t.Errorf("Expected 0 clients, got %d", count)
 		}
 	})

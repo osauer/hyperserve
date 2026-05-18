@@ -17,8 +17,8 @@ import (
 	jsonrpc "github.com/osauer/hyperserve/pkg/jsonrpc"
 )
 
-// SSEClient represents a connected SSE client.
-type SSEClient struct {
+// sseClient represents a connected SSE client.
+type sseClient struct {
 	id      string
 	w       http.ResponseWriter
 	flusher http.Flusher
@@ -38,23 +38,23 @@ type SSEClient struct {
 	mu            sync.RWMutex
 }
 
-// SSEManager owns the per-connection client state plus the per-client
+// sseManager owns the per-connection client state plus the per-client
 // request channels used by the SSE-routed POST flow. Previously the channel
 // map lived on Handler (`sseRequests`/`sseMutex`), forming a parallel state
 // machine; consolidated here so HandleSSE and handleSSERoutedRequest agree
 // on a single source of truth.
-type SSEManager struct {
-	clients      map[string]*SSEClient
+type sseManager struct {
+	clients      map[string]*sseClient
 	requestChans map[string]chan *jsonrpc.Request
 	mu           sync.RWMutex
 	logger       *slog.Logger
 	pingInterval time.Duration
 }
 
-// NewSSEManager creates a new SSE connection manager.
-func NewSSEManager() *SSEManager {
-	return &SSEManager{
-		clients:      make(map[string]*SSEClient),
+// newSSEManager creates a new SSE connection manager.
+func newSSEManager() *sseManager {
+	return &sseManager{
+		clients:      make(map[string]*sseClient),
 		requestChans: make(map[string]chan *jsonrpc.Request),
 		logger:       logger,
 		pingInterval: 30 * time.Second,
@@ -64,7 +64,7 @@ func NewSSEManager() *SSEManager {
 // registerRequestChan creates the per-client request channel that routed
 // POSTs are queued onto. Caller (HandleSSE) must hold no locks; this method
 // takes the manager's write lock.
-func (m *SSEManager) registerRequestChan(clientID string) chan *jsonrpc.Request {
+func (m *sseManager) registerRequestChan(clientID string) chan *jsonrpc.Request {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	ch := make(chan *jsonrpc.Request, 10)
@@ -73,7 +73,7 @@ func (m *SSEManager) registerRequestChan(clientID string) chan *jsonrpc.Request 
 }
 
 // unregisterRequestChan closes and removes the per-client request channel.
-func (m *SSEManager) unregisterRequestChan(clientID string) {
+func (m *sseManager) unregisterRequestChan(clientID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if ch, ok := m.requestChans[clientID]; ok {
@@ -83,15 +83,15 @@ func (m *SSEManager) unregisterRequestChan(clientID string) {
 }
 
 // requestChanFor returns the channel for clientID, or nil if unknown.
-func (m *SSEManager) requestChanFor(clientID string) (chan *jsonrpc.Request, bool) {
+func (m *sseManager) requestChanFor(clientID string) (chan *jsonrpc.Request, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	ch, ok := m.requestChans[clientID]
 	return ch, ok
 }
 
-func newSSEClient(id, bindingToken string, w http.ResponseWriter, flusher http.Flusher) *SSEClient {
-	return &SSEClient{
+func newSSEClient(id, bindingToken string, w http.ResponseWriter, flusher http.Flusher) *sseClient {
+	return &sseClient{
 		id:           id,
 		bindingToken: bindingToken,
 		w:            w,
@@ -105,7 +105,7 @@ func newSSEClient(id, bindingToken string, w http.ResponseWriter, flusher http.F
 // VerifyBinding constant-time-compares the supplied token to this client's
 // binding token. Returns false for empty supplied token (no compatibility
 // shortcut for missing header).
-func (c *SSEClient) VerifyBinding(supplied string) bool {
+func (c *sseClient) VerifyBinding(supplied string) bool {
 	if c.bindingToken == "" || supplied == "" {
 		return false
 	}
@@ -113,7 +113,7 @@ func (c *SSEClient) VerifyBinding(supplied string) bool {
 }
 
 // Send sends a JSON-RPC response to the SSE client.
-func (c *SSEClient) Send(response *jsonrpc.Response) (err error) {
+func (c *sseClient) Send(response *jsonrpc.Response) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("client closed: %v", r)
@@ -132,7 +132,7 @@ func (c *SSEClient) Send(response *jsonrpc.Response) (err error) {
 }
 
 // Close closes the SSE client connection.
-func (c *SSEClient) Close() {
+func (c *sseClient) Close() {
 	c.closeOnce.Do(func() {
 		close(c.closeChan)
 		close(c.messageChan)
@@ -140,27 +140,27 @@ func (c *SSEClient) Close() {
 }
 
 // SetInitialized marks the client as initialized.
-func (c *SSEClient) SetInitialized() {
+func (c *sseClient) SetInitialized() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.initialized = true
 }
 
 // SetReady marks the client as ready.
-func (c *SSEClient) SetReady() {
+func (c *sseClient) SetReady() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.ready = true
 }
 
 // IsReady reports whether the client is ready to receive messages.
-func (c *SSEClient) IsReady() bool {
+func (c *sseClient) IsReady() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.ready
 }
 
-func (c *SSEClient) writeSSEMessage(eventType string, data []byte) error {
+func (c *sseClient) writeSSEMessage(eventType string, data []byte) error {
 	c.lastMessageID++
 	if _, err := fmt.Fprintf(c.w, "id: %d\n", c.lastMessageID); err != nil {
 		return err
@@ -178,7 +178,7 @@ func (c *SSEClient) writeSSEMessage(eventType string, data []byte) error {
 }
 
 // HandleSSE handles SSE connections for MCP.
-func (m *SSEManager) HandleSSE(w http.ResponseWriter, r *http.Request, mcpHandler *Handler) {
+func (m *sseManager) HandleSSE(w http.ResponseWriter, r *http.Request, mcpHandler *Handler) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "SSE not supported", http.StatusInternalServerError)
@@ -298,7 +298,7 @@ func (m *SSEManager) HandleSSE(w http.ResponseWriter, r *http.Request, mcpHandle
 }
 
 // SendToClient sends a response to a specific SSE client.
-func (m *SSEManager) SendToClient(clientID string, response *jsonrpc.Response) error {
+func (m *sseManager) SendToClient(clientID string, response *jsonrpc.Response) error {
 	m.mu.RLock()
 	client, exists := m.clients[clientID]
 	m.mu.RUnlock()
@@ -309,7 +309,7 @@ func (m *SSEManager) SendToClient(clientID string, response *jsonrpc.Response) e
 }
 
 // BroadcastToAll sends a response to all connected SSE clients.
-func (m *SSEManager) BroadcastToAll(response *jsonrpc.Response) {
+func (m *sseManager) BroadcastToAll(response *jsonrpc.Response) {
 	m.mu.RLock()
 	clients := slices.Collect(maps.Values(m.clients))
 	m.mu.RUnlock()
@@ -320,28 +320,28 @@ func (m *SSEManager) BroadcastToAll(response *jsonrpc.Response) {
 	}
 }
 
-// GetClientCount returns the number of connected SSE clients.
-func (m *SSEManager) GetClientCount() int {
+// ClientCount returns the number of connected SSE clients.
+func (m *sseManager) ClientCount() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return len(m.clients)
 }
 
 // lookup returns the client registered under id, or (nil, false) if absent.
-func (m *SSEManager) lookup(id string) (*SSEClient, bool) {
+func (m *sseManager) lookup(id string) (*sseClient, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	c, ok := m.clients[id]
 	return c, ok
 }
 
-func (m *SSEManager) addClient(id string, client *SSEClient) {
+func (m *sseManager) addClient(id string, client *sseClient) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.clients[id] = client
 }
 
-func (m *SSEManager) removeClient(id string) {
+func (m *sseManager) removeClient(id string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if client, exists := m.clients[id]; exists {
@@ -374,12 +374,12 @@ func generateClientIDAndBinding() (string, string) {
 // sseTransport implements Transport for SSE-based communication.
 type sseTransport struct {
 	clientID    string
-	sseManager  *SSEManager
+	sseManager  *sseManager
 	requestChan <-chan *jsonrpc.Request
 	logger      *slog.Logger
 }
 
-func newSSETransport(clientID string, sseManager *SSEManager, requestChan <-chan *jsonrpc.Request) *sseTransport {
+func newSSETransport(clientID string, sseManager *sseManager, requestChan <-chan *jsonrpc.Request) *sseTransport {
 	return &sseTransport{
 		clientID:    clientID,
 		sseManager:  sseManager,

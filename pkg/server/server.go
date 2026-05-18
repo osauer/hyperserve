@@ -144,8 +144,8 @@ func closeWithLog(c io.Closer, name string) {
 	}
 }
 
-// GetVersionInfo returns formatted version information
-func GetVersionInfo() string {
+// VersionInfo returns formatted version information
+func VersionInfo() string {
 	info := Version
 	if BuildHash != "unknown" {
 		info += "+" + BuildHash

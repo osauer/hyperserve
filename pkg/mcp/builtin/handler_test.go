@@ -32,11 +32,11 @@ func TestMCPHandler_NewMCPHandler(t *testing.T) {
 		t.Errorf("Expected server version '1.0.0', got %s", handler.ServerInfo().Version)
 	}
 
-	if handler.GetRegisteredTools() == nil {
+	if handler.RegisteredTools() == nil {
 		t.Error("Tools list is nil")
 	}
 
-	if handler.GetRegisteredResources() == nil {
+	if handler.RegisteredResources() == nil {
 		t.Error("Resources list is nil")
 	}
 
@@ -688,7 +688,7 @@ func TestMCPNamespace_RegisterNamespace(t *testing.T) {
 	// Note: Since both calc tools have the same name, the second one overwrites the first
 	// This is expected behavior
 	toolCount := 0
-	for _, toolName := range handler.GetRegisteredTools() {
+	for _, toolName := range handler.RegisteredTools() {
 		if strings.HasPrefix(toolName, "mcp__analytics__") {
 			toolCount++
 		}

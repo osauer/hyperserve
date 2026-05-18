@@ -26,7 +26,7 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Println("hyperserve", server.GetVersionInfo())
+		fmt.Println("hyperserve", server.VersionInfo())
 		os.Exit(0)
 	}
 
