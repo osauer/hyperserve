@@ -1,79 +1,98 @@
 # Contributing to HyperServe
 
-Thank you for your interest in contributing to HyperServe! We welcome contributions from the community.
+Thanks for your interest. HyperServe is a small Go library (single maintainer,
+pre-1.0). This doc tells you exactly what CI gates on so the first PR comes in
+green.
 
-## Getting Started
+## Setup
 
-1. Fork the repository on GitHub
-2. Clone your fork locally:
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/hyperserve.git
-   cd hyperserve
-   ```
-3. Create a branch for your changes:
-   ```bash
-   git checkout -b feature/your-feature-name
-   ```
-
-## Development Guidelines
-
-### Code Style
-
-- Follow standard Go conventions and idioms
-- Run `go fmt ./...` before committing
-- Run `go vet ./...` to catch common mistakes
-- Keep functions small and focused
-- Add comments for exported functions and types
-
-### Testing
-
-- Write tests for new functionality
-- Ensure all tests pass: `go test ./...`
-- Run tests with race detection: `go test -race ./...`
-- Aim for good test coverage
-
-### Commit Messages
-
-- Use clear, descriptive commit messages
-- Start with a verb in present tense (e.g., "Add", "Fix", "Update")
-- Keep the first line under 50 characters
-- Add detailed description if needed
-
-Example:
-```
-Add rate limiting middleware
-
-- Implement token bucket algorithm
-- Add per-IP rate limiting
-- Include configurable burst capacity
+```bash
+git clone https://github.com/osauer/hyperserve.git
+cd hyperserve
+go install honnef.co/go/tools/cmd/staticcheck@latest
+go install golang.org/x/vuln/cmd/govulncheck@latest
+make check && make test-race && make fuzz-smoke
 ```
 
-## Submitting Changes
+If those three commands pass locally, CI will pass. `modernize` is pinned
+via the `tool` directive in `go.mod` and invoked via `go tool`, so it
+auto-downloads on first use — no separate install step.
 
-1. Ensure all tests pass
-2. Update documentation if needed
-3. Push your changes to your fork
-4. Create a Pull Request with:
-   - Clear description of changes
-   - Any related issue numbers
-   - Screenshots if applicable
+Go version: see `go.mod` (currently 1.26).
 
-## Reporting Issues
+## The check gate
 
-- Use GitHub Issues to report bugs
-- Include Go version and OS
-- Provide minimal reproduction steps
-- Include error messages and stack traces
+CI runs `make test`, which invokes `make check` first. The gate is:
 
-## Code of Conduct
+| Tool                                    | What it catches                                                       |
+|-----------------------------------------|-----------------------------------------------------------------------|
+| `gofmt`                                 | unformatted Go — fix with `make fmt`                                  |
+| `go vet`                                | suspicious constructs                                                 |
+| `staticcheck`                           | bugs, simplifications, redundancy                                     |
+| `govulncheck`                           | known CVEs in the dependency tree                                     |
+| `go fix -diff` + `go tool modernize`    | post-Go-1.22 idioms (`any`, `for i := range N`, `wg.Go`, `b.Loop`, …) |
 
-- Be respectful and inclusive
-- Welcome newcomers and help them get started
-- Focus on constructive criticism
-- Assume good intentions
+Apply idiom fixes in place with `make modernize`. Race detector and fuzz
+smoke run as separate CI steps — run `make test-race` and `make fuzz-smoke`
+locally before pushing.
 
-## Questions?
+A `make check` failure on your machine is the same failure CI will report;
+fix it locally rather than relying on CI to surface it.
 
-Feel free to open an issue for any questions about contributing.
+## Code map
 
-Thank you for helping make HyperServe better!
+| What                                              | Where                          |
+|---------------------------------------------------|--------------------------------|
+| HTTP server, middleware, deferred-init lifecycle  | `pkg/server/`                  |
+| MCP protocol, JSON-RPC dispatch, namespaces       | `pkg/mcp/`                     |
+| SSE transport (binding tokens, connection events) | `pkg/mcp/transport_sse.go`     |
+| Built-in MCP tools and resources (opt-in)         | `pkg/mcp/builtin/`             |
+| WebSocket (RFC 6455)                              | `pkg/websocket/`               |
+| JSON-RPC 2.0 engine                               | `pkg/jsonrpc/`                 |
+| Scaffold generator                                | `internal/scaffold/`, `cmd/hyperserve-init/` |
+| Self-contained `go run .` examples                | `examples/`                    |
+
+The library imports as `github.com/osauer/hyperserve/pkg/server`. There is
+no Go code at the repository root.
+
+## Architecture decisions
+
+Before changing load-bearing design — transports, dependency policy,
+lifecycle — read the relevant ADR in [`docs/`](docs/). They are short and
+record the *why*. Notable ones:
+
+- [ADR 0001](docs/0001-minimal-external-dependencies.md) — minimal external
+  dependencies. This is load-bearing for the project's pitch; new transitive
+  deps need a strong case.
+- [ADR 0002](docs/0002-functional-options-pattern.md) — functional options
+  (`WithFoo(...)`) over config structs.
+- [ADR 0008](docs/0008-graceful-shutdown-design.md) — graceful shutdown.
+- [ADR 0011](docs/0011-mcp-protocol-support.md) — MCP protocol support.
+
+If a change contradicts an ADR, propose superseding it in the same PR.
+
+## Submitting changes
+
+1. Branch from `main`.
+2. Keep the PR focused — one concern per branch.
+3. Locally: `make check && make test-race && make fuzz-smoke`.
+4. Commit subject in the imperative, ≤72 chars. Body explains *why* (the
+   diff shows *what*). New features ship with tests and updated docs.
+5. Push and open a PR. CI runs the same gate you just ran.
+
+## Reporting issues
+
+Open a [GitHub Issue](https://github.com/osauer/hyperserve/issues) with:
+
+- Go version (`go version`) and OS
+- Minimal reproduction (a failing test is best)
+- Expected vs actual behavior
+
+For security issues, see [SECURITY.md](SECURITY.md) — do **not** open a
+public issue.
+
+## Questions
+
+[GitHub Discussions](https://github.com/osauer/hyperserve/discussions) is
+the right place for "is this the right fit for X?" or "how should I approach
+Y?" questions. Bug reports and feature proposals go in Issues.

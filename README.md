@@ -170,11 +170,14 @@ auth + RBAC, htmx, and static file serving. Each example is a self-contained
 
 ## Documentation
 
+- [Roadmap](./docs/ROADMAP.md) — what's planned and why.
 - [Architecture](./ARCHITECTURE.md)
 - [API specification](./spec/api.md)
 - [MCP guide](./docs/MCP_GUIDE.md)
 - [WebSocket guide](./docs/WEBSOCKET_GUIDE.md)
 - [Scaffolding guide](./docs/SCAFFOLDING.md)
+- [Contributing](./CONTRIBUTING.md) — local CI gate + code map.
+- [Security policy](./SECURITY.md)
 
 ## License
 

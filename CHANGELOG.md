@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.1] - 2026-05-18
+
+Docs and project-plumbing release. No code changes — bus-factor de-risking
+moves the maintainer can do in one sitting, taken before they need to be
+done in a hurry.
+
+### Added
+
+- **`SECURITY.md`.** Single-paragraph reporting policy: email
+  `oliver.sauer@gmail.com`, 7-day acknowledgment, 90-day disclosure.
+  Closes the gap of having no documented channel for the next vulnerability
+  class after v0.27.0's seven-fix sweep.
+- **`docs/ROADMAP.md`** (renamed from `docs/PRODUCT_VISION.md`, content
+  preserved). Surfaced from the README's Documentation section. The
+  roadmap was already written; it was just buried.
+- **`.github/FUNDING.yml`.** GitHub Sponsors entry pointing at `osauer`.
+  Signals intent without expectation; renders no UI until enrollment.
+- **GitHub Discussions enabled** on the repo. Non-issue venue for
+  "is this the right fit for X?" questions that precede issues and PRs.
+  Linked from `README.md` and `CONTRIBUTING.md`.
+
+### Changed
+
+- **`CONTRIBUTING.md` rewritten to match what CI actually enforces.** The
+  prior version told contributors to run `go fmt`/`go vet`/`go test`; the
+  real gate is `make check` = gofmt + vet + staticcheck + govulncheck +
+  modernize. Now documents the gate, the per-tool catch surface, the
+  setup commands for `staticcheck`/`govulncheck`, a code map keyed to
+  load-bearing files (`pkg/server/`, `pkg/mcp/`, `pkg/mcp/transport_sse.go`,
+  …), and pointers to the relevant ADRs.
+
 ## [0.27.0] - 2026-05-18
 
 Security + feature release. Closes seven concrete vulnerability classes in
