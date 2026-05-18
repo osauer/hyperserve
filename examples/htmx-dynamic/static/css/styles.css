@@ -1,0 +1,126 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    font-size: 16px;
+    background-color: #FAFBFD; /* Subdued light grey background */
+    color: #606060; /* Muted grey for text */
+    line-height: 1.6;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 20px;
+}
+
+/* Header Styling */
+h1, h2, h3 {
+    font-weight: 700;
+    color: #4A90E2; /* Soft blue for headings */
+}
+
+h1 {
+    font-size: 2.5rem;
+    margin-bottom: 20px;
+}
+
+h2 {
+    font-size: 2rem;
+    margin-bottom: 15px;
+}
+
+/* Buttons */
+button {
+    background-color: #FFA756; /* Soft orange */
+    color: #FFFFFF; /* White text */
+    border: none;
+    border-radius: 6px;
+    padding: 12px 24px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.3s ease, transform 0.2s ease, box-shadow 0.3s ease;
+    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.1); /* Subtle shadow */
+}
+
+button:hover {
+    background-color: #FF9242; /* Slightly darker orange on hover */
+    transform: translateY(-2px); /* Lift effect */
+    box-shadow: 0 6px 10px rgba(0, 0, 0, 0.15); /* Enhanced shadow */
+}
+
+button:active {
+    background-color: #E67E2C; /* More subdued for active state */
+}
+
+/* Content Section */
+#dynamic-section {
+    background-color: #FFFFFF; /* Clean white background */
+    border: 1px solid #E0E0E0; /* Light grey border */
+    border-radius: 10px;
+    padding: 20px;
+    margin-top: 20px;
+    width: 100%;
+    max-width: 600px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.05); /* Subtle shadow */
+    text-align: center; /* Center align for dynamic content */
+}
+
+#dynamic-section p {
+    color: #606060; /* Muted grey for body text */
+}
+
+/* Links */
+a {
+    color: #FFA756; /* Soft orange for links */
+    text-decoration: none;
+    font-weight: 500;
+}
+
+a:hover {
+    text-decoration: underline;
+    color: #4A90E2; /* Switch to blue on hover */
+}
+
+/* HTMX Indicator */
+.htmx-indicator {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 3px solid rgba(74, 144, 226, 0.3); /* Light blue semi-transparent spinner */
+    border-top-color: #FFA756; /* Soft orange spinner */
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+/* Spinner Animation */
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Footer */
+footer {
+    margin-top: 50px;
+    font-size: 14px;
+    color: #909090; /* Softer grey for footer text */
+    text-align: center;
+}
+
+footer a {
+    color: #4A90E2;
+    font-weight: 600;
+}
+
+footer a:hover {
+    color: #FFA756; /* Switch to orange on hover */
+}

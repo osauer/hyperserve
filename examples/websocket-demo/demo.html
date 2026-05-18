@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HyperServe WebSocket Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h1, h2 {
+            color: #333;
+        }
+        .demo-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .status.connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status.disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .status.connecting {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 8px;
+            margin: 5px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .messages {
+            height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            background-color: #f9f9f9;
+            border-radius: 4px;
+        }
+        .message {
+            margin: 5px 0;
+            padding: 5px;
+            border-radius: 3px;
+        }
+        .message.system {
+            background-color: #e2e3e5;
+            color: #383d41;
+        }
+        .message.user {
+            background-color: #d1ecf1;
+            color: #0c5460;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background-color: #28a745;
+            transition: width 0.3s ease;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>HyperServe WebSocket Demo</h1>
+        <p>This demo showcases WebSocket functionality with hyperserve, including real-time communication, progress updates, and multi-user chat.</p>
+    </div>
+
+    <div class="grid">
+        <!-- Echo Demo -->
+        <div class="demo-section">
+            <h2>Echo Server</h2>
+            <div id="echo-status" class="status disconnected">Disconnected</div>
+            <button id="echo-connect">Connect</button>
+            <button id="echo-disconnect" disabled>Disconnect</button>
+            <input type="text" id="echo-input" placeholder="Enter message to echo" disabled>
+            <button id="echo-send" disabled>Send</button>
+            <div id="echo-messages" class="messages"></div>
+        </div>
+
+        <!-- DAW Progress Demo -->
+        <div class="demo-section">
+            <h2>DAW Progress Updates</h2>
+            <div id="daw-status" class="status disconnected">Disconnected</div>
+            <input type="text" id="daw-job-id" placeholder="Job ID" value="demo-job">
+            <button id="daw-start">Start Job</button>
+            <button id="daw-connect">Connect to Progress</button>
+            <button id="daw-disconnect" disabled>Disconnect</button>
+            <div class="progress-bar">
+                <div id="daw-progress" class="progress-fill" style="width: 0%"></div>
+            </div>
+            <div id="daw-progress-text">Progress: 0%</div>
+            <div id="daw-messages" class="messages"></div>
+        </div>
+
+        <!-- Chat Demo -->
+        <div class="demo-section">
+            <h2>Multi-User Chat</h2>
+            <div id="chat-status" class="status disconnected">Disconnected</div>
+            <input type="text" id="chat-username" placeholder="Your username" value="User1">
+            <button id="chat-connect">Connect</button>
+            <button id="chat-disconnect" disabled>Disconnect</button>
+            <div id="chat-messages" class="messages"></div>
+            <input type="text" id="chat-input" placeholder="Type your message..." disabled>
+            <button id="chat-send" disabled>Send</button>
+        </div>
+
+        <!-- Connection Test -->
+        <div class="demo-section">
+            <h2>Connection Test</h2>
+            <p>Test WebSocket connectivity and server response.</p>
+            <button id="test-connection">Test Connection</button>
+            <div id="test-results" class="messages"></div>
+        </div>
+    </div>
+
+    <script>
+        // WebSocket connections
+        let echoWs = null;
+        let dawWs = null;
+        let chatWs = null;
+
+        // Echo functionality
+        document.getElementById('echo-connect').addEventListener('click', function() {
+            const status = document.getElementById('echo-status');
+            status.textContent = 'Connecting...';
+            status.className = 'status connecting';
+            
+            echoWs = new WebSocket('ws://localhost:8080/ws/echo');
+            
+            echoWs.onopen = function() {
+                status.textContent = 'Connected';
+                status.className = 'status connected';
+                document.getElementById('echo-connect').disabled = true;
+                document.getElementById('echo-disconnect').disabled = false;
+                document.getElementById('echo-input').disabled = false;
+                document.getElementById('echo-send').disabled = false;
+            };
+            
+            echoWs.onmessage = function(event) {
+                const messages = document.getElementById('echo-messages');
+                messages.innerHTML += '<div class="message user">Echo: ' + event.data + '</div>';
+                messages.scrollTop = messages.scrollHeight;
+            };
+            
+            echoWs.onclose = function() {
+                status.textContent = 'Disconnected';
+                status.className = 'status disconnected';
+                document.getElementById('echo-connect').disabled = false;
+                document.getElementById('echo-disconnect').disabled = true;
+                document.getElementById('echo-input').disabled = true;
+                document.getElementById('echo-send').disabled = true;
+            };
+        });
+
+        document.getElementById('echo-disconnect').addEventListener('click', function() {
+            if (echoWs) {
+                echoWs.close();
+            }
+        });
+
+        document.getElementById('echo-send').addEventListener('click', function() {
+            const input = document.getElementById('echo-input');
+            if (echoWs && input.value) {
+                echoWs.send(input.value);
+                const messages = document.getElementById('echo-messages');
+                messages.innerHTML += '<div class="message system">Sent: ' + input.value + '</div>';
+                messages.scrollTop = messages.scrollHeight;
+                input.value = '';
+            }
+        });
+
+        // DAW functionality
+        document.getElementById('daw-start').addEventListener('click', function() {
+            const jobId = document.getElementById('daw-job-id').value;
+            fetch('/api/jobs/start?jobId=' + jobId)
+                .then(response => response.json())
+                .then(data => {
+                    const messages = document.getElementById('daw-messages');
+                    messages.innerHTML += '<div class="message system">Job started: ' + data.jobId + '</div>';
+                    messages.scrollTop = messages.scrollHeight;
+                });
+        });
+
+        document.getElementById('daw-connect').addEventListener('click', function() {
+            const jobId = document.getElementById('daw-job-id').value;
+            const status = document.getElementById('daw-status');
+            status.textContent = 'Connecting...';
+            status.className = 'status connecting';
+            
+            dawWs = new WebSocket('ws://localhost:8080/ws/daw/production/render?jobId=' + jobId);
+            
+            dawWs.onopen = function() {
+                status.textContent = 'Connected to job: ' + jobId;
+                status.className = 'status connected';
+                document.getElementById('daw-connect').disabled = true;
+                document.getElementById('daw-disconnect').disabled = false;
+            };
+            
+            dawWs.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                const progress = document.getElementById('daw-progress');
+                const progressText = document.getElementById('daw-progress-text');
+                const messages = document.getElementById('daw-messages');
+                
+                progress.style.width = data.progress + '%';
+                progressText.textContent = 'Progress: ' + data.progress + '% - ' + data.status;
+                messages.innerHTML += '<div class="message user">Progress: ' + data.progress + '% - ' + data.status + '</div>';
+                messages.scrollTop = messages.scrollHeight;
+            };
+            
+            dawWs.onclose = function() {
+                status.textContent = 'Disconnected';
+                status.className = 'status disconnected';
+                document.getElementById('daw-connect').disabled = false;
+                document.getElementById('daw-disconnect').disabled = true;
+            };
+        });
+
+        document.getElementById('daw-disconnect').addEventListener('click', function() {
+            if (dawWs) {
+                dawWs.close();
+            }
+        });
+
+        // Chat functionality
+        document.getElementById('chat-connect').addEventListener('click', function() {
+            const username = document.getElementById('chat-username').value;
+            const status = document.getElementById('chat-status');
+            status.textContent = 'Connecting...';
+            status.className = 'status connecting';
+            
+            chatWs = new WebSocket('ws://localhost:8080/ws/chat?username=' + username);
+            
+            chatWs.onopen = function() {
+                status.textContent = 'Connected as: ' + username;
+                status.className = 'status connected';
+                document.getElementById('chat-connect').disabled = true;
+                document.getElementById('chat-disconnect').disabled = false;
+                document.getElementById('chat-input').disabled = false;
+                document.getElementById('chat-send').disabled = false;
+            };
+            
+            chatWs.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                const messages = document.getElementById('chat-messages');
+                const messageClass = data.type === 'system' ? 'system' : 'user';
+                messages.innerHTML += '<div class="message ' + messageClass + '"><strong>' + data.username + ':</strong> ' + data.message + '</div>';
+                messages.scrollTop = messages.scrollHeight;
+            };
+            
+            chatWs.onclose = function() {
+                status.textContent = 'Disconnected';
+                status.className = 'status disconnected';
+                document.getElementById('chat-connect').disabled = false;
+                document.getElementById('chat-disconnect').disabled = true;
+                document.getElementById('chat-input').disabled = true;
+                document.getElementById('chat-send').disabled = true;
+            };
+        });
+
+        document.getElementById('chat-disconnect').addEventListener('click', function() {
+            if (chatWs) {
+                chatWs.close();
+            }
+        });
+
+        document.getElementById('chat-send').addEventListener('click', function() {
+            const input = document.getElementById('chat-input');
+            if (chatWs && input.value) {
+                chatWs.send(JSON.stringify({message: input.value}));
+                input.value = '';
+            }
+        });
+
+        // Allow Enter key to send messages
+        document.getElementById('echo-input').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                document.getElementById('echo-send').click();
+            }
+        });
+
+        document.getElementById('chat-input').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                document.getElementById('chat-send').click();
+            }
+        });
+
+        // Connection test
+        document.getElementById('test-connection').addEventListener('click', function() {
+            const results = document.getElementById('test-results');
+            results.innerHTML = '<div class="message system">Testing WebSocket connection...</div>';
+            
+            const testWs = new WebSocket('ws://localhost:8080/ws/echo');
+            
+            testWs.onopen = function() {
+                results.innerHTML += '<div class="message system">✓ WebSocket connection established</div>';
+                testWs.send('test message');
+            };
+            
+            testWs.onmessage = function(event) {
+                results.innerHTML += '<div class="message user">✓ Echo response received: ' + event.data + '</div>';
+                results.innerHTML += '<div class="message system">✓ WebSocket test completed successfully</div>';
+                results.scrollTop = results.scrollHeight;
+                testWs.close();
+            };
+            
+            testWs.onerror = function(error) {
+                results.innerHTML += '<div class="message system">✗ WebSocket connection failed</div>';
+                results.scrollTop = results.scrollHeight;
+            };
+        });
+    </script>
+</body>
+</html>

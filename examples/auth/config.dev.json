@@ -1,0 +1,41 @@
+{
+  "environment": "development",
+  "server": {
+    "port": 8080,
+    "read_timeout": "30s",
+    "write_timeout": "30s"
+  },
+  "auth": {
+    "jwt": {
+      "enabled": true,
+      "issuer": "hyperserve-auth",
+      "public_key_file": "dev-public.pem",
+      "token_expiry": "24h"
+    },
+    "api_keys": {
+      "enabled": true,
+      "rate_limit_per_minute": 100
+    },
+    "basic_auth": {
+      "enabled": true,
+      "emergency_access": true
+    }
+  },
+  "security": {
+    "cors": {
+      "allowed_origins": ["http://localhost:3000", "http://localhost:5173"],
+      "allowed_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      "allowed_headers": ["Content-Type", "Authorization"],
+      "expose_headers": ["X-Request-ID"],
+      "max_age": 3600
+    },
+    "rate_limiting": {
+      "enabled": true,
+      "requests_per_minute": 60
+    },
+    "audit_logging": {
+      "enabled": true,
+      "log_level": "debug"
+    }
+  }
+}
