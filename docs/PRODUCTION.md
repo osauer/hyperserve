@@ -2,59 +2,37 @@
 
 _Last updated: 2026-05-18 21:28 CEST (v0.33.1)._
 
-What you need to know to put HyperServe behind a real reverse proxy
-and not get bitten. Concrete, no marketing — every section names the
-exact option, header, or failure mode it's about.
-
-## Scope
-
-In scope: TLS, reverse-proxy / CDN gotchas, MCP discovery security
-model, static file serving, health endpoints, deferred init, the
-binding-token capability for SSE clients.
-
-Out of scope: capacity planning, OS tuning, container build
-recipes, observability backend integration (OTLP is on the
-[roadmap](./ROADMAP.md)).
-
-If you're new to the framework, read [README.md](../README.md) and
-[ARCHITECTURE.md](../ARCHITECTURE.md) first. This document assumes
-you have a HyperServe binary that compiles and serves traffic
-locally.
+How to put HyperServe behind a reverse proxy without getting bitten.
 
 ## Topology
 
-A typical production deployment looks like:
+Two HTTP servers ship in one binary: the main server (default `:8080`)
+and an optional health server (default `:9080`, enabled via
+`WithHealthServer()`). Bind the health port to an interface your
+ingress does not expose. Its endpoints are for the orchestrator
+(Kubernetes probes, target-group health checks), not for end users.
 
 ```
-clients → CDN / WAF → reverse proxy (nginx / envoy / Caddy) → HyperServe
-                                                            → HyperServe (health on :9080)
+clients → CDN/WAF → reverse proxy (nginx/envoy/Caddy) → HyperServe :8080
+                                                      → HyperServe :9080 (health, private)
 ```
-
-The framework ships two HTTP servers in one binary: the main server
-(default `:8080`) and an optional health server (default `:9080`,
-enabled via `WithHealthServer()`). Run the health server on a port
-that is **not** exposed by your ingress — the health endpoints are
-for your orchestrator (Kubernetes liveness/readiness, AWS target
-group health checks), not for end users.
 
 ```go
 srv, _ := server.NewServer(
     server.WithAddr(":8080"),
     server.WithHealthServer(),                 // /healthz/, /readyz/, /livez/ on :9080
     server.WithHealthAddr(":9080"),            // override if needed
-    server.WithTLS("cert.pem", "key.pem"),     // terminate TLS at the app, OR
-                                                // terminate at the proxy and skip this
+    server.WithTLS("cert.pem", "key.pem"),     // or terminate TLS at the proxy
 )
 ```
 
 ## Reverse proxy and CDN
 
-### Trust the proxy's scheme header
+### Pass the client scheme through
 
 When TLS terminates at the proxy, requests reach HyperServe over
-plaintext, and `r.TLS` is `nil`. The discovery endpoint (and any
-URL-building code) reads `X-Forwarded-Proto` to recover the
-client-facing scheme:
+plaintext, so `r.TLS` is `nil`. Discovery and any URL-building code
+reads `X-Forwarded-Proto` to recover the client-facing scheme:
 
 ```go
 // pkg/mcp/discovery.go
@@ -64,114 +42,103 @@ if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 }
 ```
 
-Configure your proxy to set `X-Forwarded-Proto: https` for
-TLS-terminated traffic. If you don't, `/.well-known/mcp.json` will
-advertise `http://` endpoints to AI clients that found you over
-HTTPS.
+Set `X-Forwarded-Proto: https` on TLS-terminated traffic. Without it,
+`/.well-known/mcp.json` advertises `http://` endpoints to AI clients
+that reached you over HTTPS.
 
-### Vary: Authorization and the cache-poisoning trap
+### Vary: Authorization
 
-HyperServe sets `Vary: Authorization` on every discovery response,
-and switches `Cache-Control` to `private, max-age=60` when
-`MCPDiscoveryPolicy == DiscoveryAuthenticated`. This closes a
-specific failure mode (fixed in v0.33.0): a CDN keyed on URL alone
-would cache an authenticated discovery response and replay the full
-tool list to anonymous clients within the TTL.
+Discovery responses always carry `Vary: Authorization`, and switch to
+`Cache-Control: private, max-age=60` when `MCPDiscoveryPolicy ==
+DiscoveryAuthenticated`. The previous shape (`public, max-age=300`
+everywhere) was a cache-poisoning bug fixed in v0.33.0: a CDN keyed on
+URL alone would store an authenticated response and replay the full
+tool list to anonymous clients for the next 300 seconds.
 
-**Your CDN config must honor `Vary`.** CloudFront, Fastly, and
-Cloudflare all do by default; some custom configurations strip
-`Vary` for cache efficiency. If yours does, switch the policy to
-`DiscoveryCount` or `DiscoveryNone` — these emit the same body
-regardless of the `Authorization` header, so caching by URL alone is
-safe.
+Your CDN must honor `Vary`. CloudFront, Fastly, and Cloudflare do by
+default. Some custom configs strip it for cache efficiency; if yours
+does, set the policy to `DiscoveryCount` or `DiscoveryNone`. Those
+return the same body regardless of `Authorization` and are safe to
+cache by URL alone.
 
 ### Trusted proxies
 
-HyperServe does **not** ship a "trusted proxies" allow-list for
-`X-Forwarded-*` headers. If your service is reachable directly
-(without going through your proxy), clients can spoof
-`X-Forwarded-Proto: https` and influence URL generation. Use one of:
+No "trusted proxies" allow-list ships. If the service is reachable
+directly, a client can spoof `X-Forwarded-Proto: https` and influence
+URL generation. Pick one:
 
-1. Bind HyperServe to a loopback or VPC-private interface so only
-   the proxy can reach it.
-2. Run your proxy in a sidecar / unix-socket pattern.
-3. Don't rely on `X-Forwarded-Proto` for security decisions (it's
-   only used for URL display in discovery responses today).
+1. Bind HyperServe to loopback or a VPC-private interface.
+2. Run the proxy as a sidecar over a Unix socket.
+3. Don't depend on `X-Forwarded-Proto` for security decisions. Today
+   it only affects URL display in discovery responses, so the blast
+   radius is small.
 
 ## TLS
 
-`WithTLS(certFile, keyFile)` enables TLS with a hardened config:
-TLS 1.2 minimum, ECDHE-only suites, no static IVs. See
-[pkg/server/options.go](../pkg/server/options.go) for the exact
-list. There is no support for legacy TLS 1.0 / 1.1 — if you need to
-terminate older clients, do it at your proxy.
+`WithTLS(certFile, keyFile)` gives you TLS 1.2 floor, ECDHE-only
+suites, no static IVs. The exact cipher list lives in
+[pkg/server/options.go](../pkg/server/options.go). TLS 1.0 and 1.1 are
+not supported. If you need them for legacy clients, terminate at the
+proxy.
 
 ### HSTS
 
-HSTS is sent **only over TLS**, with the two-year preload value:
+HSTS is sent only over TLS:
 
 ```
 Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
 ```
 
-Plaintext responses ship no HSTS header. This is intentional — sending
-HSTS over HTTP is a no-op the spec forbids (clients ignore it), and
-the prior shape (overridden by a static security-headers table
-incorrectly) was a v0.32.0 fix.
-
-If you want to submit your domain to the HSTS preload list, the
-header above is the configuration HSTS preload requires. Submit at
-https://hstspreload.org/.
+Plaintext responses ship no HSTS header. Clients ignore HSTS over HTTP
+by spec, and sending it both ways was a v0.32.0 bug. To preload your
+domain, the header above is what hstspreload.org wants. Submit there.
 
 ## MCP security model
 
-If `WithMCPSupport(...)` is enabled, three concerns matter:
+If `WithMCPSupport(...)` is enabled, three things matter.
 
 ### Discovery policy
 
-The `MCPDiscoveryPolicy` option controls what `/.well-known/mcp.json`
-returns:
+`MCPDiscoveryPolicy` controls what `/.well-known/mcp.json` returns to
+anonymous callers:
 
-| Policy | What anonymous clients see |
+| Policy | Anonymous response |
 |---|---|
-| `DiscoveryPublic` (default) | Tool/resource names + transports + capabilities |
-| `DiscoveryCount` | Counts only — no names |
+| `DiscoveryPublic` (default) | Tool/resource names plus transports plus capabilities |
+| `DiscoveryCount` | Counts only, no names |
 | `DiscoveryAuthenticated` | Counts only without `Authorization`; full list with it |
-| `DiscoveryNone` | Counts only; no names ever |
+| `DiscoveryNone` | Counts only, never names |
 
-**`DiscoveryAuthenticated` is not authorization** — it only gates the
+`DiscoveryAuthenticated` is not authorization. It only gates the
 discovery payload. Anyone who calls `tools/list` over the MCP endpoint
-can still enumerate tools. Use it to keep your tool/resource names out
-of casual scrapes (and out of CDN-cached payloads served to anonymous
-clients), not as an access-control mechanism. Real authorization
-belongs in your auth middleware on the MCP endpoint itself.
+can still enumerate. Use it to keep tool names out of casual scrapes
+and CDN-cached payloads. Real access control belongs in auth
+middleware on the MCP endpoint itself.
 
-### SSE binding token capability
+### SSE binding-token capability
 
 SSE clients receive a `clientId` and a `bindingToken` in the initial
-`connection` event. Subsequent POSTs that should be delivered via
-that SSE stream must present **both** headers:
+`connection` event. POSTs that should be delivered via that SSE stream
+must present both headers:
 
 ```
 X-SSE-Client-ID: <clientId>
 X-SSE-Binding:   <bindingToken>
 ```
 
-Missing or wrong binding token → 403. The binding token is the
-capability — knowing a `clientId` (which may be observable to anyone
-on the same network or in proxy logs) is not enough to inject
-responses into another client's stream. The token is generated with
-`crypto/rand`, compared in constant time, and fail-closed on rand
-errors. See [pkg/mcp/transport_sse.go](../pkg/mcp/transport_sse.go).
+Missing or wrong binding returns 403. The token is the capability.
+Knowing a `clientId` (which can show up in proxy access logs) is not
+enough to inject responses into another client's stream. The token is
+generated with `crypto/rand`, compared in constant time, and fails
+closed on rand errors. See
+[pkg/mcp/transport_sse.go](../pkg/mcp/transport_sse.go).
 
-Do not log the binding token. The framework doesn't, but if you
-wrap MCP behind your own middleware that logs request headers,
-filter `X-SSE-Binding`.
+Do not log the token. HyperServe doesn't, but if you wrap MCP behind
+your own header-logging middleware, filter `X-SSE-Binding`.
 
-### Built-in tools / resources
+### Built-in tools and resources
 
-Off by default. To enable, **blank-import** the package and turn the
-toggles on:
+Off by default. Blank-import the package and flip the toggles:
 
 ```go
 import _ "github.com/osauer/hyperserve/pkg/mcp/builtin"
@@ -182,77 +149,73 @@ server.WithMCPBuiltinResources(true)
 server.WithMCPFileToolRoot("/srv/data")  // required for file tools
 ```
 
-Notable security postures, all enforced at construction:
+Security postures enforced at construction:
 
-- **File tools (`read_file`, `list_directory`)** refuse to instantiate
-  without `WithMCPFileToolRoot(...)` — there is no unsandboxed fallback.
-  Inside the sandbox they use `os.Root` (Go 1.24+), so traversal
-  attempts (`../etc/passwd`) cannot escape the configured directory.
-- **`http_request` tool was removed in an earlier release** — it allowed
-  any MCP caller to make outbound HTTP from the server process (SSRF).
-  If you need outbound HTTP, register a domain-allow-listed tool from
-  your own code; don't restore the old shape.
-- **`request_debugger` tool was removed in an earlier release** — it
-  captured request headers (Authorization, Cookie, API keys) into a
-  process-wide store any MCP caller could read.
+- File tools (`read_file`, `list_directory`) refuse to instantiate
+  without `WithMCPFileToolRoot(...)`. There is no unsandboxed fallback.
+  Inside the sandbox they use `os.Root` (Go 1.24+), so `../etc/passwd`
+  cannot escape.
+- The `http_request` tool was removed in an earlier release. It let
+  any MCP caller make outbound HTTP from the server process, which is
+  SSRF and cloud-metadata exfil. If you need outbound HTTP, register a
+  domain-allowlisted tool from your own code. Don't restore the old
+  shape.
+- The `request_debugger` tool was removed in an earlier release. It
+  captured every request's headers (Authorization, Cookie, API keys)
+  into a process-wide store any MCP caller could read.
 
-### Do not enable `MCPDev` in production
+### Do not enable MCPDev in production
 
-`server.MCPDev()` enables `server_control`, `route_inspector`, and
-`dev_guide` tools that allow log-level changes and route
-introspection. The framework prints a `⚠️ MCP DEVELOPER MODE ENABLED ⚠️`
-warning on startup. Treat that warning as a build-failure signal in
-your CI for production targets.
+`server.MCPDev()` adds `server_control`, `route_inspector`, and
+`dev_guide` tools that change log level and introspect routes.
+HyperServe prints a startup banner: `⚠️ MCP DEVELOPER MODE ENABLED ⚠️`.
+Wire your production CI to fail the build whenever that line appears.
 
-For production observability, use `server.MCPObservability()` — it
+For production observability, use `server.MCPObservability()`. It
 exposes `config://server/current`, `health://server/status`, and
 `logs://server/recent` with no control-plane mutation.
 
 ## Static files
 
-`HandleStatic(pattern)` uses `os.OpenRoot` to sandbox file serving to
-`Options.StaticDir`. If `os.OpenRoot` fails at startup (directory
-missing, permission denied), it falls back to `http.FileServer(http.Dir(...))`
+`HandleStatic(pattern)` sandboxes file serving to `Options.StaticDir`
+via `os.OpenRoot`. If `OpenRoot` fails at startup (directory missing,
+permission denied), it falls back to `http.FileServer(http.Dir(...))`
 and logs:
 
 ```
 WARN  Failed to open static root directory, falling back to http.Dir
 ```
 
-**Treat this warning as a deployment failure.** The fallback is for
-local development convenience. In production, an unsandboxed
-file server is one path-traversal bug away from leaking
-`/etc/passwd`-class data. Fix the directory permissions / existence
-issue instead of running on the fallback path.
+Don't ship if you see that line. The fallback exists for local
+development. An unsandboxed file server is one path-traversal bug away
+from leaking `/etc/passwd`. Fix the directory and start over.
 
-Static serving is GET/HEAD only — POST returns 405.
+Static serving is GET/HEAD only. POST returns 405.
 
 ## Health endpoints
 
 `WithHealthServer()` registers three endpoints on the health port:
 
-| Path | When 200 | When 503 |
+| Path | 200 means | 503 means |
 |---|---|---|
-| `/healthz/` | Server process is alive | Never returns 503 — process-level liveness only |
-| `/readyz/` | `isReady` flag is `true` | Deferred init not yet complete |
-| `/livez/` | Server hasn't called `Stop()` | After graceful shutdown begins |
+| `/healthz/` | Process is alive | Never returns 503 (process-level liveness only) |
+| `/readyz/` | `isReady` is set | Deferred init not yet complete |
+| `/livez/` | Server has not started shutdown | After `Stop()` is called |
 
-`isReady` is `true` immediately after `NewServer` returns, **unless**
-you used `WithDeferredInit(...)`. In that case `/readyz/` returns 503
+`isReady` is set immediately after `NewServer` returns. The exception
+is `WithDeferredInit(...)`. Under that option, `/readyz/` returns 503
 until the deferred init callback returns nil, the `OnReady` hooks run,
 and `CompleteDeferredInit(...)` is called (or it completes
-automatically on init return).
+automatically when init returns).
 
-The main `/.well-known/mcp.json` and any application routes are NOT
-on the health port — they're on the main `Addr`. The health port
-exists so your orchestrator can health-check without competing for the
-same ingress queue.
+`/.well-known/mcp.json` and application routes live on the main
+`Addr`, not the health port. The health port is a separate listener so
+the orchestrator can probe without competing for the ingress queue.
 
 ### Deferred init
 
-If your application needs to do slow startup work (warm a cache, open
-DB pools, fetch config from a remote service) and you want to serve
-`/healthz/` immediately, use:
+For applications that need slow startup work (cache warming, DB pool
+open, remote config fetch) while serving `/healthz/` immediately:
 
 ```go
 srv, _ := server.NewServer(
@@ -267,38 +230,37 @@ srv, _ := server.NewServer(
 ```
 
 While deferred init runs:
-- `/healthz/` and `/livez/` return 200 immediately
-- `/readyz/` returns 503
-- Application routes return 503 with a `Retry-After` header
-- The orchestrator (Kubernetes) keeps you out of the load balancer until
-  readiness flips
 
-This pattern lets you separate "is this pod alive?" (liveness — restart
-me if I'm not) from "is this pod ready for traffic?" (readiness —
-don't send me requests yet).
+- `/healthz/` and `/livez/` return 200.
+- `/readyz/` returns 503.
+- Application routes return 503 with a `Retry-After` header.
+- Kubernetes keeps the pod out of the load balancer until readiness
+  flips.
+
+This is the standard Kubernetes split between "is this pod alive?"
+(liveness; restart it if not) and "is this pod ready for traffic?"
+(readiness; don't route to it yet).
 
 ## Rate limiting and auth
 
-`WithRateLimit(rps, burst)` enables a per-client (by remote IP)
-rate limiter. Per-client limiters are kept in a sync.Map that the
-framework cleans up every 5 minutes for limiters not seen in the last
-10 minutes. There is no global rate limiter — if you need one,
-register one as middleware.
+`WithRateLimit(rps, burst)` enables a per-remote-IP token bucket.
+Per-client limiters live in a `sync.Map` that HyperServe sweeps every
+5 minutes for entries not seen in the last 10. There is no global
+limiter. Add one as middleware if you need one.
 
-For auth, the framework provides Bearer / Basic / API-key validator
-hooks; see [examples/auth/](../examples/auth/) for a JWT example. The
-validator runs inside `subtle.WithDataIndependentTiming` to prevent
+For application-level auth, validator hooks accept Bearer, Basic, and
+API-key. See [examples/auth/](../examples/auth/) for a JWT example.
+Validators run inside `subtle.WithDataIndependentTiming` to prevent
 timing oracles.
 
-If your auth middleware is upstream (a JWT-validating reverse proxy,
-an Envoy filter, an OAuth2 proxy), HyperServe accepts the headers and
-your handler reads them. The framework does **not** require auth — if
-you skip it, your endpoints are public.
+If auth lives upstream (JWT-validating reverse proxy, Envoy filter,
+OAuth2 proxy), HyperServe just passes headers through. No auth is
+required by default; endpoints are public until you wire something.
 
 ## Logging
 
-The framework uses `log/slog`. The default logger writes plain text
-to stderr at INFO level. To use JSON in production:
+`log/slog` is the default. Plain text, stderr, INFO. For JSON in
+production:
 
 ```go
 import "log/slog"
@@ -310,49 +272,40 @@ slog.SetDefault(slog.New(handler))
 server.SetDefaultLogger(slog.New(handler))
 ```
 
-Set both — the framework's package-level logger is separate from
-`slog.Default()` for callers that want to silence framework chatter
-without affecting application logs.
+Set both. The HyperServe package-level logger is separate from
+`slog.Default()` so callers can silence framework chatter without
+affecting application logs.
 
-There is **no built-in request-correlation ID middleware** as of
-v0.33. If you need one, write a small middleware that sets/propagates
-`X-Request-ID` and adds it to the request context. (The `TraceMiddleware`
-that used to ship was deleted in v0.32 — it was never wired into any
-preset and the trace_id field it populated was empty in all real
-deployments.)
+No request-correlation middleware ships in v0.33. Write one if you
+need it: set or propagate `X-Request-ID`, add it to the request
+context. The old `TraceMiddleware` was deleted in v0.32 because it was
+never wired into any preset, and the `trace_id` field it populated was
+empty in every real deployment.
 
 ## Pre-deploy checklist
 
-Before you ship:
-
-- [ ] `make check` passes — gofmt, vet, staticcheck, govulncheck,
-      modernize, plus per-example govulncheck after v0.33.1
+- [ ] `make check` passes (gofmt, vet, staticcheck, govulncheck,
+      modernize, plus per-example govulncheck since v0.33.1)
 - [ ] `go test -race ./...` passes
-- [ ] TLS enabled either in HyperServe (`WithTLS`) or in your proxy
-- [ ] HSTS preload submitted (if you want it) at
-      https://hstspreload.org/
-- [ ] `X-Forwarded-Proto: https` set by your proxy if TLS terminates
+- [ ] TLS enabled either in HyperServe (`WithTLS`) or the proxy
+- [ ] `X-Forwarded-Proto: https` set by the proxy if TLS terminates
       upstream
-- [ ] CDN config honors `Vary: Authorization` (or
-      `MCPDiscoveryPolicy` set to `DiscoveryCount` / `DiscoveryNone`)
-- [ ] Health server bound to an interface your ingress does NOT expose
-- [ ] `MCPDev()` is **not** present in any production preset list
-- [ ] `WithMCPFileToolRoot` set if `WithMCPBuiltinTools(true)` and you
-      want the file tools — otherwise they're skipped with a WARN log
-- [ ] `staticRoot` log line shows "using secure os.Root" (not "falling
-      back to http.Dir")
-- [ ] Structured (JSON) logging configured if your log aggregator
-      requires it
-- [ ] Request-correlation middleware added if you need it (none ships)
+- [ ] CDN honors `Vary: Authorization`, or `MCPDiscoveryPolicy` is
+      `DiscoveryCount` / `DiscoveryNone`
+- [ ] HSTS preload submitted at https://hstspreload.org/ if wanted
+- [ ] Health server bound to an interface the ingress does NOT expose
+- [ ] `MCPDev()` not present in any production preset
+- [ ] `WithMCPFileToolRoot` set whenever `WithMCPBuiltinTools(true)` is
+      set; otherwise file tools are skipped with a WARN log
+- [ ] Startup log shows "Static file serving using secure os.Root",
+      not "falling back to http.Dir"
+- [ ] JSON logging configured if your aggregator needs it
+- [ ] Request-correlation middleware added if you need one (none ships)
 
-## Where to look next
+## See also
 
-- [API_STABILITY.md](./API_STABILITY.md) — what we promise pre- and
-  post-1.0.
-- [MCP_GUIDE.md](./MCP_GUIDE.md) — the full MCP reference including
-  namespaces, presets, and the SSE flow with sample shells.
-- [WEBSOCKET_GUIDE.md](./WEBSOCKET_GUIDE.md) — WebSocket security
-  posture (origin checking, Sec-WebSocket-Key, frame limits).
-- [SECURITY.md](../SECURITY.md) — how to report vulnerabilities.
-- [examples/auth/](../examples/auth/) — Bearer / Basic / API-key
-  validator examples with JWT + role gating.
+- [API_STABILITY.md](./API_STABILITY.md) — what's promised pre- and post-1.0
+- [MCP_GUIDE.md](./MCP_GUIDE.md) — full MCP reference, namespaces, presets, SSE flow
+- [WEBSOCKET_GUIDE.md](./WEBSOCKET_GUIDE.md) — origin checking, Sec-WebSocket-Key, frame limits
+- [SECURITY.md](../SECURITY.md) — vulnerability reporting
+- [examples/auth/](../examples/auth/) — JWT, Bearer, Basic, API-key, role gating
