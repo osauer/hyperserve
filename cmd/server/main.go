@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 
 	server "github.com/osauer/hyperserve/pkg/server"
 
@@ -17,11 +18,17 @@ import (
 
 func main() {
 	var (
-		port    = flag.Int("port", 8080, "Port to listen on")
-		mcp     = flag.Bool("mcp", true, "Enable MCP support")
-		verbose = flag.Bool("verbose", false, "Enable verbose logging")
+		port        = flag.Int("port", 8080, "Port to listen on")
+		mcp         = flag.Bool("mcp", true, "Enable MCP support")
+		verbose     = flag.Bool("verbose", false, "Enable verbose logging")
+		showVersion = flag.Bool("version", false, "Print version and exit")
 	)
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println("hyperserve", server.GetVersionInfo())
+		os.Exit(0)
+	}
 
 	// Create server with options
 	addr := fmt.Sprintf(":%d", *port)
