@@ -17,6 +17,16 @@ import (
 	jsonrpc "github.com/osauer/hyperserve/pkg/jsonrpc"
 )
 
+// sseEvent is a queued write to the SSE wire. Routing every wire-side write
+// through the main goroutine via eventChan is what makes writeSSEMessage
+// single-writer safe — earlier shapes had the request-processing goroutine
+// reaching the writer directly, racing with the main loop's pings and
+// response delivery.
+type sseEvent struct {
+	event string
+	data  []byte
+}
+
 // sseClient represents a connected SSE client.
 type sseClient struct {
 	id      string
@@ -29,6 +39,7 @@ type sseClient struct {
 	// connections always get one).
 	bindingToken  string
 	messageChan   chan *jsonrpc.Response
+	eventChan     chan sseEvent
 	closeChan     chan struct{}
 	closeOnce     sync.Once
 	lastMessageID int
@@ -97,8 +108,29 @@ func newSSEClient(id, bindingToken string, w http.ResponseWriter, flusher http.F
 		w:            w,
 		flusher:      flusher,
 		messageChan:  make(chan *jsonrpc.Response, 100),
+		eventChan:    make(chan sseEvent, 16),
 		closeChan:    make(chan struct{}),
 		logger:       logger,
+	}
+}
+
+// enqueueEvent submits a wire-side event to the per-client event channel,
+// preserving the single-writer guarantee for writeSSEMessage. Callers must
+// not panic on a full or closed channel; drop and warn instead.
+func (c *sseClient) enqueueEvent(event string, data []byte) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("client closed: %v", r)
+		}
+	}()
+	select {
+	case c.eventChan <- sseEvent{event: event, data: data}:
+		return nil
+	case <-c.closeChan:
+		return fmt.Errorf("client closed")
+	default:
+		c.logger.Warn("SSE client event channel full, dropping event", "client", c.id, "event", event)
+		return fmt.Errorf("event channel full")
 	}
 }
 
@@ -136,6 +168,7 @@ func (c *sseClient) Close() {
 	c.closeOnce.Do(func() {
 		close(c.closeChan)
 		close(c.messageChan)
+		close(c.eventChan)
 	})
 }
 
@@ -219,6 +252,9 @@ func (m *sseManager) HandleSSE(w http.ResponseWriter, r *http.Request, mcpHandle
 		"bindingToken": bindingToken,
 		"message":      "Connected to MCP SSE endpoint",
 	}
+	// The initial connection event is the only writeSSEMessage call outside
+	// the main loop. It runs before the request-processing goroutine starts,
+	// so no other writer can race it.
 	if data, err := json.Marshal(initialEvent); err == nil {
 		_ = client.writeSSEMessage("connection", data)
 	}
@@ -229,7 +265,8 @@ func (m *sseManager) HandleSSE(w http.ResponseWriter, r *http.Request, mcpHandle
 	pingTicker := time.NewTicker(m.pingInterval)
 	defer pingTicker.Stop()
 
-	// Goroutine: process incoming MCP requests.
+	// Goroutine: process incoming MCP requests. Never writes to the SSE wire
+	// directly — wire writes happen only in the main loop below.
 	go func() {
 		for {
 			select {
@@ -253,7 +290,7 @@ func (m *sseManager) HandleSSE(w http.ResponseWriter, r *http.Request, mcpHandle
 						"params":  map[string]any{},
 					}
 					if data, err := json.Marshal(readyNotification); err == nil {
-						_ = client.writeSSEMessage("notification", data)
+						_ = client.enqueueEvent("notification", data)
 						client.SetReady()
 					}
 				}
@@ -261,7 +298,8 @@ func (m *sseManager) HandleSSE(w http.ResponseWriter, r *http.Request, mcpHandle
 		}
 	}()
 
-	// Main loop: deliver responses and pings.
+	// Main loop: deliver responses, queued events, and pings — the single
+	// writer for client.writeSSEMessage.
 	for {
 		select {
 		case <-ctx.Done():
@@ -280,6 +318,14 @@ func (m *sseManager) HandleSSE(w http.ResponseWriter, r *http.Request, mcpHandle
 			}
 			if err := client.writeSSEMessage("message", data); err != nil {
 				m.logger.Error("Failed to write SSE message", "error", err, "client", clientID)
+				return
+			}
+		case event := <-client.eventChan:
+			if event.data == nil {
+				continue
+			}
+			if err := client.writeSSEMessage(event.event, event.data); err != nil {
+				m.logger.Error("Failed to write SSE event", "error", err, "client", clientID, "event", event.event)
 				return
 			}
 		case <-pingTicker.C:

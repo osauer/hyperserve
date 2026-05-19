@@ -13,6 +13,11 @@ import (
 
 // lowConn represents a low-level WebSocket connection.
 // It is wrapped by the public Conn type in websocket.go.
+//
+// Two goroutines may reach the wire writer concurrently: the user's writer
+// (WriteMessage/WriteControl) and the reader-goroutine's automatic pong and
+// close-echo responses inside ReadMessage. writeMu serialises every
+// WriteFrame call to keep frames whole on the wire.
 type lowConn struct {
 	conn     net.Conn
 	reader   *FrameReader
@@ -24,9 +29,20 @@ type lowConn struct {
 	messageBuffer []byte
 	messageType   int
 
+	// Wire writes
+	writeMu sync.Mutex
+
 	// Close handling
 	closeMu   sync.Mutex
 	closeSent bool
+
+	// User-installed control-frame handlers. ReadMessage invokes these
+	// instead of (ping) or in addition to (close) the protocol-required
+	// default response when set. handlerMu guards reads/writes.
+	handlerMu    sync.Mutex
+	pingHandler  func(appData string) error
+	pongHandler  func(appData string) error
+	closeHandler func(code int, text string) error
 }
 
 // newLowConn creates a new low-level WebSocket connection.
@@ -44,8 +60,12 @@ func (c *lowConn) ReadFrame() (*Frame, error) {
 	return c.reader.ReadFrame()
 }
 
-// WriteFrame writes a frame to the connection
+// WriteFrame writes a frame to the connection. Holds writeMu so reader-side
+// control responses (pong, close-echo) never interleave with the user's
+// writer goroutine.
 func (c *lowConn) WriteFrame(frame *Frame) error {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
 	return c.writer.WriteFrame(frame)
 }
 
@@ -115,10 +135,27 @@ func (c *lowConn) ReadMessage() (messageType int, data []byte, err error) {
 			}
 			c.closeMu.Unlock()
 
+			c.handlerMu.Lock()
+			closeHandler := c.closeHandler
+			c.handlerMu.Unlock()
+			if closeHandler != nil {
+				_ = closeHandler(closeCode, closeText)
+			}
+
 			return 0, nil, &closeError{Code: closeCode, Text: closeText}
 
 		case OpcodePing:
-			// Respond with pong
+			c.handlerMu.Lock()
+			pingHandler := c.pingHandler
+			c.handlerMu.Unlock()
+			if pingHandler != nil {
+				// User handler is responsible for sending pong (or not).
+				if err := pingHandler(string(frame.Payload)); err != nil {
+					return 0, nil, err
+				}
+				continue
+			}
+			// Default: respond with pong.
 			pongFrame := &Frame{
 				Fin:     true,
 				Opcode:  OpcodePong,
@@ -129,13 +166,42 @@ func (c *lowConn) ReadMessage() (messageType int, data []byte, err error) {
 			}
 
 		case OpcodePong:
-			// Pong received, no action needed
+			c.handlerMu.Lock()
+			pongHandler := c.pongHandler
+			c.handlerMu.Unlock()
+			if pongHandler != nil {
+				if err := pongHandler(string(frame.Payload)); err != nil {
+					return 0, nil, err
+				}
+			}
 			continue
 
 		default:
 			return 0, nil, ErrInvalidFrame
 		}
 	}
+}
+
+// setPingHandler stores the user-installed ping handler. Pass nil to clear.
+func (c *lowConn) setPingHandler(h func(appData string) error) {
+	c.handlerMu.Lock()
+	c.pingHandler = h
+	c.handlerMu.Unlock()
+}
+
+// setPongHandler stores the user-installed pong handler. Pass nil to clear.
+func (c *lowConn) setPongHandler(h func(appData string) error) {
+	c.handlerMu.Lock()
+	c.pongHandler = h
+	c.handlerMu.Unlock()
+}
+
+// setCloseHandler stores the user-installed close handler. Pass nil to clear.
+// The auto-echo of the close frame happens regardless of this handler.
+func (c *lowConn) setCloseHandler(h func(code int, text string) error) {
+	c.handlerMu.Lock()
+	c.closeHandler = h
+	c.handlerMu.Unlock()
 }
 
 // WriteMessage writes a complete message

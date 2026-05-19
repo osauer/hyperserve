@@ -24,7 +24,9 @@ const (
 type Conn struct {
 	conn *lowConn
 
-	// Handler functions
+	// Handler functions. The wire-side dispatch lives on lowConn — these
+	// fields are kept so that *Handler() getters can return the active
+	// callback without reaching across packages.
 	closeHandler func(code int, text string) error
 	pingHandler  func(appData string) error
 	pongHandler  func(appData string) error
@@ -144,64 +146,11 @@ func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeade
 	return c, nil
 }
 
-// ReadMessage reads a message from the WebSocket connection
+// ReadMessage reads a message from the WebSocket connection. Control-frame
+// dispatch (ping/pong/close) is handled inside lowConn so user-installed
+// handlers fire even when this method blocks on a Text/Binary read.
 func (c *Conn) ReadMessage() (messageType int, p []byte, err error) {
-	// Read the message
-	messageType, p, err = c.conn.ReadMessage()
-	if err != nil {
-		return messageType, p, err
-	}
-
-	// Handle control messages
-	switch messageType {
-	case PingMessage:
-		c.handlerMu.Lock()
-		handler := c.pingHandler
-		c.handlerMu.Unlock()
-		if handler != nil {
-			if err := handler(string(p)); err != nil {
-				return messageType, p, err
-			}
-		}
-		// Continue reading for the next message
-		return c.ReadMessage()
-
-	case PongMessage:
-		c.handlerMu.Lock()
-		handler := c.pongHandler
-		c.handlerMu.Unlock()
-		if handler != nil {
-			if err := handler(string(p)); err != nil {
-				return messageType, p, err
-			}
-		}
-		// Continue reading for the next message
-		return c.ReadMessage()
-
-	case CloseMessage:
-		var code int
-		var text string
-		if len(p) >= 2 {
-			code = int(p[0])<<8 | int(p[1])
-			if len(p) > 2 {
-				text = string(p[2:])
-			}
-		} else {
-			code = CloseNoStatusReceived
-		}
-
-		c.handlerMu.Lock()
-		handler := c.closeHandler
-		c.handlerMu.Unlock()
-		if handler != nil {
-			if err := handler(code, text); err != nil {
-				return messageType, p, err
-			}
-		}
-		return messageType, p, err
-	}
-
-	return messageType, p, err
+	return c.conn.ReadMessage()
 }
 
 // WriteMessage writes a message to the WebSocket connection
@@ -234,23 +183,20 @@ func (c *Conn) CloseHandler() func(code int, text string) error {
 	return c.closeHandler
 }
 
-// SetCloseHandler sets the handler for close messages
+// SetCloseHandler sets the handler invoked when a close frame arrives.
+// Passing nil installs the default no-op (the auto-echo of the close frame
+// happens unconditionally inside the wire reader).
 func (c *Conn) SetCloseHandler(h func(code int, text string) error) {
 	c.handlerMu.Lock()
 	defer c.handlerMu.Unlock()
 
 	if h == nil {
-		// Set default close handler
-		c.closeHandler = func(code int, text string) error {
-			// Send close frame back
-			message := make([]byte, 2+len(text))
-			message[0] = byte(code >> 8)
-			message[1] = byte(code)
-			copy(message[2:], text)
-			return c.WriteControl(CloseMessage, message, time.Now().Add(time.Second))
-		}
+		c.closeHandler = func(code int, text string) error { return nil }
 	} else {
 		c.closeHandler = h
+	}
+	if c.conn != nil {
+		c.conn.setCloseHandler(c.closeHandler)
 	}
 }
 
@@ -267,19 +213,17 @@ func (c *Conn) PingHandler() func(appData string) error {
 	return c.pingHandler
 }
 
-// SetPingHandler sets the handler for ping messages
+// SetPingHandler sets the handler invoked when a ping frame arrives. When a
+// user handler is installed the wire reader stops sending its automatic pong
+// — the handler must do that (or not) explicitly. Passing nil clears the
+// handler and restores the default auto-pong behaviour.
 func (c *Conn) SetPingHandler(h func(appData string) error) {
 	c.handlerMu.Lock()
 	defer c.handlerMu.Unlock()
 
-	if h == nil {
-		// Set default ping handler
-		c.pingHandler = func(appData string) error {
-			// Respond with pong
-			return c.WriteControl(PongMessage, []byte(appData), time.Now().Add(time.Second))
-		}
-	} else {
-		c.pingHandler = h
+	c.pingHandler = h
+	if c.conn != nil {
+		c.conn.setPingHandler(h)
 	}
 }
 
@@ -296,18 +240,19 @@ func (c *Conn) PongHandler() func(appData string) error {
 	return c.pongHandler
 }
 
-// SetPongHandler sets the handler for pong messages
+// SetPongHandler sets the handler invoked when a pong frame arrives.
+// Passing nil installs a no-op default.
 func (c *Conn) SetPongHandler(h func(appData string) error) {
 	c.handlerMu.Lock()
 	defer c.handlerMu.Unlock()
 
 	if h == nil {
-		// Set default pong handler (no-op)
-		c.pongHandler = func(appData string) error {
-			return nil
-		}
+		c.pongHandler = func(appData string) error { return nil }
 	} else {
 		c.pongHandler = h
+	}
+	if c.conn != nil {
+		c.conn.setPongHandler(c.pongHandler)
 	}
 }
 
