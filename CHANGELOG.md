@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.2] - 2026-05-19
+
+Docs-only patch release. Two cosmetic LOWs flagged in the v0.34 review
+pass.
+
+### Documentation
+
+- **`PROJECT_STRUCTURE.md` lists `internal/validate/`** alongside
+  `internal/scaffold/`. The validation core moved out of `pkg/server`
+  in v0.31 and the structure doc never caught up. `internal/validate`
+  is 318 LOC and backs `pkg/server.Validate` / `ValidationError` /
+  `FieldError` via type aliases — worth surfacing.
+
+- **`.github/workflows/claude*.yml` placeholder commands** updated
+  from npm/Node defaults (left over from the upstream template) to
+  Go-appropriate examples (`go test ./...`, `go vet ./...`,
+  `make check`). The `custom_instructions` placeholder now points
+  at CLAUDE.md and `make check` as the floor; the `claude_env`
+  placeholder uses `GOFLAGS` instead of `NODE_ENV`. These are all
+  commented-out placeholder examples — no workflow behaviour
+  changes.
+
+No code changes, no test changes. `make check` clean.
+
 ## [0.34.1] - 2026-05-19
 
 Patch release. One correctness fix (middleware path-boundary) plus a

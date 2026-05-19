@@ -65,8 +65,10 @@ jobs:
           #   'Welcome! Please review this PR from a first-time contributor. Be encouraging and provide detailed explanations for any suggestions.' ||
           #   'Please provide a thorough code review focusing on our coding standards and best practices.' }}
           
-          # Optional: Add specific tools for running tests or linting
-          # allowed_tools: "Bash(npm run test),Bash(npm run lint),Bash(npm run typecheck)"
+          # Optional: Add specific tools for running tests or linting.
+          # This repo is Go-only; example commands match the local
+          # `make check` gate.
+          # allowed_tools: "Bash(go test ./...),Bash(go vet ./...),Bash(staticcheck ./...),Bash(make check)"
           
           # Optional: Skip review for certain conditions
           # if: |

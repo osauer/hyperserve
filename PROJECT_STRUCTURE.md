@@ -12,7 +12,8 @@ hyperserve/
 ├── docs/                 # ADRs and guides
 ├── examples/             # Self-contained `go run .` examples
 ├── internal/
-│   └── scaffold/         # Templates and generator backing hyperserve-init
+│   ├── scaffold/         # Templates and generator backing hyperserve-init
+│   └── validate/         # Struct-tag validator used by pkg/server.Validate
 ├── pkg/
 │   ├── jsonrpc/          # JSON-RPC 2.0 engine
 │   ├── mcp/              # MCP protocol surface (Handler, transports, discovery, namespaces)
