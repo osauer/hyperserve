@@ -16,8 +16,8 @@ Demonstrates hyperserve's Model Context Protocol (MCP) support, enabling AI assi
 ## Usage
 
 ```bash
-# Run the server
-go run main.go
+# Run the server (from the repo root)
+go run ./examples/mcp-basic
 
 # Visit the dashboard
 open http://localhost:8080

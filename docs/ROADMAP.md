@@ -1,6 +1,6 @@
 # HyperServe Roadmap
 
-_Last updated: 2026-05-18 20:26 CEST (v0.33.0-dev)._
+_Last updated: 2026-05-19 06:28 CEST (post v0.33.1)._
 
 This document is the project's north star — what HyperServe is, what
 differentiates it, and what's planned next. Concrete near-term work is
@@ -39,7 +39,7 @@ These items deepen HyperServe’s differentiation (AI-native + secure + producti
 
 ## One-Click Bundles (Exploration)
 
-- **Goal**: Deliver pre-built HyperServe applications (starting with the Regime project in `../regime`) that end users can deploy with a single command.
+- **Goal**: Deliver pre-built HyperServe applications that end users can deploy with a single command.
 - **Approach**: Create a `hyperserve bundle` workflow that vendors the backend/frontend, emits Docker/Compose assets, and publishes signed artifacts alongside scaffold templates.
 - **Separation of personas**: Keep `hyperserve-init` focused on developers, while bundles target operators or end users who want a turnkey deploy.
 - **Open questions**: Distribution channel (GitHub releases vs container registry), update cadence, and how to surface bundle links prominently in the README/downloads.

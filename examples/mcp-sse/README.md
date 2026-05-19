@@ -1,35 +1,41 @@
 # MCP with Server-Sent Events Example
 
-This example demonstrates how to use HyperServe's MCP endpoint with Server-Sent Events (SSE) for real-time communication.
+Demonstrates HyperServe's unified MCP endpoint: the same `/mcp` URL serves
+both regular HTTP POST requests and SSE streams, selected by the `Accept`
+header.
 
-## Overview
+## Running
 
-HyperServe uses a unified endpoint approach - the same `/mcp` endpoint handles both regular HTTP requests and SSE connections based on the request headers.
+The example is a single binary with a `-mode` flag. Open two terminals:
 
-## Running the Example
-
-1. Start the server:
 ```bash
-go run server.go
-```
+# Terminal 1 — server
+go run ./examples/mcp-sse -mode=server
 
-2. In another terminal, run the client:
-```bash
-go run client.go
+# Terminal 2 — client (connects to the server above and exercises the API)
+go run ./examples/mcp-sse -mode=client
 ```
 
 ## Key Points
 
-- **Single Endpoint**: Both HTTP and SSE use `/mcp`
-- **Header-Based Routing**: `Accept: text/event-stream` enables SSE
-- **Client ID**: SSE clients receive a unique ID for request routing
-- **Real-time**: Responses flow through the SSE stream
+- **Single Endpoint**: Both HTTP POSTs and SSE streams use `/mcp`.
+- **Header-Based Routing**: `Accept: text/event-stream` opens an SSE stream;
+  otherwise the request is treated as a regular JSON-RPC POST.
+- **Connection event**: On stream open, the server emits a `connection`
+  event carrying a per-client `clientId` and `bindingToken`.
+- **Routed POSTs need two headers**: subsequent POSTs that target the SSE
+  stream MUST include BOTH `X-SSE-Client-ID` and `X-SSE-Binding` headers.
+  The binding token is the capability — the client ID alone is not enough
+  to inject requests into another client's stream. Missing/wrong binding
+  returns 403.
 
 ## Example Flow
 
-1. Client connects with SSE header → receives client ID
-2. Client sends requests with `X-SSE-Client-ID` header
-3. Server processes requests and sends responses via SSE
-4. Built-in keepalive maintains connection health
+1. Client connects with `Accept: text/event-stream` → receives
+   `clientId` + `bindingToken` in the `connection` event.
+2. Client sends JSON-RPC requests via `POST /mcp` with the two headers.
+3. Server processes each request and delivers the response over the SSE
+   stream (event type `message`).
+4. A periodic `ping` event keeps the stream alive.
 
-See the source files for implementation details.
+See [main.go](./main.go) for the full implementation.
