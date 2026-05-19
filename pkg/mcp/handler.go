@@ -4,7 +4,9 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"html"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -13,6 +15,15 @@ import (
 	"time"
 
 	jsonrpc "github.com/osauer/hyperserve/pkg/jsonrpc"
+)
+
+// ErrMethodNotAllowed and ErrUnsupportedContentType are sentinel errors used by
+// the HTTP transport so ServeHTTP can categorise failures with errors.Is
+// rather than substring-matching free-form messages. Adding a wrap site is a
+// public contract — keep the sentinel set narrow and stable.
+var (
+	ErrMethodNotAllowed       = errors.New("method not allowed")
+	ErrUnsupportedContentType = errors.New("unsupported content type")
 )
 
 // Handler manages MCP protocol communication with multiple namespace support.
@@ -257,7 +268,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, htmlHelpTemplate, r.URL.Path, r.URL.Path, r.URL.Path, r.URL.Path, r.URL.Path)
+		// MCPEndpoint is server-controlled, but the request can land on any
+		// subtree pattern (e.g. "/mcp/") that lets r.URL.Path carry attacker
+		// input. Escape unconditionally — the few characters we'd want
+		// rendered verbatim are not worth the XSS surface.
+		path := html.EscapeString(r.URL.Path)
+		fmt.Fprintf(w, htmlHelpTemplate, path, path, path, path, path)
 		return
 	}
 
@@ -273,9 +289,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err := h.ProcessRequestWithTransport(transport); err != nil {
 		h.logger.Error("Failed to process MCP request", "error", err)
 		switch {
-		case strings.Contains(err.Error(), "method not allowed"):
+		case errors.Is(err, ErrMethodNotAllowed):
 			http.Error(w, "Method not allowed. MCP requires POST requests.", http.StatusMethodNotAllowed)
-		case strings.Contains(err.Error(), "Content-Type"):
+		case errors.Is(err, ErrUnsupportedContentType):
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		default:
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -655,11 +671,15 @@ const htmlHelpTemplate = `<!DOCTYPE html>
     </ul>
 
     <h2>Server-Sent Events (SSE) Support</h2>
-    <p>This server also supports SSE for real-time communication:</p>
+    <p>This server also supports SSE for real-time communication on the
+    same endpoint. Connect with <code>Accept: text/event-stream</code>; the
+    initial <code>connection</code> event delivers a <code>clientId</code>
+    and a <code>bindingToken</code>. Routed POSTs must echo BOTH:</p>
     <ul>
-        <li>SSE endpoint: <code>%s/sse</code></li>
-        <li>Send requests to <code>%s</code> with header <code>X-SSE-Client-ID: {your-client-id}</code></li>
-        <li>Responses will be delivered via the SSE connection</li>
+        <li>SSE stream: <code>GET %s</code> with header <code>Accept: text/event-stream</code></li>
+        <li>Routed requests: <code>POST %s</code> with headers
+            <code>X-SSE-Client-ID: {clientId}</code> and
+            <code>X-SSE-Binding: {bindingToken}</code> (both required — missing or wrong binding returns 403)</li>
     </ul>
 
     <h2>More Information</h2>

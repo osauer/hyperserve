@@ -28,10 +28,10 @@ func (t *httpTransport) Send(response *jsonrpc.Response) error {
 
 func (t *httpTransport) Receive() (*jsonrpc.Request, error) {
 	if t.r.Method != http.MethodPost {
-		return nil, fmt.Errorf("method not allowed: %s", t.r.Method)
+		return nil, fmt.Errorf("%w: %s", ErrMethodNotAllowed, t.r.Method)
 	}
 	if !strings.Contains(t.r.Header.Get("Content-Type"), "application/json") {
-		return nil, fmt.Errorf("Content-Type must be application/json")
+		return nil, fmt.Errorf("%w: Content-Type must be application/json", ErrUnsupportedContentType)
 	}
 	var request jsonrpc.Request
 	if err := json.NewDecoder(t.r.Body).Decode(&request); err != nil {

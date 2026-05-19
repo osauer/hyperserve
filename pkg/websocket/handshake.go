@@ -25,6 +25,7 @@ var (
 	ErrBadHandshake       = errors.New("bad handshake")
 	ErrUnsupportedVersion = errors.New("unsupported websocket version")
 	ErrMissingKey         = errors.New("missing Sec-WebSocket-Key")
+	ErrMalformedKey       = errors.New("malformed Sec-WebSocket-Key")
 )
 
 // HandshakeOptions contains options for WebSocket handshake
@@ -48,9 +49,17 @@ func ValidateHandshake(r *http.Request) error {
 		return ErrNotWebSocket
 	}
 
-	// Check for required headers
-	if r.Header.Get("Sec-WebSocket-Key") == "" {
+	// Check for required headers. RFC 6455 §4.1 mandates Sec-WebSocket-Key
+	// be a base64-encoded 16-byte nonce — anything else is either an
+	// accidental misconfiguration or an attempt to confuse caches/proxies
+	// keyed on the accept hash.
+	key := r.Header.Get("Sec-WebSocket-Key")
+	if key == "" {
 		return ErrMissingKey
+	}
+	decoded, err := base64.StdEncoding.DecodeString(key)
+	if err != nil || len(decoded) != 16 {
+		return ErrMalformedKey
 	}
 
 	if r.Header.Get("Sec-WebSocket-Version") != websocketVersion {
