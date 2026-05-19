@@ -5,6 +5,152 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.0] - 2026-05-19
+
+**The actually-final breaking sweep before v1.0.** v0.33.0's release note
+called itself "the final breaking sweep" — that turned out to be wrong.
+A consolidated security + concurrency + taste review surfaced three
+MEDIUM security findings, three HIGH concurrency bugs, and a small set
+of API breaks worth taking before the surface freezes. v0.34.0 is the
+surface that v1.0 freezes.
+
+### Security
+
+- **MCP help page XSS (MEDIUM)** (`pkg/mcp/handler.go`). `Handler.ServeHTTP`
+  injected `r.URL.Path` unescaped into the HTML help template. Safe at
+  the default exact-match endpoint `/mcp`, but the moment a user mounted
+  the handler on a subtree pattern (`"/mcp/"`), the path carried
+  attacker content. Now routed through `html.EscapeString` before
+  `Fprintf`. The same template now also documents the required
+  `X-SSE-Binding` header for routed POSTs (previous version only
+  mentioned `X-SSE-Client-ID`, which would 403 on every click) and
+  drops a phantom `/sse` subpath reference.
+
+- **CORS footgun closed (MEDIUM)** (`pkg/server/middleware.go`). The
+  static `securityHeaders` table unconditionally set
+  `Access-Control-Allow-Methods`, `Access-Control-Allow-Headers`,
+  `Access-Control-Allow-Credentials: true`, and
+  `Access-Control-Max-Age` on every response — including responses
+  from user handlers that legitimately echo `Origin` into
+  `Access-Control-Allow-Origin`, producing the credentialed-wildcard
+  combo browsers refuse. Those four headers now live exclusively in
+  `applyCORSHeaders`, which honours `WithCORS`. Sensible defaults
+  (`GET, POST, OPTIONS` and `Content-Type, Authorization`) are emitted
+  there when CORS is configured but the user didn't enumerate methods
+  or headers, so preflight responses still work without explicit
+  enumeration.
+
+- **WebSocket handshake conformance (LOW–MED)** (`pkg/websocket/handshake.go`).
+  `ValidateHandshake` only checked `Sec-WebSocket-Key != ""`. RFC 6455
+  §4.1 mandates the key be a base64-encoded 16-byte nonce — anything
+  else is either accidental misconfiguration or a deliberate cache /
+  proxy confusion attempt. New `ErrMalformedKey`; the existing test
+  fixture `dGhlIHNhbXBsZSBub25jZQ==` decodes to 16 bytes and keeps
+  passing.
+
+### Fixed
+
+- **WebSocket reader/writer race (HIGH)** (`pkg/websocket/conn.go`).
+  The reader goroutine inside `lowConn.ReadMessage` wrote pong and
+  close-echo frames straight to the `FrameWriter` the user's writer
+  goroutine reaches via `WriteMessage` / `WriteControl`. No mutex →
+  interleaved bytes from two frames on the wire, peer reset. New
+  `writeMu sync.Mutex` on `lowConn`, held inside `WriteFrame`.
+
+- **SSE write race (HIGH)** (`pkg/mcp/transport_sse.go`). The
+  request-processing goroutine reached `client.writeSSEMessage` for
+  the "ready" notification while the main loop was writing responses
+  and pings — two writers, no serialisation, and `lastMessageID`
+  racing too. Per-client `eventChan` (16-buffered) added; the
+  goroutine `enqueueEvent`s instead of writing. The main loop's
+  `select` is now the only writer.
+
+- **WebSocket handler chain wired (HIGH)** (`pkg/websocket/websocket.go`,
+  `pkg/websocket/conn.go`). `Conn.SetPingHandler` / `SetPongHandler` /
+  `SetCloseHandler` shipped public but useless: `lowConn.ReadMessage`
+  consumed ping/pong/close opcodes inline, so the outer `Conn.ReadMessage`
+  switch was unreachable. Handler callbacks moved to `lowConn`,
+  invoked from inside the wire reader. Default behaviour (auto-pong,
+  auto-echo close) preserved when no user handler is set.
+  `Conn.ReadMessage` is now a one-line delegate.
+
+- **MCP error routing via sentinels** (`pkg/mcp/handler.go`,
+  `pkg/mcp/transport_http.go`). `Handler.ServeHTTP` was deciding
+  between 405, 400, and 500 by `strings.Contains(err.Error(), …)` over
+  free-form messages from the same package's transport. A rename in
+  `transport_http.go` would silently downgrade real 405/400 returns
+  to 500. New exported `ErrMethodNotAllowed` and
+  `ErrUnsupportedContentType` sentinels; transport wraps with `%w`;
+  `ServeHTTP` switches on `errors.Is`.
+
+### Changed — BREAKING
+
+- **`Server.Handle` signature: `http.HandlerFunc` → `http.Handler`**
+  (`pkg/server/server.go`). The docstring example
+  (`srv.Handle("/static", http.FileServer(...))`) never compiled
+  against the previous signature. With `http.Handler`, that example
+  works and `Handle` becomes the natural sibling of `HandleFunc`.
+  Migration: call sites passing a bare closure
+  `func(w http.ResponseWriter, r *http.Request)` need to either wrap
+  with `http.HandlerFunc(...)` or switch to `srv.HandleFunc`. Call
+  sites already passing an `http.Handler` need no change.
+
+- **`MiddlewareRegistry` unexported → `middlewareRegistry`**
+  (`pkg/server/middleware.go`). Zero external callers (`grep` across
+  the repo found none — including examples and tests in other
+  packages). `NewMiddlewareRegistry` → `newMiddlewareRegistry`. The
+  field on `Server` was already unexported, so this only affects code
+  that directly named the type. Compose middleware via
+  `Server.AddMiddlewareStack` instead.
+
+- **`Server.RegisterMCPToolInNamespace` and
+  `Server.RegisterMCPResourceInNamespace` removed** (`pkg/server/mcp.go`).
+  Zero callers anywhere. Use `Server.RegisterMCPNamespace(name, NamespaceConfig)`
+  — the documented path that handles a tool, a resource, or any
+  combination in one call.
+
+- **`ExtensionBuilder.WithConfiguration` removed** (`pkg/mcp/builders.go`).
+  Zero callers. The builder's `configFunc` field and the corresponding
+  `builtExtension` field are gone too; `(*builtExtension).Configure`
+  is now a hard no-op. Custom configuration hooks were never used and
+  the indirection cost more than it bought.
+
+### Refactored
+
+- **CSP literal de-duplication** (`pkg/server/middleware.go`). The two
+  near-identical 340-character CSP strings (with and without web-worker
+  support) were a drift risk on a security-critical header. One
+  directive slice now, conditional `child-src`/`worker-src` appends,
+  `strings.Join`.
+
+### Documentation
+
+- `examples/mcp-basic` rewritten to match its README and the index
+  description ("smallest MCP server: enable, expose built-in
+  tools/resources"). main.go had drifted into an SSE web demo with
+  embedded JS. New version: built-in tools + resources, sandboxed
+  file-tool root pointing at `examples/mcp-basic/sandbox/`, custom
+  `TimestampTool`, custom `ServerStatusResource`, template-rendered
+  dashboard via `HandleFuncDynamic`, rate-limited endpoint.
+- `examples/mcp-sse/README.md` updated to point at the actual
+  `-mode=server|client` shape (was `go run server.go` / `go run client.go`,
+  which never existed). Documents both `X-SSE-Client-ID` and
+  `X-SSE-Binding` headers as required for routed POSTs.
+- `docs/ROADMAP.md`: header bumped past v0.33.1; maintainer-local
+  `../regime` path leak removed from the one-click bundles section.
+
+### Migration
+
+| You had | Change to |
+|---|---|
+| `srv.Handle("/p", func(w, r){…})` | `srv.HandleFunc("/p", func(w, r){…})` or `srv.Handle("/p", http.HandlerFunc(func(w, r){…}))` |
+| `srv.RegisterMCPToolInNamespace(tool, "ns")` | `srv.RegisterMCPNamespace("ns", mcp.NamespaceConfig{Tools: []mcp.Tool{tool}})` |
+| `srv.RegisterMCPResourceInNamespace(res, "ns")` | `srv.RegisterMCPNamespace("ns", mcp.NamespaceConfig{Resources: []mcp.Resource{res}})` |
+| `mcp.NewExtension("x").WithConfiguration(fn).Build()` | drop the `.WithConfiguration(fn)` call; if you need a hook, register tools/resources directly on the handler |
+| `server.NewMiddlewareRegistry(stack)` (external) | unreachable; use `srv.AddMiddlewareStack(route, stack)` |
+
+`make check` clean, `go test -race ./...` green.
+
 ## [0.33.1] - 2026-05-18
 
 Patch release. Closes one Dependabot HIGH alert and the process gap

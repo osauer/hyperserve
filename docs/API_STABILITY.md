@@ -1,6 +1,6 @@
 # API Stability
 
-_Last updated: 2026-05-18 20:26 CEST (v0.33.0-dev)._
+_Last updated: 2026-05-19 06:35 CEST (v0.34.0)._
 
 ## TL;DR
 
@@ -22,10 +22,15 @@ release, with a one-paragraph migration note.
   that had accreted. v0.27 introduced the binding + validation API.
   v0.28–v0.31 layered typed handlers, method-aware route helpers, and
   typed MCP tools on top. v0.32 stabilised the security headers + the
-  middleware hot path. **v0.33 is the final breaking sweep** — unexport
-  pass on the SSE state machine, `Get*` accessor renames, dead MCP
-  metrics removal. Read the release notes — the surface moves
-  intentionally.
+  middleware hot path. v0.33 ran the SSE unexport pass, `Get*` rename,
+  and dead MCP metrics removal. **v0.34 is the actually-final breaking
+  sweep before v1.0** — `Server.Handle` signature aligned with its
+  docstring (`http.HandlerFunc` → `http.Handler`), `MiddlewareRegistry`
+  unexported, dead namespace registrars + `ExtensionBuilder.WithConfiguration`
+  dropped, plus the security + concurrency fixes called out in
+  CHANGELOG. v0.33's release note claimed to be the final sweep; that
+  was wrong. v0.34 is the surface v1.0 freezes. Read the release notes
+  — the surface moves intentionally.
 - **Examples drift with the API.** When a release changes an example's
   shape, the example is updated in the same commit.
 
@@ -43,7 +48,7 @@ release, with a one-paragraph migration note.
 
 ## What v1.0.0 will mean
 
-v1.0.0 is **next**, scheduled after v0.33.0 stabilises in production
+v1.0.0 is **next**, scheduled after v0.34.0 stabilises in production
 use. When it lands, this document will lock the public surface, and
 these rules will apply:
 
