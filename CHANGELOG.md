@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.1] - 2026-05-19
+
+Patch release. One correctness fix (middleware path-boundary) plus a
+pure cohesion refactor (server.go split). Zero API changes, zero
+behaviour changes outside the bug being fixed.
+
+### Fixed
+
+- **Middleware path-segment boundary** (`pkg/server/middleware.go`).
+  `applyToMux` used `strings.HasPrefix(path, key)` to decide whether
+  to wrap a request's handler with a route-specific middleware. That
+  accepted `/api` as a prefix of `/api2/foo` — middleware registered
+  for `/api` would fire on completely unrelated routes that happened
+  to share the textual prefix (`/api2/foo`, `/apifoo`,
+  `/apiserver`). New `pathPrefixMatches(path, key)` enforces a
+  `/`-boundary check after `HasPrefix`, with explicit short-circuits
+  for `key == ""` (legacy "apply to all" idiom, used by some tests)
+  and trailing-slash keys (which already include the boundary).
+  Three new regression tests guard the contract:
+  `TestMiddlewarePathPrefixBoundary`,
+  `TestMiddlewareRootPrefixMatches`,
+  `TestMiddlewareEmptyKeyMatchesAll`. The first one fails on
+  pre-v0.34.1 code on exactly the buggy paths.
+
+### Refactored
+
+- **`pkg/server/server.go` split** (1633 → 1390 LOC). Pure cut+paste,
+  no behaviour change. `templates.go` (173 LOC) receives the
+  template-rendering subsystem (`openTemplateRoot`,
+  `HandleFuncDynamic`, `HandleTemplate`, `parseTemplates`,
+  `listTemplateFiles`, `DataFunc`). `static.go` (85 LOC) receives the
+  static-file-serving subsystem (`EnsureTrailingSlash`,
+  `HandleStatic`, `rootFileServer`). `server.go` keeps the lifecycle,
+  options pre-processing, mux routing helpers, deferred-init,
+  shutdown, and the accessors. The split was easier to land before
+  v1.0 froze the file layout than after.
+
+`make check` clean; `go test -race ./...` green.
+
 ## [0.34.0] - 2026-05-19
 
 **The actually-final breaking sweep before v1.0.** v0.33.0's release note
