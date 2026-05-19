@@ -81,10 +81,17 @@ func newMiddlewareRegistry(globalMiddleware MiddlewareStack) *middlewareRegistry
 }
 
 // applyToMux returns an http.Handler that chains the global stack ("*") with
-// every route-specific stack whose key is a prefix of the request path. The
-// route ordering (ascending length, ties alphabetical) is fixed at Add() time
-// so the request path does no sorting and allocates no key slice. Only the
-// per-middleware closures (intrinsic to the design) allocate per request.
+// every route-specific stack whose key is a path-segment prefix of the
+// request path. "Path-segment prefix" means the key matches at a `/`
+// boundary: a key of `/api` matches `/api`, `/api/`, and `/api/foo`, but
+// not `/api2/foo` or `/apifoo`. The previous `strings.HasPrefix`-only
+// check made the latter two fire the `/api` middleware too — a real but
+// rare correctness bug, fixed here ahead of the v1.0 freeze.
+//
+// The route ordering (ascending length, ties alphabetical) is fixed at
+// Add() time so the request path does no sorting and allocates no key
+// slice. Only the per-middleware closures (intrinsic to the design)
+// allocate per request.
 func (mwr *middlewareRegistry) applyToMux(mux *http.ServeMux) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
@@ -96,7 +103,7 @@ func (mwr *middlewareRegistry) applyToMux(mux *http.ServeMux) http.Handler {
 		// is the outermost middleware in its stack.
 		for i := len(mwr.sortedRoutes) - 1; i >= 0; i-- {
 			key := mwr.sortedRoutes[i]
-			if !strings.HasPrefix(path, key) {
+			if !pathPrefixMatches(path, key) {
 				continue
 			}
 			stack := mwr.middleware[key]
@@ -113,6 +120,45 @@ func (mwr *middlewareRegistry) applyToMux(mux *http.ServeMux) http.Handler {
 
 		finalHandler.ServeHTTP(w, r)
 	})
+}
+
+// pathPrefixMatches reports whether `key` is a path-segment prefix of
+// `path`. The match rules:
+//
+//   - key == ""                            → match (universal: empty is a
+//     prefix of every path. Some callers
+//     use "" interchangeably with "*"
+//     for "apply to all routes".)
+//   - key == path                          → match (exact)
+//   - key has a trailing slash             → strings.HasPrefix is sufficient
+//     (key was registered as "/api/", so "/api/anything" is in scope)
+//   - key has no trailing slash and the
+//     next character in path is '/'        → match (e.g. key "/api" vs
+//     path "/api/foo")
+//   - otherwise                            → no match (e.g. key "/api" vs
+//     path "/api2/foo")
+//
+// The "/" key behaves as a universal prefix because every path begins
+// with "/", which is the documented intent of the root middleware key.
+func pathPrefixMatches(path, key string) bool {
+	if key == "" {
+		return true
+	}
+	if !strings.HasPrefix(path, key) {
+		return false
+	}
+	if len(path) == len(key) {
+		return true
+	}
+	// path is strictly longer than key. The trailing-slash case is
+	// already a match (key="/api/", path="/api/foo": next char is 'f',
+	// but the slash boundary is part of key itself). For keys without a
+	// trailing slash we require the next path char to be '/' so that
+	// "/api" doesn't claim "/api2".
+	if key[len(key)-1] == '/' {
+		return true
+	}
+	return path[len(key)] == '/'
 }
 
 // Add registers a MiddlewareStack for a specific route in the registry.

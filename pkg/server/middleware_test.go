@@ -306,3 +306,135 @@ func TestHeadersMiddlewarePermissionsPolicyFixed(t *testing.T) {
 		t.Errorf("expected Permissions-Policy to contain geolocation=()")
 	}
 }
+
+// countingMW returns a middleware that increments hits whenever a request
+// flows through it. Combined with a counter map keyed by route, this is the
+// minimal probe for "did the prefix match the request path".
+func countingMW(hits *int) MiddlewareFunc {
+	return func(next http.Handler) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			*hits++
+			next.ServeHTTP(w, r)
+		}
+	}
+}
+
+// TestMiddlewarePathPrefixBoundary verifies that a middleware registered at
+// "/api" fires for "/api", "/api/", and "/api/foo" — but NOT for "/api2/foo"
+// or "/apifoo". The pre-v0.34.1 implementation used `strings.HasPrefix` with
+// no path boundary check, so "/api" matched "/api2/foo". Regression test.
+func TestMiddlewarePathPrefixBoundary(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		path     string
+		wantHits int // 1 = mw should fire for /api; 0 = must not fire
+	}{
+		{"/api", 1},       // exact match
+		{"/api/", 1},      // trailing slash
+		{"/api/foo", 1},   // deeper path
+		{"/api/v2/x", 1},  // even deeper
+		{"/api2/foo", 0},  // share prefix but different route — the bug
+		{"/apifoo", 0},    // no separator at all
+		{"/apiserver", 0}, // common gotcha
+		{"/", 0},          // unrelated
+		{"/other", 0},     // unrelated
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.path, func(t *testing.T) {
+			srv, err := NewServer()
+			if err != nil {
+				t.Fatalf("NewServer: %v", err)
+			}
+			var hits int
+			srv.AddMiddleware("/api", countingMW(&hits))
+			srv.HandleFunc("/api", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			})
+			srv.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			})
+			srv.HandleFunc("/api2/foo", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			})
+			srv.HandleFunc("/apifoo", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			})
+			srv.HandleFunc("/apiserver", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			})
+			srv.HandleFunc("/other", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			})
+
+			handler := srv.middleware.applyToMux(srv.mux)
+			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			if hits != tc.wantHits {
+				t.Errorf("path %q: middleware fired %d times, want %d", tc.path, hits, tc.wantHits)
+			}
+		})
+	}
+}
+
+// TestMiddlewareEmptyKeyMatchesAll pins the legacy "" key behaviour: some
+// callers (including pkg/mcp/builtin tests) use `srv.AddMiddleware("", ...)`
+// as a synonym for "apply to every route". Before the boundary fix, that
+// worked by accident (HasPrefix accepts an empty key). After the fix, an
+// empty key needs an explicit short-circuit — otherwise the next-char
+// boundary check indexes a zero-length string and panics. This test
+// guards against regression of that short-circuit.
+func TestMiddlewareEmptyKeyMatchesAll(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{"/", "/api", "/api2/foo", "/deep/nested/x"} {
+		t.Run(path, func(t *testing.T) {
+			srv, err := NewServer()
+			if err != nil {
+				t.Fatalf("NewServer: %v", err)
+			}
+			var hits int
+			srv.AddMiddleware("", countingMW(&hits))
+			srv.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			})
+			handler := srv.middleware.applyToMux(srv.mux)
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if hits != 1 {
+				t.Errorf("path %q: empty-key middleware fired %d times, want 1", path, hits)
+			}
+		})
+	}
+}
+
+// TestMiddlewareRootPrefixMatches verifies the documented "/" key still
+// fires for every path — the only legitimate prefix-without-boundary case.
+func TestMiddlewareRootPrefixMatches(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{"/", "/api", "/api2/foo", "/anything"} {
+		t.Run(path, func(t *testing.T) {
+			srv, err := NewServer()
+			if err != nil {
+				t.Fatalf("NewServer: %v", err)
+			}
+			var hits int
+			srv.AddMiddleware("/", countingMW(&hits))
+			srv.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			})
+			handler := srv.middleware.applyToMux(srv.mux)
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if hits != 1 {
+				t.Errorf("path %q: root middleware fired %d times, want 1", path, hits)
+			}
+		})
+	}
+}
