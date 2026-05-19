@@ -92,28 +92,10 @@ func (srv *Server) RegisterMCPResource(resource mcp.Resource) error {
 	return nil
 }
 
-// RegisterMCPToolInNamespace registers a custom MCP tool in the specified
-// namespace.
-func (srv *Server) RegisterMCPToolInNamespace(tool mcp.Tool, namespace string) error {
-	if !srv.MCPEnabled() {
-		return fmt.Errorf("MCP is not enabled on this server")
-	}
-	srv.mcpHandler.RegisterToolInNamespace(tool, namespace)
-	return nil
-}
-
-// RegisterMCPResourceInNamespace registers a custom MCP resource in the
-// specified namespace.
-func (srv *Server) RegisterMCPResourceInNamespace(resource mcp.Resource, namespace string) error {
-	if !srv.MCPEnabled() {
-		return fmt.Errorf("MCP is not enabled on this server")
-	}
-	srv.mcpHandler.RegisterResourceInNamespace(resource, namespace)
-	return nil
-}
-
 // RegisterMCPNamespace registers an entire MCP namespace with its tools and
-// resources.
+// resources. Per-tool/per-resource namespace registration goes through this
+// path — callers that need a single tool in a namespace pass it inside a
+// NamespaceConfig rather than reaching for two separate helpers.
 func (srv *Server) RegisterMCPNamespace(name string, configs ...mcp.NamespaceConfig) error {
 	if !srv.MCPEnabled() {
 		return fmt.Errorf("MCP is not enabled on this server")

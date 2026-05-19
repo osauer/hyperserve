@@ -122,7 +122,6 @@ type ExtensionBuilder struct {
 	description string
 	tools       []Tool
 	resources   []Resource
-	configFunc  func(*Handler) error
 }
 
 // NewExtension creates a new extension builder.
@@ -145,18 +144,12 @@ func (b *ExtensionBuilder) WithResource(resource Resource) *ExtensionBuilder {
 	return b
 }
 
-func (b *ExtensionBuilder) WithConfiguration(fn func(*Handler) error) *ExtensionBuilder {
-	b.configFunc = fn
-	return b
-}
-
 func (b *ExtensionBuilder) Build() Extension {
 	return &builtExtension{
 		name:        b.name,
 		description: b.description,
 		tools:       b.tools,
 		resources:   b.resources,
-		configFunc:  b.configFunc,
 	}
 }
 
@@ -165,19 +158,13 @@ type builtExtension struct {
 	description string
 	tools       []Tool
 	resources   []Resource
-	configFunc  func(*Handler) error
 }
 
-func (e *builtExtension) Name() string          { return e.name }
-func (e *builtExtension) Description() string   { return e.description }
-func (e *builtExtension) Tools() []Tool         { return e.tools }
-func (e *builtExtension) Resources() []Resource { return e.resources }
-func (e *builtExtension) Configure(h *Handler) error {
-	if e.configFunc != nil {
-		return e.configFunc(h)
-	}
-	return nil
-}
+func (e *builtExtension) Name() string               { return e.name }
+func (e *builtExtension) Description() string        { return e.description }
+func (e *builtExtension) Tools() []Tool              { return e.tools }
+func (e *builtExtension) Resources() []Resource      { return e.resources }
+func (e *builtExtension) Configure(h *Handler) error { return nil }
 
 // RegisterExtension wires all of an Extension's tools and resources into the
 // handler. It calls Configure(h) first so the extension can hook in.

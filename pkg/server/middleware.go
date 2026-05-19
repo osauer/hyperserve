@@ -53,24 +53,27 @@ type MiddlewareStack []MiddlewareFunc
 // Use this constant when registering middleware that should run for every request.
 const GlobalMiddlewareRoute = "*"
 
-// MiddlewareRegistry manages middleware stacks for different routes.
+// middlewareRegistry manages middleware stacks for different routes.
 //
 // `sortedRoutes` is a precomputed view of non-global route keys, ordered by
 // ascending length (ties alphabetical), so more-specific prefixes wrap the
 // handler more tightly. It is rebuilt only inside Add(); the request hot
 // path reads it and never allocates a key slice or runs a sort.
-type MiddlewareRegistry struct {
+//
+// Unexported in v1.0 — the type had no external callers and the field
+// holding it on Server was already unexported. Use AddMiddlewareStack on
+// the server to compose routes.
+type middlewareRegistry struct {
 	middleware   map[string]MiddlewareStack
 	sortedRoutes []string
 }
 
-// NewMiddlewareRegistry creates a new MiddlewareRegistry with optional global middleware.
+// newMiddlewareRegistry creates a new registry with optional global middleware.
 // If globalMiddleware is provided, it will be applied to all routes by default.
-func NewMiddlewareRegistry(globalMiddleware MiddlewareStack) *MiddlewareRegistry {
-	ret := &MiddlewareRegistry{
+func newMiddlewareRegistry(globalMiddleware MiddlewareStack) *middlewareRegistry {
+	ret := &middlewareRegistry{
 		middleware: make(map[string]MiddlewareStack),
 	}
-	// add default middleware to all routes if defined in globalMiddleware stack
 	if globalMiddleware != nil {
 		ret.Add(GlobalMiddlewareRoute, globalMiddleware)
 	}
@@ -82,7 +85,7 @@ func NewMiddlewareRegistry(globalMiddleware MiddlewareStack) *MiddlewareRegistry
 // route ordering (ascending length, ties alphabetical) is fixed at Add() time
 // so the request path does no sorting and allocates no key slice. Only the
 // per-middleware closures (intrinsic to the design) allocate per request.
-func (mwr *MiddlewareRegistry) applyToMux(mux *http.ServeMux) http.Handler {
+func (mwr *middlewareRegistry) applyToMux(mux *http.ServeMux) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		finalHandler := http.Handler(mux)
@@ -114,7 +117,7 @@ func (mwr *MiddlewareRegistry) applyToMux(mux *http.ServeMux) http.Handler {
 
 // Add registers a MiddlewareStack for a specific route in the registry.
 // Use GlobalMiddlewareRoute ("*") to apply middleware to all routes.
-func (mwr *MiddlewareRegistry) Add(route string, middleware MiddlewareStack) {
+func (mwr *middlewareRegistry) Add(route string, middleware MiddlewareStack) {
 	if existing, exists := mwr.middleware[route]; exists {
 		// Append to existing middleware for this route
 		mwr.middleware[route] = append(existing, middleware...)
@@ -128,7 +131,7 @@ func (mwr *MiddlewareRegistry) Add(route string, middleware MiddlewareStack) {
 // rebuildSorted refreshes the cached route ordering after a mutation. Add()
 // is the only mutator of the registry; tests with direct map access exist
 // but never read sortedRoutes, so calling this here is sufficient.
-func (mwr *MiddlewareRegistry) rebuildSorted() {
+func (mwr *middlewareRegistry) rebuildSorted() {
 	keys := make([]string, 0, len(mwr.middleware))
 	for k := range mwr.middleware {
 		if k == GlobalMiddlewareRoute {
@@ -147,7 +150,7 @@ func (mwr *MiddlewareRegistry) rebuildSorted() {
 
 // Get retrieves the MiddlewareStack for a specific route.
 // Returns an empty MiddlewareStack if no middleware is registered for the route.
-func (mwr *MiddlewareRegistry) Get(route string) MiddlewareStack {
+func (mwr *middlewareRegistry) Get(route string) MiddlewareStack {
 	ret := mwr.middleware[route]
 	if ret == nil {
 		logger.Warn("No middleware found for route", "route", route)
@@ -359,33 +362,52 @@ func RateLimitMiddleware(srv *Server) MiddlewareFunc {
 // over plaintext is at best meaningless and at worst harmful (a reverse-proxy
 // terminating TLS in front of us would inherit `preload` against intent), so
 // the header is only set when EnableTLS is true. See HeadersMiddleware below.
+//
+// Access-Control-* headers are intentionally NOT in this table. The CORS
+// contract belongs to applyCORSHeaders, which honours WithCORS configuration;
+// emitting them unconditionally created a footgun where a handler echoing
+// Origin into Access-Control-Allow-Origin would combine with a static
+// Access-Control-Allow-Credentials: true to produce a credentialed wildcard.
 var securityHeaders = []header{
 	{"X-Content-Type-Options", "nosniff"},                  // Prevent MIME-type sniffing
 	{"X-Frame-Options", "DENY"},                            // Mitigate clickjacking
 	{"Referrer-Policy", "strict-origin-when-cross-origin"}, // Balance privacy and functionality
 	{"Permissions-Policy", "geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), fullscreen=(self)"}, // Modern replacement for Feature-Policy (removed invalid 'speaker' directive)
-	{"Cross-Origin-Embedder-Policy", "require-corp"},                // Prevent cross-origin attacks
-	{"Cross-Origin-Opener-Policy", "same-origin"},                   // Isolate browsing context
-	{"Cross-Origin-Resource-Policy", "same-origin"},                 // Control cross-origin resource sharing
-	{"X-Permitted-Cross-Domain-Policies", "none"},                   // Restrict Flash/PDF cross-domain access
-	{"Access-Control-Allow-Methods", "GET, POST, OPTIONS"},          // Allowed methods
-	{"Access-Control-Allow-Headers", "Content-Type, Authorization"}, // Allowed headers
-	{"Access-Control-Allow-Credentials", "true"},                    // If cookies or credentials are needed
-	{"Access-Control-Max-Age", "600"},                               // Pre-flight request cache
+	{"Cross-Origin-Embedder-Policy", "require-corp"}, // Prevent cross-origin attacks
+	{"Cross-Origin-Opener-Policy", "same-origin"},    // Isolate browsing context
+	{"Cross-Origin-Resource-Policy", "same-origin"},  // Control cross-origin resource sharing
+	{"X-Permitted-Cross-Domain-Policies", "none"},    // Restrict Flash/PDF cross-domain access
 }
 
-// generateCSP generates a Content Security Policy header value based on server options
+// generateCSP generates a Content Security Policy header value based on server
+// options. The directive set was previously duplicated as two near-identical
+// string literals — the two-form variant tolerated drift on a
+// security-critical header. Now both forms are derived from one slice.
 func generateCSP(options *ServerOptions) string {
-	// Base CSP without worker-src (will fall back to child-src)
-	csp := "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; media-src 'self'; object-src 'none'; child-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
-
-	// Add Web Worker support if enabled
-	if options.CSPWebWorkerSupport {
-		// Add blob: to worker-src and child-src for Web Worker support
-		csp = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; media-src 'self'; object-src 'none'; child-src 'self' blob:; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+	directives := []string{
+		"default-src 'self'",
+		"script-src 'self' 'unsafe-inline'",
+		"style-src 'self' 'unsafe-inline'",
+		"img-src 'self' data:",
+		"font-src 'self'",
+		"connect-src 'self'",
+		"media-src 'self'",
+		"object-src 'none'",
 	}
-
-	return csp
+	if options.CSPWebWorkerSupport {
+		directives = append(directives,
+			"child-src 'self' blob:",
+			"worker-src 'self' blob:",
+		)
+	} else {
+		directives = append(directives, "child-src 'self'")
+	}
+	directives = append(directives,
+		"frame-ancestors 'none'",
+		"base-uri 'self'",
+		"form-action 'self'",
+	)
+	return strings.Join(directives, "; ")
 }
 
 // HeadersMiddleware returns a middleware function that adds security headers to responses.
@@ -454,9 +476,16 @@ func applyCORSHeaders(w http.ResponseWriter, r *http.Request, cors *CORSOptions)
 
 	if len(cors.AllowedMethods) > 0 {
 		w.Header().Set("Access-Control-Allow-Methods", joinTokens(cors.AllowedMethods))
+	} else {
+		// Sensible default when CORS is configured but methods weren't
+		// listed. Without this, preflight responds with no method header
+		// and the browser blocks the request.
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 	}
 	if len(cors.AllowedHeaders) > 0 {
 		w.Header().Set("Access-Control-Allow-Headers", joinTokens(cors.AllowedHeaders))
+	} else {
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 	}
 
 	if len(cors.ExposeHeaders) > 0 {

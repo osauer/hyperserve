@@ -218,7 +218,7 @@ type Server struct {
 	healthMux              *http.ServeMux
 	httpServer             *http.Server
 	healthServer           *http.Server
-	middleware             *MiddlewareRegistry
+	middleware             *middlewareRegistry
 	templates              *template.Template
 	templatesMu            sync.Mutex
 	Options                *ServerOptions
@@ -280,7 +280,7 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 
 	applyConfiguredLogLevel(srv.Options)
 
-	srv.middleware = NewMiddlewareRegistry(DefaultMiddleware(srv))
+	srv.middleware = newMiddlewareRegistry(DefaultMiddleware(srv))
 	logger.Debug("Default middleware registered", "middlewares", []string{"MetricsMiddleware", "RequestLoggerMiddleware", "RecoveryMiddleware"})
 
 	for _, opt := range opts {
@@ -1131,14 +1131,16 @@ func (srv *Server) CompleteDeferredInit(ctx context.Context, err error) error {
 	return srv.completeDeferredInit(ctx, err, nil)
 }
 
-// Handle registers the handler function for the given pattern.
-// This is a wrapper around http.ServeMux.Handle that integrates with the server's middleware system.
-// Example usage:
+// Handle registers an http.Handler for the given pattern. Mirrors
+// http.ServeMux.Handle but also tracks the pattern so middleware stacks
+// applied via AddMiddlewareStack can find it. Use this when you have an
+// existing http.Handler (e.g., http.FileServer); use HandleFunc for inline
+// handler functions.
 //
-//	srv.Handle("/static", http.FileServer(http.Dir("./static")))
-func (srv *Server) Handle(pattern string, handlerFunc http.HandlerFunc) {
+//	srv.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("./static"))))
+func (srv *Server) Handle(pattern string, handler http.Handler) {
 	srv.registerRoute(pattern)
-	srv.mux.Handle(pattern, handlerFunc)
+	srv.mux.Handle(pattern, handler)
 }
 
 func (srv *Server) registerRoute(pattern string) {
