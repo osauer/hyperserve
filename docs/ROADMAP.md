@@ -1,45 +1,43 @@
 # HyperServe Roadmap
 
-_Last updated: 2026-05-19 06:28 CEST (post v0.33.1)._
+_Last updated: 2026-05-24 07:21 CEST (v1 line)._
 
-This document is the project's north star — what HyperServe is, what
-differentiates it, and what's planned next. Concrete near-term work is
-tracked in [GitHub Issues](https://github.com/osauer/hyperserve/issues);
-broader "is this the right shape?" discussion lives in
-[GitHub Discussions](https://github.com/osauer/hyperserve/discussions).
+HyperServe is a library-first Go HTTP framework with in-process MCP for
+agentic workloads. The near-term roadmap is about making that story sharp:
+production MCP observability, SSE transport correctness, and a small set of
+canonical examples that stay release-gated.
 
-## Pitch
+## Product Thesis
 
-A Go HTTP framework with built-in MCP. `net/http` plus one transitive dependency
-(`golang.org/x/time`), and an in-tree MCP server so AI assistants can introspect
-and operate the same binary that serves traffic.
+A small `net/http`-shaped server with first-class MCP, JSON-RPC, SSE,
+WebSocket, request binding, and production middleware. AI assistants should be
+able to inspect a live service through the same binary that serves traffic,
+without an out-of-process bridge.
 
-## Differentiation
+## Canonical Examples
 
-- **MCP in-process.** Tools, resources, namespaces, discovery — no out-of-process bridge or third-party SDK.
-- **Two-line `go.sum`.** For teams where supply-chain review is a real meeting, this is the headline. Gin's transitive tree is sizable; HyperServe's is one package.
-- **Standard-library WebSocket + JSON-RPC + os.Root static serving.** None of these are individually unusual; the combination without dependencies is.
+These three examples define the release story:
 
-## Near-Term Roadmap (High-Impact, Moderate Effort)
+- `examples/devops`: production MCP observability.
+- `examples/mcp-sse`: MCP over the unified SSE/HTTP endpoint.
+- `examples/json-api`: a normal JSON API server using method-aware routes and typed binding.
 
-| Theme | Description | Impact | Effort Notes |
-|-------|-------------|--------|--------------|
-| **1. OpenTelemetry Export Bridge** | Provide `WithOTLPExporter` options for metrics/traces, using the OTLP HTTP protocol and exposing summaries back through an MCP observability tool. | Unlocks integration with Grafana, Datadog, New Relic while reinforcing the AI-observability narrative. | Implement HTTP exporter (no full SDK) and reuse existing metrics registry; add MCP endpoints for curated queries. |
-| **2. Runtime Control Safeguards** | Introduce a privileged MCP namespace for safe toggles: reload config, rotate log level, drain WebSocket pools, update rate limits. Ship with RBAC hooks and guardrails. | Makes the “AI-augmented DevOps” story tangible, enabling runbook automation through MCP while keeping SOC teams comfortable. | Wrap existing configuration knobs; add policy hooks and structured auditing. |
-| **3. v1.0 freeze** | One more breaking sweep in v0.33 (cohesion split of `pkg/server/server.go`, unexport unused public surface, drop `Get*` prefixes, close the discovery substring leak), then cut v1.0 with `API_STABILITY.md` enforced — no further breaking subtractions in minors. | Closes the single biggest real gap downstream consumers feel today: "every minor is a refactor day." | Subtractions are cheap; the work is mostly choosing what stays and writing the migration notes. |
+Other examples are supplemental. They should not dilute the main README or
+release gate unless they protect a specific production contract.
 
-These items deepen HyperServe’s differentiation (AI-native + secure + production-ready) without compromising the lightweight core.
+## Near-Term Work
 
-## Next Build Focus
+| Theme | Description | Why It Matters |
+|---|---|---|
+| Production MCP observability | Keep resources live, route inspection truthful, logs wired, and discovery cache-safe. | This is the project differentiator and must be trustworthy in production. |
+| Scaffold reliability | Generated projects should build outside the monorepo, include the right module requirement, and use current Go/tooling defaults. | A broken first generated app reflects poorly on the framework. |
+| Protocol conformance | Continue tightening JSON-RPC, SSE, and WebSocket behavior against their specs. | Agent clients are strict; protocol drift becomes integration pain. |
+| Observability exports | Explore lightweight OTLP-compatible metrics/trace export without pulling a full SDK into the runtime. | Connects HyperServe to existing production stacks while keeping the core small. |
+| Runtime safeguards | Design privileged MCP controls with policy hooks, auditing, and narrow scopes. | Makes agent-assisted operations useful without turning MCP into an unsafe control plane. |
 
-1. **Ship v0.33 breaking sweep** – Cohesion-split `pkg/server/server.go`, unexport the SSE state machine, drop the remaining `Get*` prefixes, fix the discovery substring leak, raise `pkg/mcp` coverage from 33% → 60%.
-2. **Cut v1.0 with `API_STABILITY.md` teeth** – No further breaking subtractions in minor releases. Patch-only signature changes after v1.0.0.
-3. **Kick off OTLP bridge** – Sketch the metrics/trace exporter API, flesh out configuration knobs, and capture benchmark baselines before adding collectors.
-4. **Prototype runtime controls** – Define the privileged MCP namespace, enumerate the safe toggles, and wire auditing stubs so RBAC can be layered in next.
+## Release Discipline
 
-## One-Click Bundles (Exploration)
-
-- **Goal**: Deliver pre-built HyperServe applications that end users can deploy with a single command.
-- **Approach**: Create a `hyperserve bundle` workflow that vendors the backend/frontend, emits Docker/Compose assets, and publishes signed artifacts alongside scaffold templates.
-- **Separation of personas**: Keep `hyperserve-init` focused on developers, while bundles target operators or end users who want a turnkey deploy.
-- **Open questions**: Distribution channel (GitHub releases vs container registry), update cadence, and how to surface bundle links prominently in the README/downloads.
+- Keep `cmd/hyperserve-init` as the supported command; avoid checked-in demo binaries.
+- Keep v1 semver clean. Breaking exported APIs require a future `/v2` module path.
+- Run `make check`, `go test ./...`, and the canonical example gate before tagging.
+- Update docs and examples in the same change as API or behavior changes.

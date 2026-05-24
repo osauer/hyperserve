@@ -67,8 +67,9 @@ func main() {
 	// Run the server
 	if useStdio {
 		log.Println("Starting in MCP STDIO mode...")
-		// In STDIO mode, we don't start the HTTP server
-		select {}
+		if err := srv.MCPHandler().RunStdioLoop(); err != nil {
+			log.Fatal(err)
+		}
 	} else {
 		log.Printf("Starting server on %s", srv.Options.Addr)
 		log.Printf("MCP endpoint available at: http://localhost%s%s", srv.Options.Addr, srv.Options.MCPEndpoint)

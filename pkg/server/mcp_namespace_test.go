@@ -380,6 +380,9 @@ func testNamespaceResourceRead(t *testing.T) {
 	if len(contents) == 0 {
 		t.Fatal("Expected resource contents")
 	}
+	if contents[0].URI != "mcp__system__config://app" {
+		t.Errorf("content URI = %q, want prefixed read URI", contents[0].URI)
+	}
 
 	text, _ := contents[0].Text.(string)
 	if text != "Content from App Config" {

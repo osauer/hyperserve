@@ -124,7 +124,7 @@ srv.RegisterMCPTool(mcp.NewTypedTool("search", "Search the corpus.", search))
 
 If you have ever tried to bolt MCP onto an existing Go service, you know the alternative: a separate process, routing between them, two sets of lifecycle hooks. HyperServe collapses that into one binary. The protocol code is in [pkg/mcp/handler.go](pkg/mcp/handler.go) (673 lines) plus a handful of transport files. You can read the whole thing in an hour. This is the bet the library is making. Everything else is here so you don't have to glue four small libraries together to use it.
 
-**Native WebSocket and SSE.** RFC 6455 WebSocket and Server-Sent Events live in `pkg/websocket` and `pkg/mcp/sse`. No `gorilla/websocket`, no `r3labs/sse`. The SSE work is what unlocks the MCP SSE transport; they share the connection management code.
+**Native WebSocket and SSE.** RFC 6455 WebSocket lives in `pkg/websocket`, and MCP Server-Sent Events are served by the unified `/mcp` endpoint. No `gorilla/websocket`, no `r3labs/sse`. The SSE work is what unlocks long-lived MCP sessions without a separate bridge.
 
 **Typed handlers, top to bottom.** A typed JSON endpoint is one function and one route line. Echo-only endpoints are zero functions and one route line. MCP tools work the same way: one typed function, one `NewTypedTool` line, schemas derived from the same struct tags. The wrapper code reuses one validator across HTTP binding, MCP tool dispatch, and the `Validate` standalone path. A typical CRUD endpoint here is shorter than the same endpoint in Gin, and an MCP tool here is significantly shorter than the older `WithParameter` builder shape.
 
@@ -218,6 +218,6 @@ For new internal services where the team values a small dependency tree, or wher
 
 The library is moving. The last several releases added binding and validation, then a typed `JSONHandler`, then method-aware route helpers, then `JSONEcho` for the validate-and-echo case, then typed MCP tool registration with reflection-derived input and output schemas. The HTTP side and the MCP side share one validator and one set of struct tags. Pre-1.0 means the API can still move; version-pin and read the CHANGELOG before upgrading.
 
-What's left is the long tail: more validation verbs (cross-field rules, custom validators), an OpenAPI generator that reuses the same struct tags, and a published benchmark suite against `net/http` and Gin. The library is still pre-1.0 and run by one maintainer, but the core surface has stabilised to the point where the remaining work is filling gaps, not picking a shape.
+What's left is the long tail: more validation verbs (cross-field rules, custom validators), an OpenAPI generator that reuses the same struct tags, and a published benchmark suite against `net/http` and Gin. The library is now on the v1 line and run by one maintainer; the core surface has stabilised to the point where the remaining work is filling gaps, not picking a shape.
 
 The `examples/binding`, `examples/mcp-basic`, and `examples/mcp-extensions` directories are the cheap way to find out whether this is the framework you want for the thing you're about to build. They're each a single `go run .` away from running on your machine.

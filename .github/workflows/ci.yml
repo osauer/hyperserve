@@ -20,8 +20,8 @@ jobs:
 
     - name: Install check-gate tools
       run: |
-        go install honnef.co/go/tools/cmd/staticcheck@latest
-        go install golang.org/x/vuln/cmd/govulncheck@latest
+        go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
+        go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
 
     - name: make test (runs check gate + go test)
       run: make test
@@ -35,8 +35,8 @@ jobs:
     - name: Build
       run: go build -v ./...
 
-    - name: Build CLI
-      run: go build -v ./cmd/server
+    - name: Build scaffold CLI
+      run: go build -v ./cmd/hyperserve-init
 
   benchmark:
     name: Benchmark

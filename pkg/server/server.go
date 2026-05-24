@@ -93,6 +93,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -158,9 +159,13 @@ func VersionInfo() string {
 // Environment management variable names
 const (
 	paramServerAddr           = "SERVER_ADDR"
+	paramServerPort           = "HS_PORT"
 	paramHealthAddr           = "HEALTH_ADDR"
+	paramRateLimit            = "HS_RATE_LIMIT"
+	paramBurstLimit           = "HS_BURST_LIMIT"
 	paramHardenedMode         = "HS_HARDENED_MODE"
 	paramFileName             = "options.json"
+	paramConfigPath           = "HS_CONFIG_PATH"
 	paramMCPEnabled           = "HS_MCP_ENABLED"
 	paramMCPEndpoint          = "HS_MCP_ENDPOINT"
 	paramMCPServerName        = "HS_MCP_SERVER_NAME"
@@ -1319,6 +1324,19 @@ func (srv *Server) ClientLimiterCount() int {
 // mount the server's handler in an httptest server without going through
 // (*Server).Run.
 func (srv *Server) Mux() *http.ServeMux { return srv.mux }
+
+// RegisteredRoutes returns a sorted snapshot of patterns registered through
+// Handle, HandleFunc, and the method-aware route helpers.
+func (srv *Server) RegisteredRoutes() []string {
+	srv.routesMu.RLock()
+	defer srv.routesMu.RUnlock()
+	routes := make([]string, 0, len(srv.deferred.routes))
+	for route := range srv.deferred.routes {
+		routes = append(routes, route)
+	}
+	slices.Sort(routes)
+	return routes
+}
 
 // MiddlewareRoutes returns a snapshot of the registered route-to-middleware
 // mapping. The returned map is a shallow copy; mutating it does not affect the

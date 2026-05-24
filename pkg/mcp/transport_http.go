@@ -26,6 +26,11 @@ func (t *httpTransport) Send(response *jsonrpc.Response) error {
 	return json.NewEncoder(t.w).Encode(response)
 }
 
+func (t *httpTransport) NoResponse() error {
+	t.w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
 func (t *httpTransport) Receive() (*jsonrpc.Request, error) {
 	if t.r.Method != http.MethodPost {
 		return nil, fmt.Errorf("%w: %s", ErrMethodNotAllowed, t.r.Method)

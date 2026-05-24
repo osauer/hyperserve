@@ -44,6 +44,7 @@ func Generate(opts Options) (string, error) {
 		ServiceSlug:       opts.serviceSlug(),
 		BinaryName:        opts.serviceSlug(),
 		WithMCP:           opts.WithMCP,
+		HyperserveVersion: "v1.1.0",
 		LocalReplace:      filepath.ToSlash(opts.LocalReplace),
 		DefaultAddr:       ":8080",
 		DefaultHealthAddr: ":9080",
@@ -65,6 +66,7 @@ type templateData struct {
 	ServiceSlug       string
 	BinaryName        string
 	WithMCP           bool
+	HyperserveVersion string
 	LocalReplace      string
 	DefaultAddr       string
 	DefaultHealthAddr string

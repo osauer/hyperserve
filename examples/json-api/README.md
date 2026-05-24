@@ -18,7 +18,7 @@ This example demonstrates how to build a REST API with HyperServe that handles J
 |--------|----------|-------------|
 | GET | `/` | API information |
 | GET | `/todos` | List all todos |
-| POST | `/todos/create` | Create a new todo |
+| POST | `/todos` | Create a new todo |
 | GET | `/todos/{id}` | Get a specific todo |
 | PUT | `/todos/{id}` | Update a todo |
 | DELETE | `/todos/{id}` | Delete a todo |
@@ -26,7 +26,7 @@ This example demonstrates how to build a REST API with HyperServe that handles J
 ## Running the Example
 
 ```bash
-go run main.go
+go run ./examples/json-api
 ```
 
 The API server will start on http://localhost:8080
@@ -43,7 +43,7 @@ curl http://localhost:8080/
 curl http://localhost:8080/todos
 
 # Create a new todo
-curl -X POST http://localhost:8080/todos/create \
+curl -X POST http://localhost:8080/todos \
   -H "Content-Type: application/json" \
   -d '{"title":"Buy groceries"}'
 
@@ -71,7 +71,7 @@ You can also use tools like:
 
 ```javascript
 // Create a todo
-fetch('http://localhost:8080/todos/create', {
+fetch('http://localhost:8080/todos', {
   method: 'POST',
   headers: {'Content-Type': 'application/json'},
   body: JSON.stringify({title: 'Learn HyperServe'})
@@ -90,7 +90,7 @@ fetch('http://localhost:8080/todos')
 ### 1. JSON Response Helper
 
 ```go
-func sendJSON(w http.ResponseWriter, status int, data interface{}) {
+func sendJSON(w http.ResponseWriter, status int, data any) {
     w.Header().Set("Content-Type", "application/json")
     w.WriteHeader(status)
     json.NewEncoder(w).Encode(data)
@@ -135,15 +135,12 @@ type TodoStore struct {
 
 The store uses `sync.RWMutex` for concurrent access safety.
 
-### 5. RESTful Routing
+### 5. Method-Aware Routing
 
 ```go
-// Different HTTP methods on same path
-switch r.Method {
-case http.MethodGet:    // GET /todos/{id}
-case http.MethodPut:    // PUT /todos/{id}
-case http.MethodDelete: // DELETE /todos/{id}
-}
+srv.GET("/todos/{id}", getTodo)
+srv.PUT("/todos/{id}", updateTodo)
+srv.DELETE("/todos/{id}", deleteTodo)
 ```
 
 ## Common Patterns

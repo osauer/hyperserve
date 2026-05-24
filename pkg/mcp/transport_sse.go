@@ -279,8 +279,10 @@ func (m *sseManager) HandleSSE(w http.ResponseWriter, r *http.Request, mcpHandle
 					continue
 				}
 				response := mcpHandler.rpcEngine.ProcessRequestDirect(request)
-				if err := transport.Send(response); err != nil {
-					m.logger.Error("Failed to send response", "error", err, "client", clientID)
+				if response != nil {
+					if err := transport.Send(response); err != nil {
+						m.logger.Error("Failed to send response", "error", err, "client", clientID)
+					}
 				}
 				if request.Method == "initialized" {
 					client.SetInitialized()
@@ -435,6 +437,9 @@ func newSSETransport(clientID string, sseManager *sseManager, requestChan <-chan
 }
 
 func (t *sseTransport) Send(response *jsonrpc.Response) error {
+	if response == nil {
+		return nil
+	}
 	return t.sseManager.SendToClient(t.clientID, response)
 }
 

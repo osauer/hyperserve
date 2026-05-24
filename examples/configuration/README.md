@@ -81,13 +81,12 @@ This means:
 
 | Option | Environment Variable | JSON Field | Programmatic Option |
 |--------|---------------------|------------|-------------------|
-| Server Address | `HS_PORT` or `HS_ADDR` | `addr` | `WithAddr()` |
+| Server Address | `SERVER_ADDR` or `HS_PORT` | `addr` | `WithAddr()` |
+| Health Address | `HEALTH_ADDR` | `health_addr` | `WithHealthAddr()` |
 | Rate Limit | `HS_RATE_LIMIT` | `rate_limit` | `WithRateLimit()` |
 | Burst Limit | `HS_BURST_LIMIT` | `burst` | `WithRateLimit()` |
-| Read Timeout | `HS_READ_TIMEOUT` | `read_timeout` | `WithTimeouts()` |
-| Write Timeout | `HS_WRITE_TIMEOUT` | `write_timeout` | `WithTimeouts()` |
-| TLS Certificate | `HS_TLS_CERT_FILE` | `tls_cert_file` | `WithTLS()` |
-| TLS Key | `HS_TLS_KEY_FILE` | `tls_key_file` | `WithTLS()` |
+| Hardened Mode | `HS_HARDENED_MODE` | `hardened_mode` | `WithHardenedMode()` |
+| Log Level | `HS_LOG_LEVEL` | `log_level` | `WithLogLevel()` |
 | Static Directory | `HS_STATIC_DIR` | `static_dir` | `WithStaticDir()` |
 | Template Directory | `HS_TEMPLATE_DIR` | `template_dir` | `WithTemplateDir()` |
 
@@ -100,9 +99,6 @@ Create a file `config.json`:
   "addr": ":8080",
   "rate_limit": 100,
   "burst": 200,
-  "read_timeout": "30s",
-  "write_timeout": "30s",
-  "idle_timeout": "120s",
   "static_dir": "./static",
   "template_dir": "./templates"
 }
@@ -113,11 +109,6 @@ Then either:
 # Set via environment variable
 export HS_CONFIG_PATH=config.json
 go run myapp.go
-
-# Or load programmatically
-server, err := server.NewServer(
-    server.WithConfigFile("config.json"),
-)
 ```
 
 ## Environment Variables Example

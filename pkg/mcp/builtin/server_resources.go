@@ -172,9 +172,6 @@ func (r *ServerLogResource) List() ([]string, error) { return []string{r.URI()},
 
 // Handle implements slog.Handler so the resource can capture log records.
 func (r *ServerLogResource) Handle(ctx context.Context, record slog.Record) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	entry := logEntry{
 		Time:    record.Time,
 		Level:   record.Level.String(),
@@ -186,13 +183,16 @@ func (r *ServerLogResource) Handle(ctx context.Context, record slog.Record) erro
 		return true
 	})
 
+	r.mu.Lock()
 	if len(r.logs) >= r.maxSize {
 		r.logs = r.logs[1:]
 	}
 	r.logs = append(r.logs, entry)
+	handler := r.handler
+	r.mu.Unlock()
 
-	if r.handler != nil {
-		return r.handler.Handle(ctx, record)
+	if handler != nil {
+		return handler.Handle(ctx, record)
 	}
 	return nil
 }
@@ -237,8 +237,12 @@ func (r *RouteListResource) MimeType() string    { return "application/json" }
 
 func (r *RouteListResource) Read() (any, error) {
 	routes := []map[string]any{}
-	for route := range r.server.MiddlewareRoutes() {
-		routes = append(routes, map[string]any{"pattern": route})
+	for _, route := range r.server.RegisteredRoutes() {
+		pattern, methods := splitServeMuxPattern(route)
+		routes = append(routes, map[string]any{
+			"pattern": pattern,
+			"methods": methods,
+		})
 	}
 	return map[string]any{
 		"routes": routes,

@@ -133,11 +133,17 @@ func (t *RouteInspectorTool) Execute(params map[string]any) (any, error) {
 	}
 
 	routes := []map[string]any{}
-	for route, middlewareStack := range t.server.MiddlewareRoutes() {
-		if pattern != "" && !strings.Contains(route, pattern) {
+	middlewareRoutes := t.server.MiddlewareRoutes()
+	for _, route := range t.server.RegisteredRoutes() {
+		routePattern, methods := splitServeMuxPattern(route)
+		if pattern != "" && !strings.Contains(routePattern, pattern) {
 			continue
 		}
-		routes = append(routes, makeRouteInfo(route, "main", []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"}, includeMiddleware, middlewareStackNames(middlewareStack)))
+		middlewareStack := middlewareRoutes[route]
+		if len(middlewareStack) == 0 {
+			middlewareStack = middlewareRoutes[routePattern]
+		}
+		routes = append(routes, makeRouteInfo(routePattern, "main", methods, includeMiddleware, middlewareStackNames(middlewareStack)))
 	}
 
 	// Synthesize known health routes when they aren't visible via middleware registry.
@@ -155,8 +161,16 @@ func (t *RouteInspectorTool) Execute(params map[string]any) (any, error) {
 	return map[string]any{
 		"routes": routes,
 		"total":  len(routes),
-		"note":   "Routes discovered from middleware registry and known server endpoints",
+		"note":   "Routes discovered from registered handlers and known server endpoints",
 	}, nil
+}
+
+func splitServeMuxPattern(route string) (string, []string) {
+	method, path, ok := strings.Cut(route, " ")
+	if !ok || path == "" {
+		return route, []string{"ANY"}
+	}
+	return path, []string{method}
 }
 
 func makeRouteInfo(pattern, server string, methods []string, includeMiddleware bool, middlewareNames []string) map[string]any {

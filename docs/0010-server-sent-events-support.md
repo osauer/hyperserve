@@ -21,27 +21,39 @@ SSE is often overlooked despite being simpler than WebSockets for many use cases
 
 ## Decision
 
-Provide Server-Sent Events as a first-class feature:
-- Built-in SSE handler support
+Provide Server-Sent Events as a first-class formatting helper and as the MCP
+streaming transport:
 - Helper functions for SSE message formatting
-- Automatic connection management
-- Proper Content-Type and headers
+- Correct multi-line `data:` encoding
+- MCP SSE routing through the unified `/mcp` endpoint
 
 ```go
 // Simple SSE endpoint
-srv.HandleFunc("/events", server.SSEHandler(func(w http.ResponseWriter, r *http.Request, send chan<- server.SSEMessage) {
+srv.GET("/events", func(w http.ResponseWriter, r *http.Request) {
+    w.Header().Set("Content-Type", "text/event-stream")
+    w.Header().Set("Cache-Control", "no-cache")
+
+    flusher, ok := w.(http.Flusher)
+    if !ok {
+        http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+        return
+    }
+
     ticker := time.NewTicker(time.Second)
     defer ticker.Stop()
     
     for {
         select {
         case <-ticker.C:
-            send <- server.NewSSEMessage("time", time.Now().String())
+            msg := server.NewSSEMessage(time.Now().String())
+            msg.Event = "time"
+            fmt.Fprint(w, msg)
+            flusher.Flush()
         case <-r.Context().Done():
             return
         }
     }
-}))
+})
 ```
 
 ## Consequences
@@ -81,47 +93,29 @@ id: msg-123\n
 data: Message with ID\n\n
 ```
 
-Helper functions:
+Helper type:
 ```go
 type SSEMessage struct {
     Event string
-    Data  string
-    ID    string
+    Data  any
 }
 
-func NewSSEMessage(event, data string) SSEMessage
-func (m SSEMessage) String() string  // Formats as SSE protocol
+func NewSSEMessage(data any) *SSEMessage
+func (m *SSEMessage) String() string  // Formats as SSE protocol
 ```
 
 ## Examples
 
 ```go
 // Time ticker example
-srv.HandleFunc("/time", server.SSEHandler(func(w http.ResponseWriter, r *http.Request, send chan<- server.SSEMessage) {
-    ticker := time.NewTicker(time.Second)
-    defer ticker.Stop()
-    
-    for {
-        select {
-        case <-ticker.C:
-            send <- server.NewSSEMessage("tick", time.Now().Format(time.RFC3339))
-        case <-r.Context().Done():
-            return
-        }
-    }
-}))
+msg := server.NewSSEMessage(time.Now().Format(time.RFC3339))
+msg.Event = "tick"
+fmt.Fprint(w, msg)
 
 // Progress updates
-srv.HandleFunc("/upload/progress", server.SSEHandler(func(w http.ResponseWriter, r *http.Request, send chan<- server.SSEMessage) {
-    uploadID := r.URL.Query().Get("id")
-    
-    for progress := range getUploadProgress(uploadID) {
-        send <- server.NewSSEMessage("progress", fmt.Sprintf("%d", progress))
-        if progress >= 100 {
-            break
-        }
-    }
-}))
+msg := server.NewSSEMessage(fmt.Sprintf("%d", progress))
+msg.Event = "progress"
+fmt.Fprint(w, msg)
 
 // Client-side JavaScript
 const events = new EventSource('/time');

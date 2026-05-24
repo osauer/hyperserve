@@ -34,6 +34,7 @@ func (t *mockTool) Execute(params map[string]any) (any, error) {
 type mockResource struct {
 	uri      string
 	name     string
+	cacheTTL time.Duration
 	readFunc func() (any, error)
 }
 
@@ -48,6 +49,9 @@ func (r *mockResource) Read() (any, error) {
 	return nil, nil
 }
 func (r *mockResource) List() ([]string, error) { return nil, nil }
+func (r *mockResource) ResourceCacheTTL() time.Duration {
+	return r.cacheTTL
+}
 
 // TestMCPOptimizationsIntegration tests the optimizations in an integrated environment
 func TestMCPOptimizationsIntegration(t *testing.T) {
@@ -118,8 +122,9 @@ func TestMCPOptimizationsIntegration(t *testing.T) {
 	t.Run("resource_caching", func(t *testing.T) {
 		callCount := 0
 		testResource := &mockResource{
-			uri:  "test://cacheable",
-			name: "Cacheable Resource",
+			uri:      "test://cacheable",
+			name:     "Cacheable Resource",
+			cacheTTL: time.Minute,
 			readFunc: func() (any, error) {
 				callCount++
 				return map[string]any{

@@ -63,6 +63,23 @@ func TestProcessRequestInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestProcessRequestNotificationHasNoResponse(t *testing.T) {
+	engine := NewEngine(nil)
+	called := false
+	engine.RegisterMethod("notify", func(params any) (any, error) {
+		called = true
+		return "ignored", nil
+	})
+
+	respRaw := engine.ProcessRequest([]byte(`{"jsonrpc":"2.0","method":"notify"}`))
+	if len(respRaw) != 0 {
+		t.Fatalf("notification response = %s, want empty", respRaw)
+	}
+	if !called {
+		t.Fatal("notification handler was not called")
+	}
+}
+
 func TestProcessRequestMethodNotFound(t *testing.T) {
 	engine := NewEngine(nil)
 	payload := Request{JSONRPC: Version, Method: "missing", ID: 1}

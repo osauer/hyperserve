@@ -4,49 +4,47 @@ This example demonstrates how to build applications on top of hyperserve that ex
 
 ## Overview
 
-The example creates a simple blog application that exposes:
+The example creates a simple blog application that exposes one tool per
+operation. Most tools use `mcp.NewTypedTool`; `search_posts` intentionally
+uses the lower-level builder so both shapes are visible.
 
 ### MCP Tools
-- **manage_posts** - Create, update, delete, and list blog posts
+- **create_post** - Create a blog post
+- **get_post** - Fetch one blog post by ID
+- **list_posts** - List blog posts
+- **delete_post** - Delete a blog post
 - **search_posts** - Search posts by keyword or tag
-
-### MCP Resources
-- **blog://posts/recent** - Latest blog posts
-- **blog://stats/overview** - Blog statistics and analytics
 
 ## Key Concepts
 
 ### 1. Extension Builder Pattern
 
 ```go
-extension := server.NewMCPExtension("blog").
+extension := mcp.NewExtension("blog").
     WithDescription("Blog management tools").
     WithTool(myTool).
-    WithResource(myResource).
     Build()
 ```
 
-### 2. Tool Builder Pattern
+### 2. Typed Tool Pattern
 
 ```go
-tool := server.NewTool("manage_posts").
-    WithDescription("Manage blog posts").
-    WithParameter("action", "string", "Action to perform", true).
-    WithParameter("title", "string", "Post title", false).
-    WithExecute(func(ctx context.Context, params map[string]interface{}) (interface{}, error) {
-        // Implementation
-    }).
-    Build()
+type CreatePostArgs struct {
+    Title  string `json:"title" validate:"required,max=200"`
+    Author string `json:"author" validate:"required"`
+}
+
+tool := mcp.NewTypedTool("create_post", "Create a new blog post.", store.Create)
 ```
 
-### 3. Resource Builder Pattern
+### 3. Builder Tool Pattern
 
 ```go
-resource := server.NewResource("blog://posts/recent").
-    WithName("Recent Posts").
-    WithDescription("Latest blog posts").
-    WithRead(func() (interface{}, error) {
-        // Return data
+tool := mcp.NewTool("search_posts").
+    WithDescription("Search posts").
+    WithParameter("query", "string", "Substring matched against title and content", false).
+    WithExecute(func(params map[string]any) (any, error) {
+        return search(params), nil
     }).
     Build()
 ```
@@ -69,10 +67,6 @@ After configuring Claude Desktop with your server, you can:
 2. **Search and Discovery**
    - "Find posts tagged with 'golang'"
    - "Search for posts about 'concurrency'"
-
-3. **Analytics**
-   - "Show me blog statistics"
-   - "How many posts does each author have?"
 
 ## Testing with curl
 
@@ -168,7 +162,7 @@ type StatefulTool struct {
     cache Cache
 }
 
-func (t *StatefulTool) Execute(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+func (t *StatefulTool) Execute(params map[string]any) (any, error) {
     // Access t.db, t.cache, etc.
 }
 ```
@@ -180,7 +174,7 @@ type UserResource struct {
     getCurrentUser func() *User
 }
 
-func (r *UserResource) Read() (interface{}, error) {
+func (r *UserResource) Read() (any, error) {
     user := r.getCurrentUser()
     // Return user-specific data
 }
@@ -189,9 +183,9 @@ func (r *UserResource) Read() (interface{}, error) {
 ### Async Operations
 
 ```go
-func (t *JobTool) Execute(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+func (t *JobTool) Execute(params map[string]any) (any, error) {
     jobID := startBackgroundJob(params)
-    return map[string]interface{}{
+    return map[string]any{
         "job_id": jobID,
         "status": "started",
         "check_status_with": "job_status tool",

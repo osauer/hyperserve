@@ -9,7 +9,11 @@ Configuration follows a hierarchical priority:
 
 Environment Variables:
   - SERVER_ADDR: Main server address (default ":8080")
+  - HS_PORT: Main server port shortcut (e.g. "8080" -> ":8080")
   - HEALTH_ADDR: Health check server address (default ":8081")
+  - HS_RATE_LIMIT: Per-client requests per second
+  - HS_BURST_LIMIT: Per-client burst size
+  - HS_CONFIG_PATH: JSON config file path (default "options.json")
   - HS_HARDENED_MODE: Enable security headers (default "false")
   - HS_MCP_ENABLED: Enable Model Context Protocol (default "false")
   - HS_MCP_ENDPOINT: MCP endpoint path (default "/mcp")
@@ -224,6 +228,17 @@ func defaultEnvBindings() []envBinding {
 	return []envBinding{
 		// String fields — assign verbatim when non-empty.
 		{paramServerAddr, func(v string, c *ServerOptions) { c.Addr = v }},
+		{paramServerPort, func(v string, c *ServerOptions) {
+			port := strings.TrimSpace(v)
+			if port == "" {
+				return
+			}
+			if strings.HasPrefix(port, ":") {
+				c.Addr = port
+				return
+			}
+			c.Addr = ":" + port
+		}},
 		{paramHealthAddr, func(v string, c *ServerOptions) { c.HealthAddr = v }},
 		{paramMCPEndpoint, func(v string, c *ServerOptions) { c.MCPEndpoint = v }},
 		{paramMCPServerName, func(v string, c *ServerOptions) { c.MCPServerName = v }},
@@ -266,6 +281,18 @@ func defaultEnvBindings() []envBinding {
 				c.MCPTransport = mcp.StdioTransport
 			case "http":
 				c.MCPTransport = mcp.HTTPTransport
+			}
+		}},
+
+		// Rate-limit fields.
+		{paramRateLimit, func(v string, c *ServerOptions) {
+			if rateLimit, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil && rateLimit >= 0 {
+				c.RateLimit = RateLimit(rateLimit)
+			}
+		}},
+		{paramBurstLimit, func(v string, c *ServerOptions) {
+			if burst, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && burst >= 0 {
+				c.Burst = burst
 			}
 		}},
 	}
@@ -328,9 +355,10 @@ func ensureCORSOptions(config *ServerOptions) *CORSOptions {
 	return config.CORS
 }
 
-// helper to read a options file and apply it to the options
+// helper to read an options file and apply it to the options
 func applyConfigFile(config *ServerOptions) *ServerOptions {
-	file, err := os.Open(paramFileName)
+	path := configFilePath()
+	file, err := os.Open(path)
 	if err != nil {
 		logger.Debug("Failed to open options file.", "error", err)
 		return config
@@ -344,20 +372,38 @@ func applyConfigFile(config *ServerOptions) *ServerOptions {
 		}
 	}(file)
 
+	var rawFields map[string]json.RawMessage
+	if err := json.NewDecoder(file).Decode(&rawFields); err != nil {
+		logger.Debug("No options file or loading failed; Using environment and defaults")
+		return config
+	}
+	if _, err := file.Seek(0, 0); err != nil {
+		logger.Debug("Failed to rewind options file; using environment and defaults", "error", err)
+		return config
+	}
+
 	decoder := json.NewDecoder(file)
 	fileConfig := &ServerOptions{}
 	if err := decoder.Decode(fileConfig); err != nil {
 		logger.Debug("No options file or loading failed; Using environment and defaults")
 		return config
 	}
-	logger.Debug("Server configuration loaded from file", "file", paramFileName)
-	mergeConfig(config, fileConfig)
+	logger.Debug("Server configuration loaded from file", "file", path)
+	mergeConfig(config, fileConfig, rawFields)
 	return config
 }
 
-// mergeConfig overrides default options with values of override if set
-// Uses reflection to automatically merge all fields, eliminating the need for manual field copying
-func mergeConfig(base *ServerOptions, override *ServerOptions) {
+func configFilePath() string {
+	if path := strings.TrimSpace(os.Getenv(paramConfigPath)); path != "" {
+		return path
+	}
+	return paramFileName
+}
+
+// mergeConfig overrides default options with fields present in the JSON file.
+// Presence matters: false, 0, "", and null are intentional config values and
+// must be able to override defaults.
+func mergeConfig(base *ServerOptions, override *ServerOptions, rawFields map[string]json.RawMessage) {
 	baseValue := reflect.ValueOf(base).Elem()
 	overrideValue := reflect.ValueOf(override).Elem()
 	baseType := baseValue.Type()
@@ -372,11 +418,31 @@ func mergeConfig(base *ServerOptions, override *ServerOptions) {
 			continue
 		}
 
-		// Check if override field is not zero value
-		if !overrideField.IsZero() {
+		name, skip := configJSONFieldName(field)
+		if skip {
+			continue
+		}
+		if _, present := rawFields[name]; present {
 			baseField.Set(overrideField)
 		}
 	}
+}
+
+func configJSONFieldName(field reflect.StructField) (string, bool) {
+	tag := field.Tag.Get("json")
+	if tag == "-" {
+		return "", true
+	}
+	if name, _, ok := strings.Cut(tag, ","); ok {
+		if name == "" {
+			return field.Name, false
+		}
+		return name, false
+	}
+	if tag != "" {
+		return tag, false
+	}
+	return field.Name, false
 }
 
 // setTimeouts applies non-zero timeouts to ServerOptions. StartServer reads
@@ -514,6 +580,28 @@ func WithOnShutdown(hook func(context.Context) error) ServerOptionFunc {
 func WithHealthServer() ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.RunHealthServer = true
+		return nil
+	}
+}
+
+// WithHealthAddr sets the address for the separate health server.
+func WithHealthAddr(addr string) ServerOptionFunc {
+	return func(srv *Server) error {
+		if _, _, err := net.SplitHostPort(addr); err != nil {
+			logger.Error("setting health address option", "error", err)
+			return err
+		}
+		srv.Options.HealthAddr = addr
+		return nil
+	}
+}
+
+// WithLogLevel sets the configured server log level. Accepted values are
+// DEBUG, INFO, WARN, and ERROR.
+func WithLogLevel(level string) ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.LogLevel = level
+		applyConfiguredLogLevel(srv.Options)
 		return nil
 	}
 }

@@ -260,16 +260,16 @@ by side.
 ### Simple Tool
 
 ```go
-tool := server.NewTool("deploy").
+tool := mcp.NewTool("deploy").
     WithDescription("Deploy application").
     WithParameter("version", "string", "Version to deploy", true).
     WithParameter("environment", "string", "Target environment", true).
-    WithExecute(func(params map[string]interface{}) (interface{}, error) {
+    WithExecute(func(params map[string]any) (any, error) {
         version := params["version"].(string)
         env := params["environment"].(string)
         
         // Your deployment logic here
-        return map[string]interface{}{
+        return map[string]any{
             "status": "deployed",
             "version": version,
             "environment": env,
@@ -283,38 +283,39 @@ srv.RegisterMCPTool(tool)
 ### Simple Resource
 
 ```go
-resource := server.NewResource("app://stats/users").
-    WithName("User Statistics").
-    WithDescription("Current user statistics").
-    WithRead(func() (interface{}, error) {
-        return map[string]interface{}{
-            "total_users": getUserCount(),
-            "active_today": getActiveUsers(),
-            "new_this_week": getNewUsers(),
-        }, nil
-    }).
-    Build()
+type userStatsResource struct{}
 
-srv.RegisterMCPResource(resource)
+func (userStatsResource) URI() string         { return "app://stats/users" }
+func (userStatsResource) Name() string        { return "User Statistics" }
+func (userStatsResource) Description() string { return "Current user statistics" }
+func (userStatsResource) MimeType() string    { return "application/json" }
+func (userStatsResource) List() ([]string, error) {
+    return []string{"app://stats/users"}, nil
+}
+func (userStatsResource) Read() (any, error) {
+    return map[string]any{
+        "total_users": getUserCount(),
+        "active_today": getActiveUsers(),
+        "new_this_week": getNewUsers(),
+    }, nil
+}
+
+srv.RegisterMCPResource(userStatsResource{})
 ```
 
 ### Complete Extension
 
 ```go
-ext := server.NewMCPExtension("analytics").
+ext := mcp.NewExtension("analytics").
     WithDescription("Analytics tools and data").
     WithTool(
-        server.NewTool("query_metrics").
+        mcp.NewTool("query_metrics").
             WithParameter("metric", "string", "Metric name", true).
             WithParameter("timeframe", "string", "Time range", false).
             WithExecute(queryMetrics).
             Build(),
     ).
-    WithResource(
-        server.NewResource("analytics://dashboard/summary").
-            WithRead(getDashboardData).
-            Build(),
-    ).
+    WithResource(analyticsSummaryResource{}).
     Build()
 
 srv.RegisterMCPExtension(ext)
@@ -327,13 +328,16 @@ HyperServe supports organizing MCP tools and resources into namespaces for bette
 ### Registering Tools in Namespaces
 
 ```go
-// Register a tool in a specific namespace
-srv.RegisterMCPToolInNamespace(tool, "daw")
-// This tool will be accessible as "mcp__daw__play"
+err := srv.RegisterMCPNamespace("daw",
+    mcp.WithNamespaceTools(playTool, stopTool),
+)
+// playTool is accessible as "mcp__daw__play".
 
-// Register a resource in a namespace
-srv.RegisterMCPResourceInNamespace(resource, "analytics")
-// This resource will be accessible as "mcp__analytics__dashboard"
+err = srv.RegisterMCPNamespace("analytics",
+    mcp.WithNamespaceResources(analyticsSummaryResource{}),
+)
+// analytics://dashboard/summary is listed and read as
+// "mcp__analytics__analytics://dashboard/summary".
 ```
 
 ### Registering Entire Namespaces
@@ -341,13 +345,13 @@ srv.RegisterMCPResourceInNamespace(resource, "analytics")
 ```go
 // Register a complete namespace with tools and resources
 err := srv.RegisterMCPNamespace("daw",
-    WithNamespaceTools(
-        NewCalculatorTool(),
-        NewFileReadTool(),
+    mcp.WithNamespaceTools(
+        playTool,
+        stopTool,
     ),
-    WithNamespaceResources(
-        NewStatusResource(),
-        NewMetricsResource(),
+    mcp.WithNamespaceResources(
+        statusResource{},
+        metricsResource{},
     ),
 )
 ```
@@ -401,7 +405,7 @@ resource := NewResource("data://stuff")
 
 ### 3. Error Handling
 ```go
-WithExecute(func(params map[string]interface{}) (interface{}, error) {
+WithExecute(func(params map[string]any) (any, error) {
     name, ok := params["name"].(string)
     if !ok {
         return nil, fmt.Errorf("name parameter required")
@@ -482,14 +486,14 @@ HyperServe includes built-in SSE support for real-time MCP communication. This e
 ### SSE Endpoints
 
 When MCP is enabled, HyperServe automatically provides:
-- `/mcp` - Standard HTTP endpoint
-- `/mcp/sse` - SSE endpoint for real-time communication
+- `/mcp` - Standard HTTP endpoint for JSON-RPC POST requests
+- `/mcp` - SSE endpoint when the request sends `Accept: text/event-stream`
 
 ### Using SSE from JavaScript
 
 ```javascript
-// Connect to SSE endpoint
-const eventSource = new EventSource('/mcp/sse');
+// Connect to the unified MCP endpoint as an SSE stream.
+const eventSource = new EventSource('/mcp');
 let clientId = null;
 let bindingToken = null;
 

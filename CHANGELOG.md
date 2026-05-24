@@ -5,6 +5,56 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-05-24 07:21 CEST
+
+Release-line repair and production hardening. HyperServe is v1; this release
+moves current `main` back onto the v1 train after the confusing historical
+state where older `v1.0.x` tags existed while newer docs continued on
+`v0.34.x`.
+
+### Fixed
+
+- **MCP resources are live by default.** `resources/read` no longer caches all
+  resources for five minutes. Resources opt in by implementing
+  `mcp.CacheableResource`; observability resources now return fresh health,
+  metrics, logs, and route data.
+- **Namespaced resource reads now echo the requested prefixed URI** in
+  `ResourceContent.URI`, matching `resources/list`.
+- **Route introspection now reads registered routes**, not middleware-only
+  path bindings. `Server.RegisteredRoutes()` exposes a sorted snapshot for
+  built-in observability.
+- **JSON-RPC notifications no longer receive responses**, including over HTTP,
+  SSE, and stdio transports.
+- **WebSocket required-subprotocol checks happen before `101 Switching
+  Protocols`**, and `Upgrade` now applies the supplied response headers.
+- **Config files can override defaults to `false`, `0`, or `null`** because
+  merging is now based on JSON field presence rather than Go zero values.
+- **Typed MCP tools with pointer input types execute correctly** after decode
+  and validation.
+- **The auth example's development login now emits RS256 JWTs** that its own
+  validator accepts.
+
+### Changed
+
+- Removed the leftover repo-owned `cmd/server` package. HyperServe is
+  library-first; `cmd/hyperserve-init` remains the supported command.
+- Removed checked-in Mach-O binaries from examples and benchmarks.
+- `make build` / `make install` now target `cmd/hyperserve-init`.
+- CI builds `cmd/hyperserve-init` and pins `staticcheck` / `govulncheck`
+  install versions.
+- The release-gated canonical examples are now `examples/devops`,
+  `examples/mcp-sse`, and `examples/json-api`.
+
+### Documentation
+
+- Rewrote API stability, roadmap, and security docs around the v1 line.
+- Updated MCP docs away from removed builder APIs and the old `/mcp/sse`
+  endpoint shape.
+- Modernized the JSON API example around method-aware routes and typed binding.
+- Fixed scaffold templates so generated projects require HyperServe, blank
+  import built-in MCP presets when needed, avoid process-wide env mutation, and
+  use Go 1.26 in Dockerfiles.
+
 ## [0.34.2] - 2026-05-19
 
 Docs-only patch release. Two cosmetic LOWs flagged in the v0.34 review
@@ -1457,6 +1507,7 @@ exported names have moved. See the migration notes below.
 - Protection against frame injection attacks
 - Secure defaults for origin checking
 
+[1.1.0]: https://github.com/osauer/hyperserve/compare/v0.34.2...v1.1.0
 [0.13.3]: https://github.com/osauer/hyperserve/compare/v0.13.2...v0.13.3
 [0.13.2]: https://github.com/osauer/hyperserve/compare/v0.13.1...v0.13.2
 [0.13.1]: https://github.com/osauer/hyperserve/compare/v0.13.0...v0.13.1

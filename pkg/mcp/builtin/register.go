@@ -1,7 +1,10 @@
 package builtin
 
 import (
+	"fmt"
 	"log/slog"
+	"os"
+	"strings"
 
 	"github.com/osauer/hyperserve/pkg/mcp"
 	"github.com/osauer/hyperserve/pkg/server"
@@ -64,7 +67,9 @@ func registerStandardResources(srv *server.Server) {
 	h.RegisterResource(NewConfigResource(srv.Options))
 	h.RegisterResource(NewMetricsResource(srv))
 	h.RegisterResource(NewSystemResource())
-	h.RegisterResource(NewServerLogResource(srv.Options.MCPLogResourceSize))
+	logResource := NewServerLogResource(srv.Options.MCPLogResourceSize)
+	h.RegisterResource(logResource)
+	wireLogResource(logResource)
 }
 
 // registerObservability wires the minimal "observability" preset onto an MCP
@@ -73,8 +78,9 @@ func registerStandardResources(srv *server.Server) {
 //   - health://server/status
 //   - logs://server/recent
 //
-// When server debug mode is enabled, the log resource also intercepts the
-// default logger so /recent reflects live output.
+// The log resource intercepts the default logger so /recent reflects live
+// output. MCPObservability is a production preset, so this is not gated on
+// DebugMode.
 func registerObservability(srv *server.Server, handler *mcp.Handler) {
 	if handler == nil {
 		logger.Warn("Cannot register observability MCP resources: MCP handler not initialized")
@@ -86,14 +92,7 @@ func registerObservability(srv *server.Server, handler *mcp.Handler) {
 
 	logResource := NewServerLogResource(srv.Options.MCPLogResourceSize)
 	handler.RegisterResource(logResource)
-
-	if srv.Options.DebugMode {
-		original := server.DefaultLogger()
-		logResource.handler = original.Handler()
-		multi := slog.New(logResource)
-		slog.SetDefault(multi)
-		server.SetDefaultLogger(multi)
-	}
+	wireLogResource(logResource)
 
 	logger.Info("Observability MCP resources registered",
 		"resources", []string{"config://server/current", "health://server/status", "logs://server/recent"})
@@ -122,9 +121,9 @@ func registerDeveloper(srv *server.Server, handler *mcp.Handler) {
 	handler.RegisterToolInNamespace(NewRouteInspectorTool(srv), "hyperserve")
 	handler.RegisterToolInNamespace(NewDevGuideTool(srv), "hyperserve")
 
-	handler.RegisterResource(&StreamingLogResource{
-		ServerLogResource: NewServerLogResource(1000),
-	})
+	logResource := NewServerLogResource(1000)
+	handler.RegisterResource(&StreamingLogResource{ServerLogResource: logResource})
+	wireLogResource(logResource)
 	handler.RegisterResource(NewRouteListResource(srv))
 
 	logger.Info("Developer MCP tools registered",
@@ -139,4 +138,26 @@ func registerDeveloper(srv *server.Server, handler *mcp.Handler) {
 
 func registerDeveloperPreset(srv *server.Server) {
 	registerDeveloper(srv, srv.MCPHandler())
+}
+
+func wireLogResource(logResource *ServerLogResource) {
+	if logResource == nil {
+		return
+	}
+	logResource.handler = downstreamLogHandler(server.DefaultLogger().Handler())
+	multi := slog.New(logResource)
+	slog.SetDefault(multi)
+	server.SetDefaultLogger(multi)
+	logger = multi
+}
+
+func downstreamLogHandler(handler slog.Handler) slog.Handler {
+	// slog's package default handler writes through the standard log package.
+	// slog.SetDefault redirects that package back into slog, so forwarding to
+	// the old default handler would recurse. Use an equivalent direct stderr
+	// text handler for that case; preserve explicit user/server handlers.
+	if strings.Contains(fmt.Sprintf("%T", handler), "defaultHandler") {
+		return slog.NewTextHandler(os.Stderr, nil)
+	}
+	return handler
 }

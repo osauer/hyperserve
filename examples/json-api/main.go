@@ -6,14 +6,13 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	serverpkg "github.com/osauer/hyperserve/pkg/server"
 )
 
-// Todo represents a task in our TODO list
+// Todo represents a task in the API.
 type Todo struct {
 	ID        int       `json:"id"`
 	Title     string    `json:"title"`
@@ -21,14 +20,18 @@ type Todo struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// TodoStore manages our in-memory TODO storage
+type todoInput struct {
+	Title     string `json:"title" validate:"required,min=1,max=200"`
+	Completed bool   `json:"completed"`
+}
+
+// TodoStore is intentionally in-memory so the example focuses on HTTP shape.
 type TodoStore struct {
 	mu     sync.RWMutex
 	todos  map[int]*Todo
 	nextID int
 }
 
-// NewTodoStore creates a new TODO store
 func NewTodoStore() *TodoStore {
 	return &TodoStore{
 		todos:  make(map[int]*Todo),
@@ -36,7 +39,6 @@ func NewTodoStore() *TodoStore {
 	}
 }
 
-// List returns all todos
 func (s *TodoStore) List() []*Todo {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -48,7 +50,6 @@ func (s *TodoStore) List() []*Todo {
 	return todos
 }
 
-// Get returns a specific todo by ID
 func (s *TodoStore) Get(id int) (*Todo, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -57,7 +58,6 @@ func (s *TodoStore) Get(id int) (*Todo, bool) {
 	return todo, exists
 }
 
-// Create adds a new todo
 func (s *TodoStore) Create(title string) *Todo {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -70,12 +70,10 @@ func (s *TodoStore) Create(title string) *Todo {
 	}
 	s.todos[s.nextID] = todo
 	s.nextID++
-
 	return todo
 }
 
-// Update modifies an existing todo
-func (s *TodoStore) Update(id int, title string, completed bool) (*Todo, bool) {
+func (s *TodoStore) Update(id int, input todoInput) (*Todo, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -83,201 +81,141 @@ func (s *TodoStore) Update(id int, title string, completed bool) (*Todo, bool) {
 	if !exists {
 		return nil, false
 	}
-
-	todo.Title = title
-	todo.Completed = completed
+	todo.Title = input.Title
+	todo.Completed = input.Completed
 	return todo, true
 }
 
-// Delete removes a todo
 func (s *TodoStore) Delete(id int) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	_, exists := s.todos[id]
-	if exists {
-		delete(s.todos, id)
+	if _, exists := s.todos[id]; !exists {
+		return false
 	}
-	return exists
+	delete(s.todos, id)
+	return true
 }
 
-// Helper function to send JSON responses
 func sendJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		log.Printf("write JSON response: %v", err)
+	}
 }
 
-// Helper function to send error responses
 func sendError(w http.ResponseWriter, status int, message string) {
 	sendJSON(w, status, map[string]string{"error": message})
 }
 
-// CORS middleware for API access from browsers
-func corsMiddleware(next http.Handler) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-
-		// Handle preflight requests
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	}
+func todoID(r *http.Request) (int, bool) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	return id, err == nil
 }
 
 func main() {
-	// Create our todo store
 	store := NewTodoStore()
-
-	// Add some sample todos
 	store.Create("Learn HyperServe")
 	store.Create("Build a REST API")
 	store.Create("Add authentication")
 
-	// Create server
-	srv, err := serverpkg.NewServer()
+	srv, err := serverpkg.NewServer(
+		serverpkg.WithCORS(&serverpkg.CORSOptions{
+			AllowedOrigins: []string{"*"},
+			AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+			AllowedHeaders: []string{"Content-Type"},
+		}),
+	)
 	if err != nil {
-		log.Fatalf("Failed to create server: %v", err)
+		log.Fatalf("create server: %v", err)
 	}
 
-	// Add CORS middleware for API access from browsers
-	srv.AddMiddleware("*", corsMiddleware)
-
-	// GET /todos - List all todos
-	srv.HandleFunc("/todos", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			sendError(w, http.StatusMethodNotAllowed, "Method not allowed")
-			return
-		}
-
-		todos := store.List()
-		sendJSON(w, http.StatusOK, todos)
-	})
-
-	// POST /todos - Create a new todo
-	srv.HandleFunc("/todos/create", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			sendError(w, http.StatusMethodNotAllowed, "Method not allowed")
-			return
-		}
-
-		var input struct {
-			Title string `json:"title"`
-		}
-
-		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-			sendError(w, http.StatusBadRequest, "Invalid JSON")
-			return
-		}
-
-		if input.Title == "" {
-			sendError(w, http.StatusBadRequest, "Title is required")
-			return
-		}
-
-		todo := store.Create(input.Title)
-		sendJSON(w, http.StatusCreated, todo)
-	})
-
-	// Handler for specific todo operations
-	todoHandler := func(w http.ResponseWriter, r *http.Request) {
-		// Extract ID from URL path
-		path := strings.TrimPrefix(r.URL.Path, "/todos/")
-		if path == "" || path == r.URL.Path {
-			sendError(w, http.StatusBadRequest, "Invalid todo ID")
-			return
-		}
-
-		id, err := strconv.Atoi(path)
-		if err != nil {
-			sendError(w, http.StatusBadRequest, "Invalid todo ID")
-			return
-		}
-
-		switch r.Method {
-		case http.MethodGet:
-			// GET /todos/{id} - Get a specific todo
-			todo, exists := store.Get(id)
-			if !exists {
-				sendError(w, http.StatusNotFound, "Todo not found")
-				return
-			}
-			sendJSON(w, http.StatusOK, todo)
-
-		case http.MethodPut:
-			// PUT /todos/{id} - Update a todo
-			var input struct {
-				Title     string `json:"title"`
-				Completed bool   `json:"completed"`
-			}
-
-			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-				sendError(w, http.StatusBadRequest, "Invalid JSON")
-				return
-			}
-
-			if input.Title == "" {
-				sendError(w, http.StatusBadRequest, "Title is required")
-				return
-			}
-
-			todo, exists := store.Update(id, input.Title, input.Completed)
-			if !exists {
-				sendError(w, http.StatusNotFound, "Todo not found")
-				return
-			}
-			sendJSON(w, http.StatusOK, todo)
-
-		case http.MethodDelete:
-			// DELETE /todos/{id} - Delete a todo
-			if !store.Delete(id) {
-				sendError(w, http.StatusNotFound, "Todo not found")
-				return
-			}
-			sendJSON(w, http.StatusOK, map[string]string{"message": "Todo deleted"})
-
-		default:
-			sendError(w, http.StatusMethodNotAllowed, "Method not allowed")
-		}
-	}
-
-	// Register the handler for all /todos/{id} routes
-	srv.Handle("/todos/", http.HandlerFunc(todoHandler))
-
-	// Root endpoint with API information
-	srv.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		info := map[string]any{
+	srv.GET("/", func(w http.ResponseWriter, r *http.Request) {
+		sendJSON(w, http.StatusOK, map[string]any{
 			"service": "HyperServe TODO API",
 			"version": "1.0",
 			"endpoints": map[string]string{
 				"GET /":              "API information",
 				"GET /todos":         "List all todos",
-				"POST /todos/create": "Create a new todo",
+				"POST /todos":        "Create a new todo",
 				"GET /todos/{id}":    "Get a specific todo",
 				"PUT /todos/{id}":    "Update a todo",
 				"DELETE /todos/{id}": "Delete a todo",
 			},
-		}
-		sendJSON(w, http.StatusOK, info)
+		})
 	})
 
-	// Start the server
+	srv.GET("/todos", func(w http.ResponseWriter, r *http.Request) {
+		sendJSON(w, http.StatusOK, store.List())
+	})
+
+	srv.POST("/todos", func(w http.ResponseWriter, r *http.Request) {
+		var input todoInput
+		if err := serverpkg.BindJSON(r, &input); err != nil {
+			sendError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		sendJSON(w, http.StatusCreated, store.Create(input.Title))
+	})
+
+	srv.GET("/todos/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id, ok := todoID(r)
+		if !ok {
+			sendError(w, http.StatusBadRequest, "invalid todo ID")
+			return
+		}
+		todo, exists := store.Get(id)
+		if !exists {
+			sendError(w, http.StatusNotFound, "todo not found")
+			return
+		}
+		sendJSON(w, http.StatusOK, todo)
+	})
+
+	srv.PUT("/todos/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id, ok := todoID(r)
+		if !ok {
+			sendError(w, http.StatusBadRequest, "invalid todo ID")
+			return
+		}
+		var input todoInput
+		if err := serverpkg.BindJSON(r, &input); err != nil {
+			sendError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		todo, exists := store.Update(id, input)
+		if !exists {
+			sendError(w, http.StatusNotFound, "todo not found")
+			return
+		}
+		sendJSON(w, http.StatusOK, todo)
+	})
+
+	srv.DELETE("/todos/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id, ok := todoID(r)
+		if !ok {
+			sendError(w, http.StatusBadRequest, "invalid todo ID")
+			return
+		}
+		if !store.Delete(id) {
+			sendError(w, http.StatusNotFound, "todo not found")
+			return
+		}
+		sendJSON(w, http.StatusOK, map[string]string{"message": "todo deleted"})
+	})
+
 	fmt.Println("TODO API Server starting on http://localhost:8080")
 	fmt.Println("\nAPI Endpoints:")
-	fmt.Println("  GET    /              - API information")
-	fmt.Println("  GET    /todos         - List all todos")
-	fmt.Println("  POST   /todos/create  - Create a new todo")
-	fmt.Println("  GET    /todos/{id}    - Get a specific todo")
-	fmt.Println("  PUT    /todos/{id}    - Update a todo")
-	fmt.Println("  DELETE /todos/{id}    - Delete a todo")
+	fmt.Println("  GET    /            - API information")
+	fmt.Println("  GET    /todos       - List all todos")
+	fmt.Println("  POST   /todos       - Create a new todo")
+	fmt.Println("  GET    /todos/{id}  - Get a specific todo")
+	fmt.Println("  PUT    /todos/{id}  - Update a todo")
+	fmt.Println("  DELETE /todos/{id}  - Delete a todo")
 	fmt.Println("\nPress Ctrl+C to stop")
 
 	if err := srv.Run(); err != nil {
-		log.Fatalf("Server failed: %v", err)
+		log.Fatalf("server failed: %v", err)
 	}
 }

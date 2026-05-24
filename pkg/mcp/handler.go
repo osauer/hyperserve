@@ -234,6 +234,20 @@ func isJSONAccepted(accept string) bool {
 	return false
 }
 
+// isSSEAccepted reports whether the Accept header asks for an SSE stream.
+func isSSEAccepted(accept string) bool {
+	if accept == "" {
+		return false
+	}
+	for part := range strings.SplitSeq(strings.ToLower(accept), ",") {
+		mediaType, _, _ := strings.Cut(part, ";")
+		if strings.TrimSpace(mediaType) == "text/event-stream" {
+			return true
+		}
+	}
+	return false
+}
+
 // ServeHTTP implements http.Handler for the MCP endpoint.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h.logger.Enabled(context.Background(), slog.LevelDebug) {
@@ -241,7 +255,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// SSE route via Accept header.
-	if r.Header.Get("Accept") == "text/event-stream" {
+	if isSSEAccepted(r.Header.Get("Accept")) {
 		h.sseManager.HandleSSE(w, r, h)
 		return
 	}
@@ -307,6 +321,12 @@ func (h *Handler) ProcessRequestWithTransport(transport Transport) error {
 	}
 
 	response := h.rpcEngine.ProcessRequestDirect(request)
+	if response == nil {
+		if transport, ok := transport.(interface{ NoResponse() error }); ok {
+			return transport.NoResponse()
+		}
+		return nil
+	}
 
 	if err := transport.Send(response); err != nil {
 		return fmt.Errorf("failed to send response: %w", err)
@@ -398,12 +418,15 @@ func (h *Handler) handleResourcesRead(params any) (any, error) {
 	}
 
 	cacheKey := readParams.URI
-	if cachedContent, hit := h.cache.get(cacheKey); hit {
-		return map[string]any{
-			"contents": []ResourceContent{
-				{URI: resource.URI(), MimeType: resource.MimeType(), Text: cachedContent},
-			},
-		}, nil
+	cacheTTL := resourceCacheTTL(resource)
+	if cacheTTL > 0 {
+		if cachedContent, hit := h.cache.get(cacheKey); hit {
+			return map[string]any{
+				"contents": []ResourceContent{
+					{URI: readParams.URI, MimeType: resource.MimeType(), Text: cachedContent},
+				},
+			}, nil
+		}
 	}
 
 	content, err := resource.Read()
@@ -425,13 +448,23 @@ func (h *Handler) handleResourcesRead(params any) (any, error) {
 		textContent = string(jsonBytes)
 	}
 
-	h.cache.set(cacheKey, textContent, 5*time.Minute)
+	if cacheTTL > 0 {
+		h.cache.set(cacheKey, textContent, cacheTTL)
+	}
 
 	return map[string]any{
 		"contents": []ResourceContent{
-			{URI: resource.URI(), MimeType: resource.MimeType(), Text: textContent},
+			{URI: readParams.URI, MimeType: resource.MimeType(), Text: textContent},
 		},
 	}, nil
+}
+
+func resourceCacheTTL(resource Resource) time.Duration {
+	cacheable, ok := resource.(CacheableResource)
+	if !ok {
+		return 0
+	}
+	return max(cacheable.ResourceCacheTTL(), 0)
 }
 
 func (h *Handler) handleToolsList(_ any) (any, error) {

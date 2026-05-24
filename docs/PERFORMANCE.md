@@ -54,7 +54,7 @@ HyperServe is already optimized for minimal allocations (10 per request baseline
 ```go
 // ❌ Avoid creating new objects in hot paths
 func handler(w http.ResponseWriter, r *http.Request) {
-    data := make(map[string]interface{}) // allocation
+    data := make(map[string]any) // allocation
     data["status"] = "ok"
     json.NewEncoder(w).Encode(data)
 }

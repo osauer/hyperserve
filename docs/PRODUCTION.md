@@ -1,6 +1,6 @@
 # Production Deployment Guide
 
-_Last updated: 2026-05-18 21:28 CEST (v0.33.1)._
+_Last updated: 2026-05-24 07:21 CEST (v1 line)._
 
 How to put HyperServe behind a reverse proxy without getting bitten.
 
@@ -51,7 +51,7 @@ that reached you over HTTPS.
 Discovery responses always carry `Vary: Authorization`, and switch to
 `Cache-Control: private, max-age=60` when `MCPDiscoveryPolicy ==
 DiscoveryAuthenticated`. The previous shape (`public, max-age=300`
-everywhere) was a cache-poisoning bug fixed in v0.33.0: a CDN keyed on
+everywhere) was a cache-poisoning bug fixed before the v1 line: a CDN keyed on
 URL alone would store an authenticated response and replay the full
 tool list to anonymous clients for the next 300 seconds.
 
@@ -276,7 +276,7 @@ Set both. The HyperServe package-level logger is separate from
 `slog.Default()` so callers can silence framework chatter without
 affecting application logs.
 
-No request-correlation middleware ships in v0.33. Write one if you
+No request-correlation middleware ships in core. Write one if you
 need it: set or propagate `X-Request-ID`, add it to the request
 context. The old `TraceMiddleware` was deleted in v0.32 because it was
 never wired into any preset, and the `trace_id` field it populated was
@@ -285,7 +285,7 @@ empty in every real deployment.
 ## Pre-deploy checklist
 
 - [ ] `make check` passes (gofmt, vet, staticcheck, govulncheck,
-      modernize, plus per-example govulncheck since v0.33.1)
+      modernize, plus per-example govulncheck)
 - [ ] `go test -race ./...` passes
 - [ ] TLS enabled either in HyperServe (`WithTLS`) or the proxy
 - [ ] `X-Forwarded-Proto: https` set by the proxy if TLS terminates

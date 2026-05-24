@@ -492,6 +492,7 @@ func main() {
 
 	// Initialize auth providers
 	providers := []AuthProvider{}
+	var developmentJWTKey *rsa.PrivateKey
 
 	// JWT Provider (production-ready)
 	if env == "production" {
@@ -506,18 +507,15 @@ func main() {
 			}
 		}
 	} else {
-		// Development JWT provider with test keys
-		testPublicKey := `-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0Z3VS6JJcds6IYwR+OO5
-p3dqNisZGPHPL1+x23qJa+7qOaHrLCrYGjcLsHH1sQ0L7jxP4F6grDdG0Yu5bqWO
-U4D+qnVJdCQHDTGhtZ3+DS8iu5oy2MB3SZmixu5ByZGEkZEYPSYXlOLbRAIQ1SQ9
-WjeFqM3KYYdXWpvyhJguDMYZXKCG3vK1YlXUhMzpDhD8YnNxqIv96Ff4bOqIEC2b
-DF3aTM7GmAEJPvWdAK1CRotcAHRfMDSuRaahvQXBKn16CfRIPbVNhgoysBEyFM9M
-q5CmbYup5VlF1g5x25wKGPv7MWsGgQKNcBL1pqQj7h+aSUZFELFJoHLv7W+qQYVA
-7QIDAQAB
------END PUBLIC KEY-----`
-		jwtProvider, _ := NewJWTProvider(testPublicKey, "hyperserve-auth")
-		providers = append(providers, jwtProvider)
+		var err error
+		developmentJWTKey, err = rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			log.Fatalf("generate development JWT key: %v", err)
+		}
+		providers = append(providers, &JWTProvider{
+			publicKey: &developmentJWTKey.PublicKey,
+			issuer:    "hyperserve-auth",
+		})
 	}
 
 	// API Key Provider
@@ -610,7 +608,7 @@ q5CmbYup5VlF1g5x25wKGPv7MWsGgQKNcBL1pqQj7h+aSUZFELFJoHLv7W+qQYVA
 		// In production, validate against real user database
 		if env == "development" && loginReq.Username == "testuser" && loginReq.Password == "testpass" {
 			// Generate development JWT
-			token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+			token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
 				"sub":         "test_user_id",
 				"username":    "testuser",
 				"roles":       []string{"user"},
@@ -619,8 +617,11 @@ q5CmbYup5VlF1g5x25wKGPv7MWsGgQKNcBL1pqQj7h+aSUZFELFJoHLv7W+qQYVA
 				"exp":         time.Now().Add(24 * time.Hour).Unix(),
 			})
 
-			// In dev, use a simple secret
-			tokenString, _ := token.SignedString([]byte("dev_secret"))
+			tokenString, err := token.SignedString(developmentJWTKey)
+			if err != nil {
+				http.Error(w, "Failed to sign token", http.StatusInternalServerError)
+				return
+			}
 
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]string{

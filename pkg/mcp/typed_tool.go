@@ -141,7 +141,11 @@ func (t *typedTool[In, Out]) ExecuteWithContext(ctx context.Context, params map[
 			return nil, fmt.Errorf("decode arguments: %w", err)
 		}
 	}
-	if err := validate.Struct(&args); err != nil {
+	validateTarget := any(&args)
+	if reflect.TypeFor[In]().Kind() == reflect.Pointer {
+		validateTarget = args
+	}
+	if err := validate.Struct(validateTarget); err != nil {
 		return nil, err
 	}
 	return t.fn(ctx, args)

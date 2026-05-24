@@ -7,7 +7,10 @@
 // pkg/mcp/builtin.
 package mcp
 
-import "log/slog"
+import (
+	"log/slog"
+	"time"
+)
 
 // ProtocolVersion is the MCP protocol version implemented by this package.
 const ProtocolVersion = "2024-11-05"
@@ -78,6 +81,15 @@ type Resource interface {
 	MimeType() string
 	Read() (any, error)
 	List() ([]string, error)
+}
+
+// CacheableResource is an optional extension for resources whose read result
+// is safe to reuse for a bounded time. Resources are uncached by default so
+// live observability views (health, metrics, logs, route lists) never return
+// stale data unless they explicitly opt in.
+type CacheableResource interface {
+	Resource
+	ResourceCacheTTL() time.Duration
 }
 
 // InitializeParams is the parameter struct for the "initialize" method.

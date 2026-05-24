@@ -1,6 +1,6 @@
 # HyperServe Authentication Example
 
-This example demonstrates a production-ready authentication system using HyperServe with multiple authentication methods, security best practices, and environment-specific configurations.
+This example demonstrates a production-shaped authentication system using HyperServe with multiple authentication methods, security best practices, and environment-specific configurations.
 
 ## Features
 
@@ -38,30 +38,30 @@ APP_ENV=development go run main.go
 1. **API Key Authentication**:
 ```bash
 # Admin access
-curl -H 'Authorization: APIKey dev_api_key_admin' http://localhost:8080/api/profile
+curl -H 'Authorization: APIKey dev_api_key_admin' http://localhost:8090/api/profile
 
 # User access
-curl -H 'Authorization: APIKey dev_api_key_user' http://localhost:8080/api/profile
+curl -H 'Authorization: APIKey dev_api_key_user' http://localhost:8090/api/profile
 ```
 
 2. **Basic Authentication**:
 ```bash
 # Using curl's -u flag
-curl -u admin:admin123 http://localhost:8080/api/profile
+curl -u admin:admin123 http://localhost:8090/api/profile
 
 # Or with Authorization header
-curl -H 'Authorization: Basic YWRtaW46YWRtaW4xMjM=' http://localhost:8080/api/profile
+curl -H 'Authorization: Basic YWRtaW46YWRtaW4xMjM=' http://localhost:8090/api/profile
 ```
 
 3. **JWT Authentication**:
 ```bash
 # Get a JWT token
-curl -X POST http://localhost:8080/login \
+curl -X POST http://localhost:8090/login \
   -H 'Content-Type: application/json' \
   -d '{"username":"testuser","password":"testpass"}'
 
 # Use the token
-curl -H 'Authorization: Bearer <your-jwt-token>' http://localhost:8080/api/profile
+curl -H 'Authorization: Bearer <your-jwt-token>' http://localhost:8090/api/profile
 ```
 
 ## Production Setup

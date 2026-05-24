@@ -21,11 +21,12 @@ const (
 
 // Errors
 var (
-	ErrNotWebSocket       = errors.New("not a websocket handshake")
-	ErrBadHandshake       = errors.New("bad handshake")
-	ErrUnsupportedVersion = errors.New("unsupported websocket version")
-	ErrMissingKey         = errors.New("missing Sec-WebSocket-Key")
-	ErrMalformedKey       = errors.New("malformed Sec-WebSocket-Key")
+	ErrNotWebSocket        = errors.New("not a websocket handshake")
+	ErrBadHandshake        = errors.New("bad handshake")
+	ErrUnsupportedVersion  = errors.New("unsupported websocket version")
+	ErrMissingKey          = errors.New("missing Sec-WebSocket-Key")
+	ErrMalformedKey        = errors.New("malformed Sec-WebSocket-Key")
+	ErrSubprotocolRequired = errors.New("websocket subprotocol required")
 )
 
 // HandshakeOptions contains options for WebSocket handshake
@@ -34,6 +35,10 @@ type HandshakeOptions struct {
 	CheckOrigin func(r *http.Request) bool
 	// Subprotocols is the list of supported subprotocols
 	Subprotocols []string
+	// RequireProtocol rejects the handshake unless a supported subprotocol is negotiated.
+	RequireProtocol bool
+	// ResponseHeader is copied into the 101 Switching Protocols response.
+	ResponseHeader http.Header
 	// Extensions is the list of supported extensions
 	Extensions []string
 	// BeforeUpgrade is called before the upgrade response is sent
@@ -88,6 +93,15 @@ func PerformHandshake(w http.ResponseWriter, r *http.Request, opts *HandshakeOpt
 		}
 	}
 
+	negotiatedProtocol := ""
+	if opts != nil && len(opts.Subprotocols) > 0 {
+		clientProtocols := parseSubprotocols(r.Header.Get("Sec-WebSocket-Protocol"))
+		negotiatedProtocol = negotiateSubprotocol(clientProtocols, opts.Subprotocols)
+		if opts.RequireProtocol && negotiatedProtocol == "" {
+			return nil, nil, ErrSubprotocolRequired
+		}
+	}
+
 	// Get the connection using hijacker
 	hijacker, ok := w.(http.Hijacker)
 	if !ok {
@@ -105,16 +119,20 @@ func PerformHandshake(w http.ResponseWriter, r *http.Request, opts *HandshakeOpt
 
 	// Build response headers
 	headers := make(http.Header)
+	if opts != nil {
+		for key, values := range opts.ResponseHeader {
+			for _, value := range values {
+				headers.Add(key, value)
+			}
+		}
+	}
 	headers.Set("Upgrade", "websocket")
 	headers.Set("Connection", "Upgrade")
 	headers.Set("Sec-WebSocket-Accept", acceptKey)
 
 	// Handle subprotocol negotiation
-	if opts != nil && len(opts.Subprotocols) > 0 {
-		clientProtocols := parseSubprotocols(r.Header.Get("Sec-WebSocket-Protocol"))
-		if protocol := negotiateSubprotocol(clientProtocols, opts.Subprotocols); protocol != "" {
-			headers.Set("Sec-WebSocket-Protocol", protocol)
-		}
+	if negotiatedProtocol != "" {
+		headers.Set("Sec-WebSocket-Protocol", negotiatedProtocol)
 	}
 
 	// Send upgrade response

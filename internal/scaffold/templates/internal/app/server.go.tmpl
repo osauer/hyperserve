@@ -2,8 +2,8 @@ package app
 
 import (
 	"fmt"
-	"os"
 
+	_ "github.com/osauer/hyperserve/pkg/mcp/builtin"
 	server "github.com/osauer/hyperserve/pkg/server"
 	"golang.org/x/time/rate"
 )
@@ -15,11 +15,11 @@ func NewServer(cfg Config) (*server.Server, error) {
 	var opts []server.ServerOptionFunc
 
 	if cfg.HealthAddr != "" {
-		os.Setenv("HEALTH_ADDR", cfg.HealthAddr)
+		opts = append(opts, server.WithHealthAddr(cfg.HealthAddr))
 	}
 
 	if cfg.LogLevel != "" {
-		os.Setenv("HS_LOG_LEVEL", cfg.LogLevel)
+		opts = append(opts, server.WithLogLevel(cfg.LogLevel))
 	}
 
 	opts = append(opts,

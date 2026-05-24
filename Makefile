@@ -7,13 +7,14 @@ BUILD_TIME := $(shell date -u +"%Y-%m-%d_%H:%M:%S_UTC" || echo "unknown")
 # Stamped into pkg/server.Version/BuildHash/BuildTime via -X.
 LDFLAGS := -ldflags "-X github.com/osauer/hyperserve/pkg/server.Version=$(VERSION) -X github.com/osauer/hyperserve/pkg/server.BuildHash=$(BUILD_HASH) -X github.com/osauer/hyperserve/pkg/server.BuildTime=$(BUILD_TIME)"
 
-.PHONY: build install test test-race fuzz-smoke clean version check check-examples vet fmt modernize modernize-check staticcheck govulncheck
+.PHONY: build install test test-race fuzz-smoke clean version check check-examples check-canonical-examples vet fmt modernize modernize-check staticcheck govulncheck
 
-build: ## Compile cmd/server with version stamped via ldflags
-	go build $(LDFLAGS) -o hyperserve ./cmd/server
+build: ## Compile hyperserve-init with version stamped via ldflags
+	mkdir -p bin
+	go build $(LDFLAGS) -o bin/hyperserve-init ./cmd/hyperserve-init
 
-install: ## Install hyperserve via `go install`
-	go install $(LDFLAGS) ./cmd/server
+install: ## Install hyperserve-init via `go install`
+	go install $(LDFLAGS) ./cmd/hyperserve-init
 
 # `test` keeps the historical "check + verbose tests" shape. CI should call
 # test-race additionally — race detection is slow enough that we don't make
@@ -39,7 +40,7 @@ fuzz-smoke: ## Short fuzz pass over every Fuzz* target (15s each).
 	go test -run=^$$ -fuzz=FuzzValidateEmail       -fuzztime=15s ./pkg/server
 
 clean:
-	rm -f hyperserve
+	rm -rf bin hyperserve
 
 version: ## Print the version string the next build would embed
 	@echo $(VERSION)
@@ -52,7 +53,7 @@ version: ## Print the version string the next build would embed
 # tells you the exact command if missing. Modernize is different — it's
 # pinned via the `tool` directive in go.mod and invoked via `go tool`, so it
 # auto-downloads on first use and stays reproducible across machines/CI.
-check: vet staticcheck govulncheck modernize-check check-examples ## gofmt + vet + staticcheck + govulncheck + modernize-check + per-example govulncheck
+check: vet staticcheck govulncheck modernize-check check-examples check-canonical-examples ## gofmt + vet + staticcheck + govulncheck + modernize-check + example gates
 	@# gofmt over tracked + untracked-but-not-gitignored .go files. Same
 	@# pattern as ibkr — `git ls-files` respects .gitignore so this skips
 	@# /dist, agent worktrees, etc. The intermediate exists-check filters
@@ -74,11 +75,11 @@ vet:
 	go vet ./...
 
 staticcheck:
-	@command -v staticcheck >/dev/null 2>&1 || { echo "staticcheck not on PATH; install: go install honnef.co/go/tools/cmd/staticcheck@latest" >&2; exit 1; }
+	@command -v staticcheck >/dev/null 2>&1 || { echo "staticcheck not on PATH; install: go install honnef.co/go/tools/cmd/staticcheck@v0.7.0" >&2; exit 1; }
 	staticcheck ./...
 
 govulncheck:
-	@command -v govulncheck >/dev/null 2>&1 || { echo "govulncheck not on PATH; install: go install golang.org/x/vuln/cmd/govulncheck@latest" >&2; exit 1; }
+	@command -v govulncheck >/dev/null 2>&1 || { echo "govulncheck not on PATH; install: go install golang.org/x/vuln/cmd/govulncheck@v1.3.0" >&2; exit 1; }
 	govulncheck ./...
 
 # Standalone example modules (own go.mod via `replace`) live outside the
@@ -100,6 +101,9 @@ check-examples: ## go vet + build + govulncheck in each standalone examples/*/ m
 		echo "--- $$mod"; \
 		(cd $$mod && go vet ./... && go build ./... && govulncheck ./...) || exit 1; \
 	done
+
+check-canonical-examples: ## Build the release-gated MCP, SSE, and API examples
+	go test ./examples/devops ./examples/mcp-sse ./examples/json-api
 
 # Idiom-drift gate. `go fix -diff` is the toolchain-native fixer (tracks the
 # Go version pinned in go.mod); `go tool modernize` runs the broader gopls

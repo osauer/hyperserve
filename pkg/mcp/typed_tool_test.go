@@ -271,11 +271,21 @@ func TestNewTypedTool_PointerArgsAreUnwrapped(t *testing.T) {
 	type S struct {
 		Name string `json:"name" validate:"required"`
 	}
+	var got *S
 	tool := NewTypedTool[*S]("ptr", "",
-		func(_ context.Context, _ *S) (any, error) { return nil, nil })
+		func(_ context.Context, args *S) (any, error) {
+			got = args
+			return nil, nil
+		})
 	props, _ := tool.Schema()["properties"].(map[string]any)
 	if _, ok := props["name"]; !ok {
 		t.Fatalf("missing name in schema: %#v", tool.Schema())
+	}
+	if _, err := tool.Execute(map[string]any{"name": "ada"}); err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	if got == nil || got.Name != "ada" {
+		t.Fatalf("handler args = %#v, want populated pointer", got)
 	}
 }
 

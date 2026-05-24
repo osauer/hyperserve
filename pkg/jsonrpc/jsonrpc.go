@@ -17,6 +17,31 @@ type Request struct {
 	Method  string `json:"method"`
 	Params  any    `json:"params,omitempty"`
 	ID      any    `json:"id,omitempty"`
+
+	idPresent bool
+}
+
+// UnmarshalJSON preserves whether "id" was present. JSON-RPC notifications
+// omit id entirely; an explicit `"id": null` is still a request and must get
+// a response with a null id.
+func (r *Request) UnmarshalJSON(data []byte) error {
+	type requestAlias Request
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	var decoded requestAlias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*r = Request(decoded)
+	_, r.idPresent = raw["id"]
+	return nil
+}
+
+// IsNotification reports whether this request omitted the id member.
+func (r *Request) IsNotification() bool {
+	return !r.idPresent && r.ID == nil
 }
 
 // Response represents a JSON-RPC 2.0 response message.
@@ -90,6 +115,10 @@ func (engine *Engine) ProcessRequest(requestData []byte) []byte {
 	}
 
 	response := engine.ProcessRequestDirect(&request)
+	if response == nil {
+		engine.logger.Debug("JSON-RPC notification processed", "method", request.Method)
+		return nil
+	}
 	responseData, err := json.Marshal(response)
 	if err != nil {
 		engine.logger.Error("Failed to marshal JSON-RPC response", "error", err)
@@ -115,6 +144,9 @@ func (engine *Engine) ProcessRequestDirect(request *Request) *Response {
 	// Validate JSON-RPC version
 	if request.JSONRPC != Version {
 		engine.logger.Error("Invalid JSON-RPC version", "version", request.JSONRPC)
+		if request.IsNotification() {
+			return nil
+		}
 		return &Response{
 			JSONRPC: Version,
 			Error: &ErrorDetails{
@@ -130,6 +162,9 @@ func (engine *Engine) ProcessRequestDirect(request *Request) *Response {
 	handler, exists := engine.methods[request.Method]
 	if !exists {
 		engine.logger.Error("JSON-RPC method not found", "method", request.Method)
+		if request.IsNotification() {
+			return nil
+		}
 		return &Response{
 			JSONRPC: Version,
 			Error: &ErrorDetails{
@@ -145,6 +180,9 @@ func (engine *Engine) ProcessRequestDirect(request *Request) *Response {
 	result, err := handler(request.Params)
 	if err != nil {
 		engine.logger.Error("JSON-RPC method execution error", "method", request.Method, "error", err)
+		if request.IsNotification() {
+			return nil
+		}
 		return &Response{
 			JSONRPC: Version,
 			Error: &ErrorDetails{
@@ -154,6 +192,10 @@ func (engine *Engine) ProcessRequestDirect(request *Request) *Response {
 			},
 			ID: request.ID,
 		}
+	}
+
+	if request.IsNotification() {
+		return nil
 	}
 
 	return &Response{

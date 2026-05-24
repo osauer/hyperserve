@@ -112,7 +112,7 @@ func (h *MCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // ✅ RIGHT: Use built-in MCP
 srv, _ := server.NewServer(
-    server.WithMCPSupport(),
+    server.WithMCPSupport("best-practices", "1.0.0"),
 )
 ```
 
@@ -123,6 +123,7 @@ fmt.Fprintf(w, "event: %s\n", event)
 fmt.Fprintf(w, "data: %s\n\n", data)
 
 // ✅ RIGHT: Use SSE helper
-msg := server.NewSSEMessage(event, data)
+msg := server.NewSSEMessage(data)
+msg.Event = event
 fmt.Fprint(w, msg)
 ```

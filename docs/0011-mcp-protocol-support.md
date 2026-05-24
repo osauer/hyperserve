@@ -130,8 +130,8 @@ srv, err := server.NewServer(
 type MyTool struct{}
 func (t *MyTool) Name() string { return "my_tool" }
 func (t *MyTool) Description() string { return "Custom tool" }
-func (t *MyTool) Schema() map[string]interface{} { /* ... */ }
-func (t *MyTool) Execute(params map[string]interface{}) (interface{}, error) { /* ... */ }
+func (t *MyTool) Schema() map[string]any { /* ... */ }
+func (t *MyTool) Execute(params map[string]any) (any, error) { /* ... */ }
 
 srv.RegisterMCPTool(&MyTool{})
 srv.Run()

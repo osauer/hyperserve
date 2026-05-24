@@ -1,6 +1,7 @@
 package builtin
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/osauer/hyperserve/pkg/server"
@@ -19,6 +20,12 @@ func TestRouteInspectorTool(t *testing.T) {
 	srv.AddMiddlewareStack("/api/users", server.SecureAPI(srv))
 	srv.AddMiddlewareStack("/admin", server.SecureAPI(srv))
 	srv.AddMiddlewareStack("/static", server.SecureWeb(srv.Options))
+	srv.AddMiddlewareStack("/middleware-only", server.SecureAPI(srv))
+
+	srv.HandleFunc("/api/test", func(w http.ResponseWriter, r *http.Request) {})
+	srv.GET("/api/users", func(w http.ResponseWriter, r *http.Request) {})
+	srv.HandleFunc("/admin", func(w http.ResponseWriter, r *http.Request) {})
+	srv.HandleFunc("/static", func(w http.ResponseWriter, r *http.Request) {})
 
 	tool := &RouteInspectorTool{server: srv}
 
@@ -58,6 +65,9 @@ func TestRouteInspectorTool(t *testing.T) {
 			if !foundRoutes[expected] {
 				t.Errorf("Expected route %s not found", expected)
 			}
+		}
+		if foundRoutes["/middleware-only"] {
+			t.Error("middleware-only path should not be reported as a registered route")
 		}
 	})
 

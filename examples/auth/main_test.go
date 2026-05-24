@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/base64"
 	"strings"
 	"testing"
@@ -76,6 +78,37 @@ func TestMultiAuthValidator(t *testing.T) {
 				t.Errorf("session.Username = %q, want %q", session.Username, tt.wantUser)
 			}
 		})
+	}
+}
+
+func TestJWTProviderValidatesRS256Token(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	provider := &JWTProvider{
+		publicKey: &key.PublicKey,
+		issuer:    "hyperserve-auth",
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"sub":         "test_user_id",
+		"username":    "testuser",
+		"roles":       []string{"user"},
+		"permissions": []string{"read"},
+		"iss":         "hyperserve-auth",
+		"exp":         time.Now().Add(time.Hour).Unix(),
+	})
+	signed, err := token.SignedString(key)
+	if err != nil {
+		t.Fatalf("SignedString: %v", err)
+	}
+
+	session, err := provider.Validate(signed)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	if session.Username != "testuser" {
+		t.Fatalf("Username = %q, want testuser", session.Username)
 	}
 }
 

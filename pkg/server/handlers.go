@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync/atomic"
 )
 
@@ -47,10 +48,38 @@ func NewSSEMessage(data any) *SSEMessage {
 	}
 }
 
-// String formats the SSE message according to the Server-Sent Events specification.
-// Returns a string in the format "event: <event>\ndata: <data>\n\n".
+// String formats the SSE message according to the Server-Sent Events
+// specification. Multi-line data is emitted as one data field per line.
 func (sse *SSEMessage) String() string {
-	return fmt.Sprintf("event: %s\ndata: %v\n\n", sse.Event, sse.Data)
+	var b strings.Builder
+	event := strings.NewReplacer("\r", "", "\n", "").Replace(sse.Event)
+	if event != "" {
+		b.WriteString("event: ")
+		b.WriteString(event)
+		b.WriteByte('\n')
+	}
+	for line := range strings.SplitSeq(sseDataString(sse.Data), "\n") {
+		b.WriteString("data: ")
+		b.WriteString(strings.TrimSuffix(line, "\r"))
+		b.WriteByte('\n')
+	}
+	b.WriteByte('\n')
+	return b.String()
+}
+
+func sseDataString(data any) string {
+	switch v := data.(type) {
+	case string:
+		return v
+	case []byte:
+		return string(v)
+	default:
+		encoded, err := json.Marshal(v)
+		if err != nil {
+			return fmt.Sprint(v)
+		}
+		return string(encoded)
+	}
 }
 
 func (srv *Server) livezHandler(w http.ResponseWriter, r *http.Request) {

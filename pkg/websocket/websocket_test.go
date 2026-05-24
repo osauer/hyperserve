@@ -65,6 +65,91 @@ func TestUpgraderHandshake(t *testing.T) {
 	}
 }
 
+func TestUpgraderRequireProtocolBeforeSwitching(t *testing.T) {
+	upgrader := Upgrader{
+		CheckOrigin:     func(*http.Request) bool { return true },
+		Subprotocols:    []string{"chat.v1"},
+		RequireProtocol: true,
+		Error: func(w http.ResponseWriter, _ *http.Request, status int, reason error) {
+			http.Error(w, reason.Error(), status)
+		},
+	}
+
+	server := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+	}))
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to build request: %v", err)
+	}
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set("Sec-WebSocket-Protocol", "unknown")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("handshake request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 before protocol switch, got %d", resp.StatusCode)
+	}
+	if resp.Header.Get("Upgrade") == "websocket" {
+		t.Fatalf("unexpected websocket upgrade headers on rejected handshake")
+	}
+}
+
+func TestUpgraderNegotiatesSubprotocolAndResponseHeader(t *testing.T) {
+	upgrader := Upgrader{
+		CheckOrigin:  func(*http.Request) bool { return true },
+		Subprotocols: []string{"chat.v1"},
+	}
+
+	server := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		header := http.Header{"X-Trace-ID": []string{"trace-123"}}
+		conn, err := upgrader.Upgrade(w, r, header)
+		if err != nil {
+			t.Errorf("upgrade failed: %v", err)
+			return
+		}
+		defer conn.Close()
+	}))
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to build request: %v", err)
+	}
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set("Sec-WebSocket-Protocol", "chat.v1")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("handshake request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("expected 101 Switching Protocols, got %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Sec-WebSocket-Protocol"); got != "chat.v1" {
+		t.Fatalf("negotiated protocol = %q, want chat.v1", got)
+	}
+	if got := resp.Header.Get("X-Trace-ID"); got != "trace-123" {
+		t.Fatalf("response header = %q, want trace-123", got)
+	}
+}
+
 func TestUpgraderWithMiddleware(t *testing.T) {
 	upgrader := Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 

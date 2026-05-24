@@ -91,9 +91,11 @@ func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeade
 
 	// Create handshake options
 	opts := &HandshakeOptions{
-		CheckOrigin:   checkOrigin,
-		Subprotocols:  u.Subprotocols,
-		BeforeUpgrade: u.BeforeUpgrade,
+		CheckOrigin:     checkOrigin,
+		Subprotocols:    u.Subprotocols,
+		RequireProtocol: u.RequireProtocol,
+		ResponseHeader:  responseHeader,
+		BeforeUpgrade:   u.BeforeUpgrade,
 	}
 
 	// Perform handshake
@@ -103,6 +105,8 @@ func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeade
 			status := http.StatusBadRequest
 			if errors.Is(err, ErrBadHandshake) {
 				status = http.StatusForbidden
+			} else if errors.Is(err, ErrSubprotocolRequired) {
+				status = http.StatusBadRequest
 			} else if errors.Is(err, ErrUnsupportedVersion) {
 				status = http.StatusBadRequest
 				w.Header().Set("Sec-WebSocket-Version", "13")
@@ -110,19 +114,6 @@ func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeade
 			u.Error(w, r, status, err)
 		}
 		return nil, err
-	}
-
-	// Validate protocol negotiation if required
-	if u.RequireProtocol && len(u.Subprotocols) > 0 {
-		// Check if a protocol was negotiated
-		protocol := r.Header.Get("Sec-WebSocket-Protocol")
-		if protocol == "" {
-			if u.Error != nil {
-				u.Error(w, r, http.StatusBadRequest, errors.New("subprotocol required"))
-			}
-			netConn.Close()
-			return nil, errors.New("subprotocol required")
-		}
 	}
 
 	// Apply handshake timeout if specified
