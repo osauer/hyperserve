@@ -1,6 +1,6 @@
 # HyperServe Roadmap
 
-_Last updated: 2026-05-24 07:21 CEST (v1 line)._
+_Last updated: 2026-05-24 07:43 CEST (v1 line)._
 
 HyperServe is a library-first Go HTTP framework with in-process MCP for
 agentic workloads. The near-term roadmap is about making that story sharp:
@@ -39,5 +39,9 @@ release gate unless they protect a specific production contract.
 
 - Keep `cmd/hyperserve-init` as the supported command; avoid checked-in demo binaries.
 - Keep v1 semver clean. Breaking exported APIs require a future `/v2` module path.
-- Run `make check`, `go test ./...`, and the canonical example gate before tagging.
+- Use `make release RELEASE_VERSION=vX.Y.Z`; it checks the changelog, local
+  gates, scaffold smoke, clean tree, synced `origin/main`, tag uniqueness, and
+  then publishes GitHub release notes derived from `CHANGELOG.md`.
+- Run `make changelog-stub RELEASE_VERSION=vX.Y.Z` at the start of release
+  prep, then fill the `### What's new` section in reader-facing language.
 - Update docs and examples in the same change as API or behavior changes.

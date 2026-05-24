@@ -1,7 +1,7 @@
 # Contributing to HyperServe
 
-Thanks for your interest. HyperServe is a small Go library (single maintainer,
-pre-1.0). This doc tells you exactly what CI gates on so the first PR comes in
+Thanks for your interest. HyperServe is a small v1 Go library (single
+maintainer). This doc tells you exactly what CI gates on so the first PR comes in
 green.
 
 ## Setup
@@ -79,6 +79,19 @@ If a change contradicts an ADR, propose superseding it in the same PR.
 4. Commit subject in the imperative, ≤72 chars. Body explains *why* (the
    diff shows *what*). New features ship with tests and updated docs.
 5. Push and open a PR. CI runs the same gate you just ran.
+
+## Release notes
+
+User-visible changes need a `CHANGELOG.md` entry. Start one with:
+
+```bash
+make changelog-stub RELEASE_VERSION=vX.Y.Z
+```
+
+Fill `### What's new` in plain English; that section is promoted directly into
+the GitHub Release body by `make release-publish`. Before a release, run
+`make changelog-lint RELEASE_VERSION=vX.Y.Z` to catch malformed headings,
+missing user-facing highlights, and public notes that leak internal review IDs.
 
 ## Reporting issues
 

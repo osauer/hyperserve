@@ -1,13 +1,25 @@
 # Version stamping. `git describe` picks the nearest tag; --dirty marks
 # uncommitted working trees so dev builds are distinguishable.
-VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-BUILD_HASH := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-BUILD_TIME := $(shell date -u +"%Y-%m-%d_%H:%M:%S_UTC" || echo "unknown")
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+BUILD_HASH ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+BUILD_TIME ?= $(shell date -u +"%Y-%m-%d_%H:%M:%S_UTC" || echo "unknown")
 
 # Stamped into pkg/server.Version/BuildHash/BuildTime via -X.
 LDFLAGS := -ldflags "-X github.com/osauer/hyperserve/pkg/server.Version=$(VERSION) -X github.com/osauer/hyperserve/pkg/server.BuildHash=$(BUILD_HASH) -X github.com/osauer/hyperserve/pkg/server.BuildTime=$(BUILD_TIME)"
 
-.PHONY: build install test test-race fuzz-smoke clean version check check-examples check-canonical-examples vet fmt modernize modernize-check staticcheck govulncheck
+MAIN_BRANCH ?= main
+RELEASE_TEST_JOBS ?= 2
+
+.PHONY: build install test test-race fuzz-smoke clean version help check check-examples check-canonical-examples vet fmt modernize modernize-check staticcheck govulncheck changelog-lint changelog-stub release-notes release-publish release-smoke release
+
+help: ## List available targets
+	@awk 'BEGIN {FS = ":.*##"; print "Available targets:\n"} \
+		/^[a-zA-Z][a-zA-Z0-9_-]+:.*##/ { printf "  \033[36m%-24s\033[0m %s\n", $$1, $$2 }' \
+		$(MAKEFILE_LIST)
+	@echo
+	@echo "Common flow:  make fmt && make check && make test-race && make fuzz-smoke"
+	@echo "Release flow: make changelog-stub RELEASE_VERSION=vX.Y.Z"
+	@echo "              make release RELEASE_VERSION=vX.Y.Z   (clean tree + HEAD == origin/$(MAIN_BRANCH))"
 
 build: ## Compile hyperserve-init with version stamped via ldflags
 	mkdir -p bin
@@ -44,6 +56,106 @@ clean:
 
 version: ## Print the version string the next build would embed
 	@echo $(VERSION)
+
+changelog-lint: ## Validate topmost CHANGELOG.md entry for RELEASE_VERSION
+	@if [ -z "$(RELEASE_VERSION)" ]; then \
+		echo "changelog-lint: RELEASE_VERSION is required, e.g. make changelog-lint RELEASE_VERSION=v1.2.3" >&2; \
+		exit 1; \
+	fi
+	@RELEASE_VERSION=$(RELEASE_VERSION) ./scripts/check-changelog-entry.sh
+
+changelog-stub: ## Prepend a CHANGELOG.md entry skeleton for RELEASE_VERSION
+	@if [ -z "$(RELEASE_VERSION)" ]; then \
+		echo "changelog-stub: RELEASE_VERSION is required, e.g. make changelog-stub RELEASE_VERSION=v1.2.3" >&2; \
+		exit 1; \
+	fi
+	@RELEASE_VERSION=$(RELEASE_VERSION) ./scripts/changelog-stub.sh
+
+release-notes: ## Render GitHub Release notes from CHANGELOG.md for RELEASE_VERSION
+	@if [ -z "$(RELEASE_VERSION)" ]; then \
+		echo "release-notes: RELEASE_VERSION is required, e.g. make release-notes RELEASE_VERSION=v1.2.3" >&2; \
+		exit 1; \
+	fi
+	@$(MAKE) --no-print-directory changelog-lint RELEASE_VERSION=$(RELEASE_VERSION) >&2
+	@RELEASE_VERSION=$(RELEASE_VERSION) ./scripts/release-notes.sh
+
+release-publish: ## Create GitHub Release page from CHANGELOG.md — RELEASE_VERSION required
+	@if [ -z "$(RELEASE_VERSION)" ]; then \
+		echo "release-publish: RELEASE_VERSION is required, e.g. make release-publish RELEASE_VERSION=v1.2.3" >&2; \
+		exit 1; \
+	fi
+	@command -v gh >/dev/null 2>&1 || { echo "release-publish: gh CLI not on PATH; install gh" >&2; exit 1; }
+	@$(MAKE) --no-print-directory changelog-lint RELEASE_VERSION=$(RELEASE_VERSION)
+	@if ! git ls-remote --tags --exit-code origin $(RELEASE_VERSION) >/dev/null 2>&1; then \
+		echo "release-publish: tag $(RELEASE_VERSION) is not on origin; run make release or push the tag first" >&2; \
+		exit 1; \
+	fi
+	@notes=$$(mktemp -t hyperserve-release-notes.XXXXXX) && \
+		trap 'rm -f $$notes' EXIT && \
+		RELEASE_VERSION=$(RELEASE_VERSION) ./scripts/release-notes.sh > "$$notes" && \
+		title="$${MESSAGE:-HyperServe $(RELEASE_VERSION)}" && \
+		gh release create $(RELEASE_VERSION) --notes-file "$$notes" --title "$$title" --latest
+
+release-smoke: ## Run the full local release gate before tagging
+	@if [ -z "$(RELEASE_VERSION)" ]; then \
+		echo "release-smoke: RELEASE_VERSION is required, e.g. make release-smoke RELEASE_VERSION=v1.2.3" >&2; \
+		exit 1; \
+	fi
+	$(MAKE) -j$(RELEASE_TEST_JOBS) check
+	go test ./...
+	(cd examples/auth && go test ./...)
+	$(MAKE) build VERSION=$(RELEASE_VERSION)
+	@tmp=$$(mktemp -d); \
+		trap 'rm -rf "$$tmp"' EXIT; \
+		go run ./cmd/hyperserve-init --module example.com/hyperserve-release-smoke --out "$$tmp/app" --local-replace "$$(pwd)" >/dev/null; \
+		(cd "$$tmp/app" && GOWORK=off go test ./...)
+
+# Tag, push, and publish a new release. RELEASE_VERSION is separate from the
+# build-time VERSION variable so missing or malformed release input fails
+# before any tag can be created.
+release: ## Tag, push, and publish a release: make release RELEASE_VERSION=vX.Y.Z [MESSAGE="..."]
+	@if [ -z "$(RELEASE_VERSION)" ]; then \
+		echo "release: RELEASE_VERSION is required, e.g. make release RELEASE_VERSION=v1.2.3" >&2; \
+		exit 1; \
+	fi
+	@if ! echo "$(RELEASE_VERSION)" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$$'; then \
+		echo "release: RELEASE_VERSION must look like vX.Y.Z (got $(RELEASE_VERSION))" >&2; \
+		exit 1; \
+	fi
+	@if [ -n "$$(git status --porcelain)" ]; then \
+		echo "release: working tree is dirty; commit or stash first" >&2; \
+		git status --short >&2; \
+		exit 1; \
+	fi
+	git fetch origin $(MAIN_BRANCH) --tags
+	@head=$$(git rev-parse HEAD); \
+	main=$$(git rev-parse origin/$(MAIN_BRANCH) 2>/dev/null) || { \
+		echo "release: origin/$(MAIN_BRANCH) ref missing locally" >&2; \
+		exit 1; \
+	}; \
+	if [ "$$head" != "$$main" ]; then \
+		echo "release: HEAD ($$head) does not match origin/$(MAIN_BRANCH) ($$main); push your commits first" >&2; \
+		exit 1; \
+	fi
+	@if git rev-parse --verify --quiet $(RELEASE_VERSION) >/dev/null; then \
+		echo "release: tag $(RELEASE_VERSION) already exists locally" >&2; \
+		exit 1; \
+	fi
+	@if git ls-remote --tags --exit-code origin $(RELEASE_VERSION) >/dev/null 2>&1; then \
+		echo "release: tag $(RELEASE_VERSION) already exists on origin" >&2; \
+		exit 1; \
+	fi
+	$(MAKE) changelog-lint RELEASE_VERSION=$(RELEASE_VERSION)
+	$(MAKE) release-smoke RELEASE_VERSION=$(RELEASE_VERSION)
+	@msg="$${MESSAGE:-HyperServe $(RELEASE_VERSION)}"; \
+		git tag -a $(RELEASE_VERSION) -m "$$msg"
+	git push origin $(MAIN_BRANCH)
+	git push origin $(RELEASE_VERSION)
+	@msg="$${MESSAGE:-HyperServe $(RELEASE_VERSION)}"; \
+		$(MAKE) release-publish RELEASE_VERSION=$(RELEASE_VERSION) MESSAGE="$$msg"
+	@echo
+	@echo "Released $(RELEASE_VERSION):"
+	@echo "  https://github.com/osauer/hyperserve/releases/tag/$(RELEASE_VERSION)"
 
 # Binding pre-commit gate: gofmt drift + go vet + staticcheck + govulncheck +
 # go-fix/modernize drift. Mirrors the pattern in ../ibkr.

@@ -1,6 +1,6 @@
 # API Stability
 
-_Last updated: 2026-05-24 07:21 CEST (v1 line)._
+_Last updated: 2026-05-24 07:43 CEST (v1 line)._
 
 ## TL;DR
 
@@ -42,13 +42,23 @@ protocol-noncompliant, but those changes must be called out in the changelog.
 
 ## Release Gate
 
+Releases are cut with `make release RELEASE_VERSION=vX.Y.Z`; do not tag,
+push, or create the GitHub Release page by hand. The target requires a clean
+tree, `HEAD == origin/main`, a non-existing tag, and a matching topmost
+`CHANGELOG.md` entry before it tags anything.
+
 Releases must pass:
 
+- `make changelog-lint RELEASE_VERSION=vX.Y.Z`
 - `go test ./...`
 - `make check`
 - standalone example-module checks
 - canonical examples: `examples/devops`, `examples/mcp-sse`, and `examples/json-api`
 - scaffold generation plus `go test ./...` inside the generated project
+
+GitHub Release notes are rendered from `.github/release-notes-template.md` plus
+the matching `CHANGELOG.md` entry. The `### What's new` section is promoted to
+the top of the release body, so there is one source of truth for release prose.
 
 ## Where To Look
 

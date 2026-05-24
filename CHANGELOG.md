@@ -1,9 +1,28 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+All notable changes to this project are documented here. HyperServe adheres to
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html) from the v1 line
+forward, and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
+categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+Entries tier by audience:
+
+- **`### What's new`** — plain-English TL;DR for Go importers, MCP clients,
+  API server owners, and scaffold users. Three bullets max. Mark Go-library
+  breakage with `**Breaking (Go library):**`; v1 breakage requires a future
+  `/v2` module path. The GitHub Release body's "What's new in vX.Y.Z" section
+  is mechanically derived from this section by `make release-publish`.
+- **`### Added / Changed / Deprecated / Removed / Fixed / Security`** —
+  Keep-a-Changelog bullets for users who need detail. One user-visible change
+  per bullet, framed as the consumer-visible effect rather than the internal
+  mechanism. No internal finding IDs; no relative dates or session-local
+  references.
+- **`### Engineering notes`** *(optional, omit unless earned)* — short
+  multi-release context, <= 15 lines, self-contained. If a fact fits a
+  one-line bullet, it belongs in Changed/Fixed instead.
+
+Shape is enforced by `make changelog-lint RELEASE_VERSION=vX.Y.Z`; scaffold a
+new entry with `make changelog-stub RELEASE_VERSION=vX.Y.Z`.
 
 ## [1.1.0] - 2026-05-24 07:21 CEST
 
@@ -11,6 +30,17 @@ Release-line repair and production hardening. HyperServe is v1; this release
 moves current `main` back onto the v1 train after the confusing historical
 state where older `v1.0.x` tags existed while newer docs continued on
 `v0.34.x`.
+
+### What's new
+
+- HyperServe is back on the v1 release train: the supported module surface,
+  docs, and changelog now point at `v1.1.0` instead of the stale `v0.34.x`
+  line.
+- Production MCP observability is live by default. Health, metrics, logs, and
+  route resources now return current state unless a resource explicitly opts
+  into caching.
+- The release gate now protects the three canonical examples: MCP
+  observability, MCP over SSE, and a normal JSON API server.
 
 ### Fixed
 
@@ -54,6 +84,14 @@ state where older `v1.0.x` tags existed while newer docs continued on
 - Fixed scaffold templates so generated projects require HyperServe, blank
   import built-in MCP presets when needed, avoid process-wide env mutation, and
   use Go 1.26 in Dockerfiles.
+
+### Verification
+
+- `go test ./...`
+- `(cd examples/auth && go test ./...)`
+- `make check`
+- `make build`
+- generated scaffold smoke test with `--local-replace`
 
 ## [0.34.2] - 2026-05-19
 
