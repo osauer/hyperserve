@@ -8,12 +8,18 @@
 package mcp
 
 import (
+	"context"
 	"log/slog"
 	"time"
 )
 
-// ProtocolVersion is the MCP protocol version implemented by this package.
-const ProtocolVersion = "2024-11-05"
+// DefaultProtocolVersion is the MCP protocol version advertised by default.
+const DefaultProtocolVersion = "2025-11-25"
+
+// ProtocolVersion is kept as a compatibility alias for callers that used the
+// old package constant. New code should prefer DefaultProtocolVersion or a
+// Handler's configured ProtocolVersion.
+const ProtocolVersion = DefaultProtocolVersion
 
 // TransportType identifies the kind of transport used for MCP communication.
 type TransportType int
@@ -83,6 +89,31 @@ type Resource interface {
 	List() ([]string, error)
 }
 
+// ResourceTemplate defines a parameterized family of MCP resources.
+type ResourceTemplate interface {
+	URITemplate() string
+	Name() string
+	Description() string
+	MimeType() string
+	Match(uri string) (params map[string]string, ok bool)
+	Read(ctx context.Context, uri string, params map[string]string) (any, error)
+}
+
+// SubscribableResourceTemplate extends ResourceTemplate with live update
+// subscriptions. Subscribe should block until ctx is canceled or the
+// subscription ends.
+type SubscribableResourceTemplate interface {
+	ResourceTemplate
+	Subscribe(ctx context.Context, uri string, params map[string]string, emit ResourceEmitter) error
+}
+
+// ResourceEmitter emits resource update notifications for an active
+// subscription. MCP update notifications are invalidation signals: clients
+// should call resources/read to fetch the latest content.
+type ResourceEmitter interface {
+	Update(uri string) error
+}
+
 // CacheableResource is an optional extension for resources whose read result
 // is safe to reuse for a bounded time. Resources are uncached by default so
 // live observability views (health, metrics, logs, route lists) never return
@@ -109,6 +140,15 @@ type InitializeResult struct {
 // ResourceReadParams is the parameter struct for "resources/read".
 type ResourceReadParams struct {
 	URI string `json:"uri"`
+}
+
+// ResourceTemplateInfo describes a resource template in
+// resources/templates/list responses.
+type ResourceTemplateInfo struct {
+	URITemplate string `json:"uriTemplate"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	MimeType    string `json:"mimeType,omitempty"`
 }
 
 // ToolCallParams is the parameter struct for "tools/call".

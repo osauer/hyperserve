@@ -2,9 +2,10 @@ package mcp
 
 // Namespace represents a named collection of MCP tools and resources.
 type Namespace struct {
-	Name      string
-	Tools     []Tool
-	Resources []Resource
+	Name              string
+	Tools             []Tool
+	Resources         []Resource
+	ResourceTemplates []ResourceTemplate
 }
 
 // NamespaceConfig configures a Namespace.
@@ -21,5 +22,12 @@ func WithNamespaceTools(tools ...Tool) NamespaceConfig {
 func WithNamespaceResources(resources ...Resource) NamespaceConfig {
 	return func(ns *Namespace) {
 		ns.Resources = append(ns.Resources, resources...)
+	}
+}
+
+// WithNamespaceResourceTemplates adds resource templates to a namespace.
+func WithNamespaceResourceTemplates(templates ...ResourceTemplate) NamespaceConfig {
+	return func(ns *Namespace) {
+		ns.ResourceTemplates = append(ns.ResourceTemplates, templates...)
 	}
 }

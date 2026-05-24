@@ -69,7 +69,7 @@ func (h *Handler) BuildDiscoveryInfo(r *http.Request, cfg DiscoveryConfig) Disco
 	mcpEndpoint := baseURL + cfg.MCPEndpoint
 
 	info := DiscoveryInfo{
-		Version: ProtocolVersion,
+		Version: h.ProtocolVersion(),
 		Transports: []TransportInfo{
 			{
 				Type:        "http",
@@ -94,6 +94,7 @@ func (h *Handler) BuildDiscoveryInfo(r *http.Request, cfg DiscoveryConfig) Disco
 
 	tools := h.RegisteredTools()
 	resources := h.RegisteredResources()
+	resourceTemplates := h.RegisteredResourceTemplates()
 
 	toolCapability := map[string]any{
 		"supported": true,
@@ -114,9 +115,20 @@ func (h *Handler) BuildDiscoveryInfo(r *http.Request, cfg DiscoveryConfig) Disco
 	resourceCapability := map[string]any{
 		"supported": true,
 		"count":     len(resources),
+		"subscribe": h.hasSubscribableResourceTemplates(),
 	}
 	if shouldIncludeToolList(cfg.Policy, r) {
 		resourceCapability["available"] = resources
+	}
+	if len(resourceTemplates) > 0 {
+		resourceTemplateCapability := map[string]any{
+			"supported": true,
+			"count":     len(resourceTemplates),
+		}
+		if shouldIncludeToolList(cfg.Policy, r) {
+			resourceTemplateCapability["available"] = resourceTemplates
+		}
+		resourceCapability["templates"] = resourceTemplateCapability
 	}
 
 	info.Capabilities = map[string]any{

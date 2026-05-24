@@ -73,6 +73,7 @@ func TestMCPEnvironmentConfiguration(t *testing.T) {
 	t.Setenv("HS_MCP_SERVER_NAME", "EnvTestApp")
 	t.Setenv("HS_MCP_SERVER_VERSION", "2.0.0")
 	t.Setenv("HS_MCP_DEV", "true")
+	t.Setenv("HS_MCP_PROTOCOL_VERSION", "2025-06-18")
 
 	// Capture log output
 	var buf bytes.Buffer
@@ -102,6 +103,9 @@ func TestMCPEnvironmentConfiguration(t *testing.T) {
 	// Verify MCP is enabled
 	if !srv.MCPEnabled() {
 		t.Error("MCP should be enabled from environment")
+	}
+	if got := srv.MCPHandler().ProtocolVersion(); got != "2025-06-18" {
+		t.Errorf("MCP protocol version = %q, want 2025-06-18", got)
 	}
 }
 
@@ -145,5 +149,18 @@ func TestMCPMixedConfiguration(t *testing.T) {
 	}
 	if !srv.Options.mcpTransportOpts.ObservabilityMode {
 		t.Error("Should have observability mode")
+	}
+}
+
+func TestMCPProtocolVersionProgrammaticConfiguration(t *testing.T) {
+	srv, err := NewServer(
+		WithMCPSupport("ProgrammaticApp", "3.0.0"),
+		WithMCPProtocolVersion("2025-03-26"),
+	)
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+	if got := srv.MCPHandler().ProtocolVersion(); got != "2025-03-26" {
+		t.Fatalf("MCP protocol version = %q, want 2025-03-26", got)
 	}
 }

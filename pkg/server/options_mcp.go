@@ -92,6 +92,22 @@ func WithMCPToolCallTimeout(d time.Duration) ServerOptionFunc {
 	}
 }
 
+// WithMCPProtocolVersion overrides the MCP protocol version advertised to
+// clients. Empty values reset to mcp.DefaultProtocolVersion.
+func WithMCPProtocolVersion(version string) ServerOptionFunc {
+	return func(srv *Server) error {
+		if version == "" {
+			srv.Options.MCPProtocolVersion = mcp.DefaultProtocolVersion
+			return nil
+		}
+		srv.Options.MCPProtocolVersion = version
+		if srv.mcpHandler != nil {
+			srv.mcpHandler.SetProtocolVersion(version)
+		}
+		return nil
+	}
+}
+
 // WithMCPBuiltinTools toggles the built-in MCP tools (Calculator plus
 // sandboxed FileRead / ListDirectory when WithMCPFileToolRoot is set).
 // Default off. Requires `_ "github.com/osauer/hyperserve/pkg/mcp/builtin"`

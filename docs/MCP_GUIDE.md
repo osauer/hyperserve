@@ -303,6 +303,61 @@ func (userStatsResource) Read() (any, error) {
 srv.RegisterMCPResource(userStatsResource{})
 ```
 
+### Resource Templates and Subscriptions
+
+Use `mcp.ResourceTemplate` for resource families whose concrete URI is not
+known at registration time. `resources/templates/list` exposes the
+`uriTemplate`, and `resources/read` resolves a concrete URI through the first
+matching template after checking exact static resources.
+
+```go
+type quoteResource struct{}
+
+func (quoteResource) URITemplate() string { return "quotes://{symbol}" }
+func (quoteResource) Name() string        { return "Quotes" }
+func (quoteResource) Description() string { return "Latest quote by symbol" }
+func (quoteResource) MimeType() string    { return "application/json" }
+func (quoteResource) Match(uri string) (map[string]string, bool) {
+    symbol, ok := strings.CutPrefix(uri, "quotes://")
+    if !ok || symbol == "" {
+        return nil, false
+    }
+    return map[string]string{"symbol": symbol}, true
+}
+func (quoteResource) Read(ctx context.Context, uri string, params map[string]string) (any, error) {
+    return lookupQuote(ctx, params["symbol"])
+}
+
+srv.RegisterMCPResourceTemplate(quoteResource{})
+```
+
+Templates that also implement `mcp.SubscribableResourceTemplate` enable
+`resources/subscribe` and `resources/unsubscribe` for live sessions over SSE
+or stdio:
+
+```go
+func (quoteResource) Subscribe(ctx context.Context, uri string, params map[string]string, emit mcp.ResourceEmitter) error {
+    stream := quoteBus.Subscribe(params["symbol"])
+    defer stream.Close()
+    for {
+        select {
+        case <-ctx.Done():
+            return ctx.Err()
+        case <-stream.Updates():
+            if err := emit.Update(uri); err != nil {
+                return err
+            }
+        }
+    }
+}
+```
+
+`emit.Update(uri)` sends the MCP-standard
+`notifications/resources/updated` invalidation signal with only the URI.
+Clients call `resources/read` to fetch the latest content. Plain one-shot HTTP
+does not support subscriptions because there is no channel for later
+notifications.
+
 ### Complete Extension
 
 ```go
@@ -315,6 +370,7 @@ ext := mcp.NewExtension("analytics").
             WithExecute(queryMetrics).
             Build(),
     ).
+    WithResourceTemplate(metricSeriesTemplate{}).
     WithResource(analyticsSummaryResource{}).
     Build()
 
@@ -335,9 +391,12 @@ err := srv.RegisterMCPNamespace("daw",
 
 err = srv.RegisterMCPNamespace("analytics",
     mcp.WithNamespaceResources(analyticsSummaryResource{}),
+    mcp.WithNamespaceResourceTemplates(metricSeriesTemplate{}),
 )
 // analytics://dashboard/summary is listed and read as
 // "mcp__analytics__analytics://dashboard/summary".
+// analytics://metrics/{name} is listed and read as
+// "mcp__analytics__analytics://metrics/{name}".
 ```
 
 ### Registering Entire Namespaces
@@ -419,11 +478,23 @@ WithExecute(func(params map[string]any) (any, error) {
 })
 ```
 
+Return `mcp.ToolError("message")` for domain failures that should be
+successful MCP `tools/call` responses with `isError: true`. Keep returning
+ordinary errors for protocol, validation, decode, or unexpected failures:
+
+```go
+WithExecute(func(params map[string]any) (any, error) {
+    if gatewayDown() {
+        return nil, mcp.ToolError("gateway unavailable")
+    }
+    return callGateway(params)
+})
+```
+
 ### 4. Resource Caching
-Resources are cached for 5 minutes by default. Design accordingly:
-- Expensive queries benefit from caching
-- Real-time data might need shorter TTL
-- Use tools for operations that modify state
+Resources are live by default. Expensive static resources can opt into bounded
+caching by implementing `mcp.CacheableResource`; dynamic observability and
+template reads should normally stay uncached.
 
 ### 5. Documentation
 Always provide clear descriptions:
@@ -474,6 +545,11 @@ curl -X POST http://localhost:8080/mcp \
     },
     "id": 3
   }'
+
+# List resource templates
+curl -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"resources/templates/list","id":4}'
 ```
 
 ## Server-Sent Events (SSE) Support
@@ -540,6 +616,8 @@ async function callMethod(method, params) {
 - Buffered message delivery
 - Thread-safe connection management
 - Proper MCP lifecycle support
+- Resource subscription notifications for `SubscribableResourceTemplate`
+  values registered on the handler
 
 ## Troubleshooting
 
@@ -555,7 +633,14 @@ async function callMethod(method, params) {
 4. Try HTTP transport first, then STDIO
 
 ### Performance Issues
-1. Resources are cached (5 min default)
+1. Resources are live unless they implement `mcp.CacheableResource`
 2. Use pagination for large datasets
 3. Tools run with 30s timeout
 4. Monitor MCP metrics via observability resources
+
+### Subscription Backpressure
+SSE subscription updates share the per-client bounded event queue. If the
+client is gone or the queue is full, `ResourceEmitter.Update` returns an
+error; subscription implementations should coalesce, drop, or stop on that
+error. Stdio notifications are serialized with responses and may block on the
+writer.

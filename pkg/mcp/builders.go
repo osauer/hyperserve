@@ -116,12 +116,20 @@ type Extension interface {
 	Configure(h *Handler) error
 }
 
+// ResourceTemplateExtension is implemented by extensions that also provide
+// parameterized resource templates. It is optional so existing Extension
+// implementations remain source-compatible.
+type ResourceTemplateExtension interface {
+	ResourceTemplates() []ResourceTemplate
+}
+
 // ExtensionBuilder provides a fluent API for building Extensions.
 type ExtensionBuilder struct {
-	name        string
-	description string
-	tools       []Tool
-	resources   []Resource
+	name              string
+	description       string
+	tools             []Tool
+	resources         []Resource
+	resourceTemplates []ResourceTemplate
 }
 
 // NewExtension creates a new extension builder.
@@ -144,27 +152,35 @@ func (b *ExtensionBuilder) WithResource(resource Resource) *ExtensionBuilder {
 	return b
 }
 
+func (b *ExtensionBuilder) WithResourceTemplate(template ResourceTemplate) *ExtensionBuilder {
+	b.resourceTemplates = append(b.resourceTemplates, template)
+	return b
+}
+
 func (b *ExtensionBuilder) Build() Extension {
 	return &builtExtension{
-		name:        b.name,
-		description: b.description,
-		tools:       b.tools,
-		resources:   b.resources,
+		name:              b.name,
+		description:       b.description,
+		tools:             b.tools,
+		resources:         b.resources,
+		resourceTemplates: b.resourceTemplates,
 	}
 }
 
 type builtExtension struct {
-	name        string
-	description string
-	tools       []Tool
-	resources   []Resource
+	name              string
+	description       string
+	tools             []Tool
+	resources         []Resource
+	resourceTemplates []ResourceTemplate
 }
 
-func (e *builtExtension) Name() string               { return e.name }
-func (e *builtExtension) Description() string        { return e.description }
-func (e *builtExtension) Tools() []Tool              { return e.tools }
-func (e *builtExtension) Resources() []Resource      { return e.resources }
-func (e *builtExtension) Configure(h *Handler) error { return nil }
+func (e *builtExtension) Name() string                          { return e.name }
+func (e *builtExtension) Description() string                   { return e.description }
+func (e *builtExtension) Tools() []Tool                         { return e.tools }
+func (e *builtExtension) Resources() []Resource                 { return e.resources }
+func (e *builtExtension) ResourceTemplates() []ResourceTemplate { return e.resourceTemplates }
+func (e *builtExtension) Configure(h *Handler) error            { return nil }
 
 // RegisterExtension wires all of an Extension's tools and resources into the
 // handler. It calls Configure(h) first so the extension can hook in.
@@ -178,10 +194,19 @@ func (h *Handler) RegisterExtension(ext Extension) error {
 	for _, resource := range ext.Resources() {
 		h.RegisterResource(resource)
 	}
+	templateCount := 0
+	if templateExt, ok := ext.(ResourceTemplateExtension); ok {
+		templates := templateExt.ResourceTemplates()
+		templateCount = len(templates)
+		for _, template := range templates {
+			h.RegisterResourceTemplate(template)
+		}
+	}
 	h.logger.Info("MCP extension registered",
 		"name", ext.Name(),
 		"tools", len(ext.Tools()),
 		"resources", len(ext.Resources()),
+		"resourceTemplates", templateCount,
 	)
 	return nil
 }

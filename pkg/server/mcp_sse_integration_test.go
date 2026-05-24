@@ -157,8 +157,8 @@ func TestMCPWithSSEIntegration(t *testing.T) {
 				t.Fatal("No result in response")
 			}
 
-			if result["protocolVersion"] != "2024-11-05" {
-				t.Fatalf("Expected protocol version 2024-11-05, got %v", result["protocolVersion"])
+			if result["protocolVersion"] != mcp.DefaultProtocolVersion {
+				t.Fatalf("Expected protocol version %s, got %v", mcp.DefaultProtocolVersion, result["protocolVersion"])
 			}
 
 		case <-time.After(2 * time.Second):

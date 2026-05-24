@@ -174,6 +174,19 @@ func TestLoggingResponseWriterFlusher(t *testing.T) {
 	lrw.Flush()
 }
 
+func TestLoggingResponseWriterUnwrap(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	lrw := &loggingResponseWriter{
+		ResponseWriter: recorder,
+		statusCode:     http.StatusOK,
+		bytesWritten:   0,
+	}
+
+	if got := lrw.Unwrap(); got != recorder {
+		t.Fatalf("Unwrap() = %T, want %T", got, recorder)
+	}
+}
+
 func TestLoggingResponseWriterReadFrom(t *testing.T) {
 	data := []byte("Hello, World!")
 	reader := bytes.NewReader(data)

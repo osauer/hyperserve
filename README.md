@@ -47,7 +47,8 @@ go get github.com/osauer/hyperserve/pkg/server
 - HTTP server built on `net/http`, with grouping, middleware chain, and graceful shutdown.
 - Method-aware route registration (`srv.GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, `OPTIONS`)
   on top of stdlib 1.22+ pattern syntax — wrong-method requests get an automatic 405.
-- MCP server (HTTP, SSE, stdio transports) with discovery endpoints and namespace support.
+- MCP server (HTTP, SSE, stdio transports) with discovery endpoints, namespace support,
+  resource templates, and live resource subscriptions.
 - WebSocket implementation (RFC 6455).
 - JSON-RPC 2.0 engine reused by MCP.
 - Middleware: recovery, request logging, metrics, CORS, security headers, rate limiting, auth.
@@ -78,6 +79,7 @@ out of MCP, `--local-replace` to develop against a local checkout.
 HS_MCP_ENABLED=true
 HS_MCP_SERVER_NAME=MyServer
 HS_MCP_SERVER_VERSION=1.0.0
+HS_MCP_PROTOCOL_VERSION=2025-11-25
 ```
 
 Or programmatically:
@@ -91,6 +93,9 @@ srv, _ := server.NewServer(
 ```
 
 Built-in MCP tools and resources are off by default; you opt in per server.
+Custom MCP integrations can register tools, static resources, resource
+templates, and subscribable resource templates for SSE/stdio update
+notifications.
 
 ## Request binding & validation
 

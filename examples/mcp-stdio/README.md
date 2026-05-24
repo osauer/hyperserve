@@ -100,7 +100,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | ./hyperserve-mcp-stdio |
 ./hyperserve-mcp-stdio -verbose
 
 # Type or paste JSON-RPC requests:
-{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}
 {"jsonrpc":"2.0","id":2,"method":"tools/list"}
 {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"calculator","arguments":{"operation":"multiply","a":15,"b":4}}}
 

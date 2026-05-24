@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -40,6 +42,23 @@ func (r *TestCustomResource) Read() (any, error) {
 }
 func (r *TestCustomResource) List() ([]string, error) {
 	return []string{r.uri}, nil
+}
+
+type TestCustomResourceTemplate struct{}
+
+func (t *TestCustomResourceTemplate) URITemplate() string { return "test://{id}" }
+func (t *TestCustomResourceTemplate) Name() string        { return "Test resource template" }
+func (t *TestCustomResourceTemplate) Description() string { return "Test resource template" }
+func (t *TestCustomResourceTemplate) MimeType() string    { return "application/json" }
+func (t *TestCustomResourceTemplate) Match(uri string) (map[string]string, bool) {
+	id, ok := strings.CutPrefix(uri, "test://")
+	if !ok || id == "" {
+		return nil, false
+	}
+	return map[string]string{"id": id}, true
+}
+func (t *TestCustomResourceTemplate) Read(context.Context, string, map[string]string) (any, error) {
+	return map[string]any{"data": "test"}, nil
 }
 
 func TestMCPCustomRegistration(t *testing.T) {
@@ -95,6 +114,25 @@ func TestMCPCustomRegistration(t *testing.T) {
 		}
 	})
 
+	t.Run("RegisterResourceTemplate", func(t *testing.T) {
+		t.Parallel()
+		srv, err := NewServer(
+			WithMCPSupport("hyperserve", "1.0.0"),
+		)
+		if err != nil {
+			t.Fatalf("Failed to create server: %v", err)
+		}
+
+		template := &TestCustomResourceTemplate{}
+		err = srv.RegisterMCPResourceTemplate(template)
+		if err != nil {
+			t.Fatalf("Failed to register resource template: %v", err)
+		}
+		if !srv.MCPHandler().HasResourceTemplate(template.URITemplate()) {
+			t.Fatal("Resource template was not registered")
+		}
+	})
+
 	t.Run("RegisterWithoutMCP", func(t *testing.T) {
 		t.Parallel()
 		// Ensure MCP env var is not set
@@ -123,6 +161,12 @@ func TestMCPCustomRegistration(t *testing.T) {
 		err = srv.RegisterMCPResource(resource)
 		if err == nil {
 			t.Fatal("Expected error when registering resource without MCP enabled")
+		}
+
+		template := &TestCustomResourceTemplate{}
+		err = srv.RegisterMCPResourceTemplate(template)
+		if err == nil {
+			t.Fatal("Expected error when registering resource template without MCP enabled")
 		}
 	})
 }

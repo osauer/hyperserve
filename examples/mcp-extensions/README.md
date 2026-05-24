@@ -5,8 +5,9 @@ This example demonstrates how to build applications on top of hyperserve that ex
 ## Overview
 
 The example creates a simple blog application that exposes one tool per
-operation. Most tools use `mcp.NewTypedTool`; `search_posts` intentionally
-uses the lower-level builder so both shapes are visible.
+operation plus a subscribable `blog://posts/{id}` resource template. Most
+tools use `mcp.NewTypedTool`; `search_posts` intentionally uses the
+lower-level builder so both shapes are visible.
 
 ### MCP Tools
 - **create_post** - Create a blog post
@@ -14,6 +15,10 @@ uses the lower-level builder so both shapes are visible.
 - **list_posts** - List blog posts
 - **delete_post** - Delete a blog post
 - **search_posts** - Search posts by keyword or tag
+
+### MCP Resources
+- **blog://posts/{id}** - Read a concrete blog post by ID
+- **resources/subscribe** - Subscribe to a concrete post URI over SSE or stdio
 
 ## Key Concepts
 
@@ -47,6 +52,26 @@ tool := mcp.NewTool("search_posts").
         return search(params), nil
     }).
     Build()
+```
+
+### 4. Resource Template Pattern
+
+```go
+type postResourceTemplate struct {
+    store *blog
+}
+
+func (t postResourceTemplate) URITemplate() string { return "blog://posts/{id}" }
+func (t postResourceTemplate) Match(uri string) (map[string]string, bool) {
+    id, ok := strings.CutPrefix(uri, "blog://posts/")
+    if !ok || id == "" {
+        return nil, false
+    }
+    return map[string]string{"id": id}, true
+}
+func (t postResourceTemplate) Read(ctx context.Context, uri string, params map[string]string) (any, error) {
+    return t.store.Get(ctx, GetPostArgs{ID: params["id"]})
+}
 ```
 
 ## Running the Example
@@ -87,9 +112,8 @@ curl -X POST http://localhost:8080/mcp \
     "jsonrpc": "2.0",
     "method": "tools/call",
     "params": {
-      "name": "manage_posts",
+      "name": "create_post",
       "arguments": {
-        "action": "create",
         "title": "My New Post",
         "content": "This is the content...",
         "author": "Claude",
@@ -99,17 +123,61 @@ curl -X POST http://localhost:8080/mcp \
     "id": 2
   }'
 
-# Read blog statistics
+# List resource templates
+curl -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "resources/templates/list",
+    "id": 3
+  }'
+
+# Read a concrete post resource after creating a post
 curl -X POST http://localhost:8080/mcp \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
     "method": "resources/read",
     "params": {
-      "uri": "blog://stats/overview"
+      "uri": "blog://posts/post-123"
     },
-    "id": 3
+    "id": 4
   }'
+```
+
+For live post invalidations, connect to `/mcp` with `Accept:
+text/event-stream`, then route a `resources/subscribe` request with the
+returned `clientId` and `bindingToken`. The notification is
+`notifications/resources/updated`; clients call `resources/read` to fetch the
+latest post body.
+
+```bash
+# 1. Keep this open and copy clientId + bindingToken from the connection event.
+curl -N -H "Accept: text/event-stream" http://localhost:8080/mcp
+
+# 2. Subscribe to a concrete resource URI over the routed SSE session.
+curl -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -H "X-SSE-Client-ID: sse-..." \
+  -H "X-SSE-Binding: <bindingToken>" \
+  -d '{"jsonrpc":"2.0","method":"resources/subscribe","params":{"uri":"blog://posts/post-123"},"id":5}'
+
+# 3. Later, cancel the subscription.
+curl -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -H "X-SSE-Client-ID: sse-..." \
+  -H "X-SSE-Binding: <bindingToken>" \
+  -d '{"jsonrpc":"2.0","method":"resources/unsubscribe","params":{"uri":"blog://posts/post-123"},"id":6}'
+```
+
+For stdio MCP servers, use the same JSON-RPC payloads as newline-delimited
+stdin. Responses and `notifications/resources/updated` are written to stdout:
+
+```bash
+{"jsonrpc":"2.0","method":"resources/templates/list","id":1}
+{"jsonrpc":"2.0","method":"resources/read","params":{"uri":"blog://posts/post-123"},"id":2}
+{"jsonrpc":"2.0","method":"resources/subscribe","params":{"uri":"blog://posts/post-123"},"id":3}
+{"jsonrpc":"2.0","method":"resources/unsubscribe","params":{"uri":"blog://posts/post-123"},"id":4}
 ```
 
 ## Building Your Own Extensions
@@ -134,7 +202,8 @@ Resources should:
 - Use descriptive URIs (e.g., `app://type/name`)
 - Return consistent data structures
 - Be read-only (resources don't modify state)
-- Cache when appropriate
+- Use templates for parameterized families
+- Opt into caching only when stale reads are acceptable
 
 ### Step 4: Package as Extension
 

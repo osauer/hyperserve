@@ -11,6 +11,11 @@
 // the builder when you need to hand-tune a schema the typed generator
 // doesn't emit yet.
 //
+// The example also registers a subscribable resource template:
+// blog://posts/{id}. `resources/templates/list` advertises the family,
+// `resources/read` resolves concrete post IDs, and SSE/stdio clients can
+// subscribe for standard `notifications/resources/updated` invalidations.
+//
 // Try it:
 //
 //	go run ./examples/mcp-extensions &
@@ -100,7 +105,7 @@ func (b *blog) Get(_ context.Context, args GetPostArgs) (Post, error) {
 	defer b.mu.Unlock()
 	p, ok := b.posts[args.ID]
 	if !ok {
-		return Post{}, fmt.Errorf("post %q not found", args.ID)
+		return Post{}, mcp.ToolErrorf("post %q not found", args.ID)
 	}
 	return *p, nil
 }
@@ -126,7 +131,7 @@ func (b *blog) Delete(_ context.Context, args DeletePostArgs) (struct{}, error) 
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if _, ok := b.posts[args.ID]; !ok {
-		return struct{}{}, fmt.Errorf("post %q not found", args.ID)
+		return struct{}{}, mcp.ToolErrorf("post %q not found", args.ID)
 	}
 	delete(b.posts, args.ID)
 	return struct{}{}, nil
@@ -171,6 +176,46 @@ func (b *blog) searchTool() mcp.Tool {
 }
 
 // =============================================================================
+// Resource template — concrete post URIs + live invalidation notifications
+// =============================================================================
+
+type postResourceTemplate struct {
+	store *blog
+}
+
+func (t postResourceTemplate) URITemplate() string { return "blog://posts/{id}" }
+func (t postResourceTemplate) Name() string        { return "Blog Post" }
+func (t postResourceTemplate) Description() string { return "Read one blog post by ID." }
+func (t postResourceTemplate) MimeType() string    { return "application/json" }
+
+func (t postResourceTemplate) Match(uri string) (map[string]string, bool) {
+	id, ok := strings.CutPrefix(uri, "blog://posts/")
+	if !ok || id == "" || strings.Contains(id, "/") {
+		return nil, false
+	}
+	return map[string]string{"id": id}, true
+}
+
+func (t postResourceTemplate) Read(ctx context.Context, _ string, params map[string]string) (any, error) {
+	return t.store.Get(ctx, GetPostArgs{ID: params["id"]})
+}
+
+func (t postResourceTemplate) Subscribe(ctx context.Context, uri string, _ map[string]string, emit mcp.ResourceEmitter) error {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			if err := emit.Update(uri); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// =============================================================================
 // Wiring
 // =============================================================================
 
@@ -192,6 +237,7 @@ func main() {
 		WithTool(mcp.NewTypedTool("list_posts", "List every post in the store.", store.List)).
 		WithTool(mcp.NewTypedTool("delete_post", "Delete a post by ID.", store.Delete)).
 		WithTool(store.searchTool()).
+		WithResourceTemplate(postResourceTemplate{store: store}).
 		Build()
 
 	if err := srv.RegisterMCPExtension(ext); err != nil {

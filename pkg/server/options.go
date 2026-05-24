@@ -20,6 +20,7 @@ Environment Variables:
   - HS_MCP_DEV: Enable MCP developer tools (default "false")
   - HS_MCP_OBSERVABILITY: Enable MCP observability resources (default "false")
   - HS_MCP_TRANSPORT: MCP transport type: "http" or "stdio" (default "http")
+  - HS_MCP_PROTOCOL_VERSION: MCP protocol version to advertise (default "2025-11-25")
   - HS_CSP_WEB_WORKER_SUPPORT: Enable Web Worker CSP headers (default "false")
   - HS_LOG_LEVEL: Set log level (DEBUG, INFO, WARN, ERROR) (default "INFO")
   - HS_DEBUG: Enable debug mode and debug logging (default "false")
@@ -92,6 +93,7 @@ type ServerOptions struct {
 	MCPLogResourceSize  int                                         `json:"mcp_log_resource_size,omitempty"`
 	MCPToolCallTimeout  time.Duration                               `json:"mcp_tool_call_timeout,omitempty"`
 	MCPTransport        mcp.TransportType                           `json:"mcp_transport,omitempty"`
+	MCPProtocolVersion  string                                      `json:"mcp_protocol_version,omitempty"`
 	MCPDev              bool                                        `json:"mcp_dev,omitempty"`
 	MCPObservability    bool                                        `json:"mcp_observability,omitempty"`
 	MCPDiscoveryPolicy  mcp.DiscoveryPolicy                         `json:"mcp_discovery_policy,omitempty"`
@@ -149,6 +151,7 @@ var defaultServerOptions = &ServerOptions{
 	MCPLogResourceSize:  100,
 	MCPToolCallTimeout:  30 * time.Second,
 	MCPTransport:        mcp.HTTPTransport,
+	MCPProtocolVersion:  mcp.DefaultProtocolVersion,
 	MCPDev:              false, // Disabled by default - security sensitive
 	MCPObservability:    false, // Disabled by default - users must opt-in
 	// CSP defaults
@@ -244,6 +247,7 @@ func defaultEnvBindings() []envBinding {
 		{paramMCPServerName, func(v string, c *ServerOptions) { c.MCPServerName = v }},
 		{paramMCPServerVersion, func(v string, c *ServerOptions) { c.MCPServerVersion = v }},
 		{paramMCPFileToolRoot, func(v string, c *ServerOptions) { c.MCPFileToolRoot = v }},
+		{paramMCPProtocolVersion, func(v string, c *ServerOptions) { c.MCPProtocolVersion = v }},
 		{paramLogLevel, func(v string, c *ServerOptions) { c.LogLevel = v }},
 
 		// Bool fields — only honour known truthy/falsy spellings.

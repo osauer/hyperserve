@@ -602,6 +602,10 @@ func (lrw *loggingResponseWriter) Write(b []byte) (int, error) {
 	return n, err
 }
 
+func (lrw *loggingResponseWriter) Unwrap() http.ResponseWriter {
+	return lrw.ResponseWriter
+}
+
 // Hijack implements the http.Hijacker interface to support WebSocket upgrades.
 // It delegates to the underlying ResponseWriter if it implements http.Hijacker.
 func (lrw *loggingResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {

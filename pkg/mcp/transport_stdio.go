@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,7 +21,8 @@ type stdioTransport struct {
 	scanner *bufio.Scanner
 	encoder *json.Encoder
 	logger  *slog.Logger
-	mu      sync.Mutex
+	sendMu  sync.Mutex
+	recvMu  sync.Mutex
 }
 
 // NewStdioTransport creates a new stdio transport using os.Stdin / os.Stdout.
@@ -50,17 +52,31 @@ func NewStdioTransportWithIO(r io.Reader, w io.Writer, logger *slog.Logger) *std
 }
 
 func (t *stdioTransport) Send(response *jsonrpc.Response) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+	t.sendMu.Lock()
+	defer t.sendMu.Unlock()
 	if err := t.encoder.Encode(response); err != nil {
 		return fmt.Errorf("failed to encode response: %w", err)
 	}
 	return nil
 }
 
+func (t *stdioTransport) SendNotification(method string, params any) error {
+	t.sendMu.Lock()
+	defer t.sendMu.Unlock()
+	notification := rpcNotification{
+		JSONRPC: jsonrpc.Version,
+		Method:  method,
+		Params:  params,
+	}
+	if err := t.encoder.Encode(notification); err != nil {
+		return fmt.Errorf("failed to encode notification: %w", err)
+	}
+	return nil
+}
+
 func (t *stdioTransport) Receive() (*jsonrpc.Request, error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+	t.recvMu.Lock()
+	defer t.recvMu.Unlock()
 	if !t.scanner.Scan() {
 		if err := t.scanner.Err(); err != nil {
 			return nil, fmt.Errorf("scanner error: %w", err)
@@ -92,11 +108,14 @@ func createErrorResponse(code int, message string, data any) *jsonrpc.Response {
 func (h *Handler) RunStdioLoop() error {
 	transport := NewStdioTransport(h.logger)
 	defer transport.Close()
+	session := newMCPSession(context.Background(), h, transport)
+	defer session.close()
+	engine := h.newRPCEngine(session)
 
 	h.logger.Debug("MCP stdio server started")
 
 	for {
-		err := h.ProcessRequestWithTransport(transport)
+		err := h.processRequestWithTransportAndSession(transport, session, engine)
 		if errors.Is(err, io.EOF) {
 			h.logger.Debug("MCP stdio server shutting down", "reason", "EOF received")
 			break

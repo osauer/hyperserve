@@ -24,6 +24,62 @@ Entries tier by audience:
 Shape is enforced by `make changelog-lint RELEASE_VERSION=vX.Y.Z`; scaffold a
 new entry with `make changelog-stub RELEASE_VERSION=vX.Y.Z`.
 
+## [1.2.0] - 2026-05-24 09:19 CEST
+
+### What's new
+
+- MCP resources now support first-class resource templates and live
+  subscriptions over SSE and stdio.
+- HyperServe now defaults MCP protocol negotiation to `2025-11-25`, with
+  handler, server option, config, and environment overrides.
+- Tools can return `mcp.ToolError(...)` for MCP `isError: true` results
+  without turning domain failures into JSON-RPC protocol errors.
+
+### Added
+
+- Added `mcp.ResourceTemplate`, `mcp.SubscribableResourceTemplate`,
+  `mcp.ResourceEmitter`, template registration helpers, namespaced template
+  registration, and extension-builder support for resource templates.
+- Added `resources/templates/list`, `resources/subscribe`, and
+  `resources/unsubscribe` handling. Subscription updates emit
+  `notifications/resources/updated` as URI-only invalidation notifications.
+- Added `mcp.DefaultProtocolVersion`, `(*mcp.Handler).ProtocolVersion`,
+  `(*mcp.Handler).SetProtocolVersion`, `server.WithMCPProtocolVersion`, and
+  `HS_MCP_PROTOCOL_VERSION`.
+- Added `mcp.ToolError` and `mcp.ToolErrorf` for domain-level tool failures
+  that should be successful MCP `tools/call` responses with `isError: true`.
+
+### Changed
+
+- `initialize` and MCP discovery now read the handler's configured protocol
+  version instead of a hard-coded obsolete version.
+- Stdio MCP writes no longer share the blocking receive lock, so subscription
+  notifications can be emitted while the server waits for the next request.
+- The MCP extensions example now includes a subscribable `blog://posts/{id}`
+  resource template and uses `mcp.ToolErrorf` for not-found tool results.
+
+### Fixed
+
+- MCP SSE streams now clear HTTP write deadlines when a stream opens, so
+  long-lived subscriptions survive the server's normal per-response write
+  timeout.
+
+### Documentation
+
+- Documented resource templates, subscriptions, backpressure behavior,
+  protocol version configuration, and tool-domain error semantics.
+- Updated stale MCP protocol-version examples and resource-caching guidance.
+
+### Verification
+
+- `go test ./pkg/mcp ./pkg/server ./pkg/mcp/builtin`
+- `go test ./...`
+- `make check`
+- `go test -race ./pkg/mcp`
+- built and ran the `examples/mcp-extensions` binary; verified template
+  listing, template-backed reads, SSE subscribe/unsubscribe, URI-only resource
+  update notifications, and a stream held past the previous 30-second timeout
+
 ## [1.1.0] - 2026-05-24 07:21 CEST
 
 Release-line repair and production hardening. HyperServe is v1; this release

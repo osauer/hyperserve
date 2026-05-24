@@ -30,15 +30,23 @@ var (
 // The SSE state machine (client registry + per-client request channels) lives
 // entirely in sseManager — Handler stays focused on JSON-RPC dispatch.
 type Handler struct {
-	tools           map[string]Tool
-	resources       map[string]Resource
-	namespaces      map[string]*Namespace
-	rpcEngine       *jsonrpc.Engine
-	serverInfo      ServerInfo
-	logger          *slog.Logger
-	cache           *resourceCache
-	sseManager      *sseManager
-	toolCallTimeout time.Duration // Set via SetToolCallTimeout; defaults to 30s when zero.
+	tools                 map[string]Tool
+	resources             map[string]Resource
+	resourceTemplates     []resourceTemplateEntry
+	resourceTemplateIndex map[string]int
+	namespaces            map[string]*Namespace
+	rpcEngine             *jsonrpc.Engine
+	serverInfo            ServerInfo
+	protocolVersion       string
+	logger                *slog.Logger
+	cache                 *resourceCache
+	sseManager            *sseManager
+	toolCallTimeout       time.Duration // Set via SetToolCallTimeout; defaults to 30s when zero.
+}
+
+type resourceTemplateEntry struct {
+	uriTemplate string
+	template    ResourceTemplate
 }
 
 // defaultToolCallTimeout is the per-tool execution budget. Tools that exceed
@@ -59,27 +67,44 @@ func (h *Handler) SetToolCallTimeout(d time.Duration) {
 // NewHandler creates a new MCP handler instance.
 func NewHandler(serverInfo ServerInfo) *Handler {
 	handler := &Handler{
-		tools:      make(map[string]Tool),
-		resources:  make(map[string]Resource),
-		namespaces: make(map[string]*Namespace),
-		rpcEngine:  jsonrpc.NewEngine(logger),
-		serverInfo: serverInfo,
-		logger:     logger,
-		cache:      newResourceCache(100),
-		sseManager: newSSEManager(),
+		tools:                 make(map[string]Tool),
+		resources:             make(map[string]Resource),
+		resourceTemplateIndex: make(map[string]int),
+		namespaces:            make(map[string]*Namespace),
+		serverInfo:            serverInfo,
+		protocolVersion:       DefaultProtocolVersion,
+		logger:                logger,
+		cache:                 newResourceCache(100),
+		sseManager:            newSSEManager(),
 	}
-	handler.registerMCPMethods()
+	handler.rpcEngine = handler.newRPCEngine(nil)
 	return handler
 }
 
 // ServerInfo returns the server info associated with this handler.
 func (h *Handler) ServerInfo() ServerInfo { return h.serverInfo }
 
+// ProtocolVersion returns the MCP protocol version this handler advertises.
+func (h *Handler) ProtocolVersion() string { return h.protocolVersion }
+
+// SetProtocolVersion overrides the MCP protocol version advertised in
+// initialize and discovery responses. Empty values reset to the default.
+func (h *Handler) SetProtocolVersion(version string) {
+	if strings.TrimSpace(version) == "" {
+		h.protocolVersion = DefaultProtocolVersion
+		return
+	}
+	h.protocolVersion = version
+}
+
 // ToolCount returns the number of registered tools.
 func (h *Handler) ToolCount() int { return len(h.tools) }
 
 // ResourceCount returns the number of registered resources.
 func (h *Handler) ResourceCount() int { return len(h.resources) }
+
+// ResourceTemplateCount returns the number of registered resource templates.
+func (h *Handler) ResourceTemplateCount() int { return len(h.resourceTemplates) }
 
 // HasTool reports whether a tool with the given (possibly prefixed) name is
 // registered.
@@ -91,6 +116,12 @@ func (h *Handler) HasTool(name string) bool {
 // HasResource reports whether a resource with the given URI is registered.
 func (h *Handler) HasResource(uri string) bool {
 	_, ok := h.resources[uri]
+	return ok
+}
+
+// HasResourceTemplate reports whether a resource template is registered.
+func (h *Handler) HasResourceTemplate(uriTemplate string) bool {
+	_, ok := h.resourceTemplateIndex[uriTemplate]
 	return ok
 }
 
@@ -146,6 +177,19 @@ func (h *Handler) RegisterResource(resource Resource) {
 	h.logger.Debug("MCP resource registered", "resource", resource.Name(), "uri", resource.URI())
 }
 
+// RegisterResourceTemplate registers an MCP resource template without
+// namespace prefixing.
+func (h *Handler) RegisterResourceTemplate(template ResourceTemplate) {
+	uriTemplate := template.URITemplate()
+	if idx, exists := h.resourceTemplateIndex[uriTemplate]; exists {
+		h.resourceTemplates[idx] = resourceTemplateEntry{uriTemplate: uriTemplate, template: template}
+	} else {
+		h.resourceTemplateIndex[uriTemplate] = len(h.resourceTemplates)
+		h.resourceTemplates = append(h.resourceTemplates, resourceTemplateEntry{uriTemplate: uriTemplate, template: template})
+	}
+	h.logger.Debug("MCP resource template registered", "resource", template.Name(), "uriTemplate", uriTemplate)
+}
+
 // RegisterResourceInNamespace registers an MCP resource in the specified namespace.
 func (h *Handler) RegisterResourceInNamespace(resource Resource, namespace string) {
 	if namespace == "" {
@@ -155,6 +199,28 @@ func (h *Handler) RegisterResourceInNamespace(resource Resource, namespace strin
 	prefixedURI := h.formatResourceName(namespace, resource.URI())
 	h.resources[prefixedURI] = resource
 	h.logger.Debug("MCP resource registered in namespace", "resource", resource.Name(), "namespace", namespace, "uri", resource.URI(), "prefixedURI", prefixedURI)
+}
+
+// RegisterResourceTemplateInNamespace registers an MCP resource template in
+// the specified namespace.
+func (h *Handler) RegisterResourceTemplateInNamespace(template ResourceTemplate, namespace string) {
+	if namespace == "" {
+		h.logger.Error("Cannot register resource template without namespace", "resource", template.Name())
+		return
+	}
+	wrapped := &namespacedResourceTemplate{
+		namespace: namespace,
+		prefix:    h.formatResourceName(namespace, ""),
+		template:  template,
+	}
+	if subscribable, ok := template.(SubscribableResourceTemplate); ok {
+		h.RegisterResourceTemplate(&namespacedSubscribableResourceTemplate{
+			namespacedResourceTemplate: wrapped,
+			template:                   subscribable,
+		})
+		return
+	}
+	h.RegisterResourceTemplate(wrapped)
 }
 
 // RegisterNamespace registers an entire namespace with its tools and resources.
@@ -172,8 +238,11 @@ func (h *Handler) RegisterNamespace(name string, configs ...NamespaceConfig) err
 	for _, resource := range ns.Resources {
 		h.RegisterResourceInNamespace(resource, name)
 	}
+	for _, template := range ns.ResourceTemplates {
+		h.RegisterResourceTemplateInNamespace(template, name)
+	}
 	h.namespaces[name] = ns
-	h.logger.Debug("MCP namespace registered", "namespace", name, "tools", len(ns.Tools), "resources", len(ns.Resources))
+	h.logger.Debug("MCP namespace registered", "namespace", name, "tools", len(ns.Tools), "resources", len(ns.Resources), "resourceTemplates", len(ns.ResourceTemplates))
 	return nil
 }
 
@@ -191,6 +260,16 @@ func (h *Handler) RegisteredResources() []string {
 	return slices.AppendSeq(resources, maps.Keys(h.resources))
 }
 
+// RegisteredResourceTemplates returns all registered resource template URI
+// templates in registration order.
+func (h *Handler) RegisteredResourceTemplates() []string {
+	templates := make([]string, 0, len(h.resourceTemplates))
+	for _, entry := range h.resourceTemplates {
+		templates = append(templates, entry.uriTemplate)
+	}
+	return templates
+}
+
 // Tool returns a tool by its (possibly prefixed) name.
 func (h *Handler) Tool(name string) (Tool, bool) {
 	tool, exists := h.tools[name]
@@ -200,7 +279,7 @@ func (h *Handler) Tool(name string) (Tool, bool) {
 // Capabilities returns the server's MCP capabilities.
 func (h *Handler) Capabilities() Capabilities {
 	return Capabilities{
-		Resources: &ResourcesCapability{Subscribe: false, ListChanged: false},
+		Resources: &ResourcesCapability{Subscribe: h.hasSubscribableResourceTemplates(), ListChanged: false},
 		Tools:     &ToolsCapability{ListChanged: false},
 		SSE: &SSECapability{
 			Enabled:       true,
@@ -210,9 +289,24 @@ func (h *Handler) Capabilities() Capabilities {
 	}
 }
 
+func (h *Handler) hasSubscribableResourceTemplates() bool {
+	for _, entry := range h.resourceTemplates {
+		if _, ok := entry.template.(SubscribableResourceTemplate); ok {
+			return true
+		}
+	}
+	return false
+}
+
 // ProcessRequest processes a single MCP request (raw JSON).
 func (h *Handler) ProcessRequest(requestData []byte) []byte {
 	return h.rpcEngine.ProcessRequest(requestData)
+}
+
+func (h *Handler) newRPCEngine(session *mcpSession) *jsonrpc.Engine {
+	engine := jsonrpc.NewEngine(h.logger)
+	h.registerMCPMethods(engine, session)
+	return engine
 }
 
 // isJSONAccepted reports whether the Accept header indicates JSON is acceptable.
@@ -287,7 +381,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// input. Escape unconditionally — the few characters we'd want
 		// rendered verbatim are not worth the XSS surface.
 		path := html.EscapeString(r.URL.Path)
-		fmt.Fprintf(w, htmlHelpTemplate, path, path, path, path, path)
+		fmt.Fprintf(w, htmlHelpTemplate, path, h.protocolVersion, path, path, path, path)
 		return
 	}
 
@@ -315,15 +409,28 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // ProcessRequestWithTransport processes an MCP request using the provided transport.
 func (h *Handler) ProcessRequestWithTransport(transport Transport) error {
+	return h.processRequestWithTransportAndSession(transport, nil, h.rpcEngine)
+}
+
+func (h *Handler) processRequestWithTransportAndSession(transport Transport, session *mcpSession, engine *jsonrpc.Engine) error {
 	request, err := transport.Receive()
 	if err != nil {
 		return fmt.Errorf("failed to receive request: %w", err)
 	}
 
-	response := h.rpcEngine.ProcessRequestDirect(request)
+	return h.processRequestObjectWithSession(request, transport, session, engine)
+}
+
+func (h *Handler) processRequestObjectWithSession(request *jsonrpc.Request, transport Transport, session *mcpSession, engine *jsonrpc.Engine) error {
+	response := engine.ProcessRequestDirect(request)
 	if response == nil {
 		if transport, ok := transport.(interface{ NoResponse() error }); ok {
-			return transport.NoResponse()
+			if err := transport.NoResponse(); err != nil {
+				return err
+			}
+		}
+		if session != nil {
+			session.startPending()
 		}
 		return nil
 	}
@@ -331,17 +438,29 @@ func (h *Handler) ProcessRequestWithTransport(transport Transport) error {
 	if err := transport.Send(response); err != nil {
 		return fmt.Errorf("failed to send response: %w", err)
 	}
+	if session != nil {
+		session.startPending()
+	}
 	return nil
 }
 
-func (h *Handler) registerMCPMethods() {
-	h.rpcEngine.RegisterMethod("initialize", h.handleInitialize)
-	h.rpcEngine.RegisterMethod("initialized", h.handleInitialized)
-	h.rpcEngine.RegisterMethod("resources/list", h.handleResourcesList)
-	h.rpcEngine.RegisterMethod("resources/read", h.handleResourcesRead)
-	h.rpcEngine.RegisterMethod("tools/list", h.handleToolsList)
-	h.rpcEngine.RegisterMethod("tools/call", h.handleToolsCall)
-	h.rpcEngine.RegisterMethod("ping", h.handlePing)
+func (h *Handler) registerMCPMethods(engine *jsonrpc.Engine, session *mcpSession) {
+	engine.RegisterMethod("initialize", h.handleInitialize)
+	engine.RegisterMethod("initialized", h.handleInitialized)
+	engine.RegisterMethod("resources/list", h.handleResourcesList)
+	engine.RegisterMethod("resources/templates/list", h.handleResourceTemplatesList)
+	engine.RegisterMethod("resources/read", func(params any) (any, error) {
+		return h.handleResourcesRead(session, params)
+	})
+	engine.RegisterMethod("resources/subscribe", func(params any) (any, error) {
+		return h.handleResourcesSubscribe(session, params)
+	})
+	engine.RegisterMethod("resources/unsubscribe", func(params any) (any, error) {
+		return h.handleResourcesUnsubscribe(session, params)
+	})
+	engine.RegisterMethod("tools/list", h.handleToolsList)
+	engine.RegisterMethod("tools/call", h.handleToolsCall)
+	engine.RegisterMethod("ping", h.handlePing)
 }
 
 func (h *Handler) handleInitialize(params any) (any, error) {
@@ -358,7 +477,7 @@ func (h *Handler) handleInitialize(params any) (any, error) {
 	h.logger.Debug("MCP client initialized", "client", initParams.ClientInfo.Name, "version", initParams.ClientInfo.Version)
 
 	return map[string]any{
-		"protocolVersion": ProtocolVersion,
+		"protocolVersion": h.protocolVersion,
 		"capabilities":    h.Capabilities(),
 		"serverInfo":      h.serverInfo,
 		"instructions":    "Follow the initialization protocol: after receiving this response, send an 'initialized' notification, then the server will send a 'ready' notification. For SSE support, connect to the SAME endpoint with 'Accept: text/event-stream' header.",
@@ -383,7 +502,21 @@ func (h *Handler) handleResourcesList(_ any) (any, error) {
 	return map[string]any{"resources": resources}, nil
 }
 
-func (h *Handler) handleResourcesRead(params any) (any, error) {
+func (h *Handler) handleResourceTemplatesList(_ any) (any, error) {
+	templates := make([]ResourceTemplateInfo, 0, len(h.resourceTemplates))
+	for _, entry := range h.resourceTemplates {
+		template := entry.template
+		templates = append(templates, ResourceTemplateInfo{
+			URITemplate: entry.uriTemplate,
+			Name:        template.Name(),
+			Description: template.Description(),
+			MimeType:    template.MimeType(),
+		})
+	}
+	return map[string]any{"resourceTemplates": templates}, nil
+}
+
+func (h *Handler) handleResourcesRead(session *mcpSession, params any) (any, error) {
 	var readParams ResourceReadParams
 
 	if params != nil {
@@ -413,17 +546,40 @@ func (h *Handler) handleResourcesRead(params any) (any, error) {
 	}
 
 	resource, exists := h.resources[readParams.URI]
-	if !exists {
+	if exists {
+		return h.readStaticResource(readParams.URI, resource)
+	}
+
+	template, templateParams, ok := h.matchResourceTemplate(readParams.URI)
+	if !ok {
 		return nil, fmt.Errorf("resource not found: %s", readParams.URI)
 	}
 
-	cacheKey := readParams.URI
+	ctx := context.Background()
+	if session != nil {
+		ctx = session.ctx
+	}
+	content, err := template.Read(ctx, readParams.URI, templateParams)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read resource template: %w", err)
+	}
+	contentBlock, err := resourceContent(readParams.URI, template.MimeType(), content)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"contents": []ResourceContent{contentBlock},
+	}, nil
+}
+
+func (h *Handler) readStaticResource(uri string, resource Resource) (any, error) {
+	cacheKey := uri
 	cacheTTL := resourceCacheTTL(resource)
 	if cacheTTL > 0 {
 		if cachedContent, hit := h.cache.get(cacheKey); hit {
 			return map[string]any{
 				"contents": []ResourceContent{
-					{URI: readParams.URI, MimeType: resource.MimeType(), Text: cachedContent},
+					{URI: uri, MimeType: resource.MimeType(), Text: cachedContent},
 				},
 			}, nil
 		}
@@ -434,29 +590,85 @@ func (h *Handler) handleResourcesRead(params any) (any, error) {
 		return nil, fmt.Errorf("failed to read resource: %w", err)
 	}
 
-	var textContent string
-	switch v := content.(type) {
-	case string:
-		textContent = v
-	case []byte:
-		textContent = string(v)
-	default:
-		jsonBytes, err := json.Marshal(v)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal resource content to JSON: %w", err)
-		}
-		textContent = string(jsonBytes)
+	contentBlock, err := resourceContent(uri, resource.MimeType(), content)
+	if err != nil {
+		return nil, err
 	}
 
 	if cacheTTL > 0 {
-		h.cache.set(cacheKey, textContent, cacheTTL)
+		h.cache.set(cacheKey, contentBlock.Text, cacheTTL)
 	}
 
 	return map[string]any{
-		"contents": []ResourceContent{
-			{URI: readParams.URI, MimeType: resource.MimeType(), Text: textContent},
-		},
+		"contents": []ResourceContent{contentBlock},
 	}, nil
+}
+
+func (h *Handler) matchResourceTemplate(uri string) (ResourceTemplate, map[string]string, bool) {
+	for _, entry := range h.resourceTemplates {
+		params, ok := entry.template.Match(uri)
+		if ok {
+			return entry.template, params, true
+		}
+	}
+	return nil, nil, false
+}
+
+func (h *Handler) matchSubscribableResourceTemplate(uri string) (SubscribableResourceTemplate, map[string]string, bool) {
+	template, params, ok := h.matchResourceTemplate(uri)
+	if !ok {
+		return nil, nil, false
+	}
+	subscribable, ok := template.(SubscribableResourceTemplate)
+	return subscribable, params, ok
+}
+
+func (h *Handler) handleResourcesSubscribe(session *mcpSession, params any) (any, error) {
+	if session == nil {
+		return nil, fmt.Errorf("resources/subscribe requires a live MCP session (SSE or stdio)")
+	}
+	var subscribeParams ResourceReadParams
+	if params != nil {
+		paramBytes, err := json.Marshal(params)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal params: %w", err)
+		}
+		if err := json.Unmarshal(paramBytes, &subscribeParams); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal subscribe params: %w", err)
+		}
+	}
+	if subscribeParams.URI == "" {
+		return nil, fmt.Errorf("uri parameter is required for resources/subscribe method")
+	}
+	template, templateParams, ok := h.matchSubscribableResourceTemplate(subscribeParams.URI)
+	if !ok {
+		return nil, fmt.Errorf("subscribable resource not found: %s", subscribeParams.URI)
+	}
+	if err := session.subscribe(subscribeParams.URI, template, templateParams); err != nil {
+		return nil, err
+	}
+	return map[string]any{}, nil
+}
+
+func (h *Handler) handleResourcesUnsubscribe(session *mcpSession, params any) (any, error) {
+	if session == nil {
+		return nil, fmt.Errorf("resources/unsubscribe requires a live MCP session (SSE or stdio)")
+	}
+	var unsubscribeParams ResourceReadParams
+	if params != nil {
+		paramBytes, err := json.Marshal(params)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal params: %w", err)
+		}
+		if err := json.Unmarshal(paramBytes, &unsubscribeParams); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal unsubscribe params: %w", err)
+		}
+	}
+	if unsubscribeParams.URI == "" {
+		return nil, fmt.Errorf("uri parameter is required for resources/unsubscribe method")
+	}
+	session.unsubscribe(unsubscribeParams.URI)
+	return map[string]any{}, nil
 }
 
 func resourceCacheTTL(resource Resource) time.Duration {
@@ -510,6 +722,13 @@ func (h *Handler) handleToolsCall(params any) (any, error) {
 	defer cancel()
 	result, err := ctxTool.ExecuteWithContext(ctx, callParams.Arguments)
 	if err != nil {
+		var toolErr *toolError
+		if errors.As(err, &toolErr) {
+			return ToolResult{
+				Content: []map[string]any{{"type": "text", "text": toolErr.Error()}},
+				IsError: true,
+			}, nil
+		}
 		return nil, fmt.Errorf("tool execution failed: %w", err)
 	}
 
@@ -671,7 +890,7 @@ const htmlHelpTemplate = `<!DOCTYPE html>
     "jsonrpc": "2.0",
     "method": "initialize",
     "params": {
-      "protocolVersion": "2024-11-05",
+      "protocolVersion": "%s",
       "capabilities": {},
       "clientInfo": {"name": "test-client", "version": "1.0.0"}
     },
@@ -700,7 +919,10 @@ const htmlHelpTemplate = `<!DOCTYPE html>
         <li><code>tools/list</code> - List available tools</li>
         <li><code>tools/call</code> - Execute a tool</li>
         <li><code>resources/list</code> - List available resources</li>
+        <li><code>resources/templates/list</code> - List available resource templates</li>
         <li><code>resources/read</code> - Read a resource</li>
+        <li><code>resources/subscribe</code> - Subscribe to a resource over SSE or stdio</li>
+        <li><code>resources/unsubscribe</code> - Cancel a resource subscription</li>
     </ul>
 
     <h2>Server-Sent Events (SSE) Support</h2>

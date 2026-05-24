@@ -22,6 +22,8 @@ AI assistants are becoming increasingly important in software development and op
 MCP (Model Context Protocol) is an open standard that provides:
 - **Tools**: Functions that AI assistants can call (e.g., file operations, calculations)
 - **Resources**: Data sources that AI assistants can read (e.g., configuration, metrics)
+- **Resource templates**: Parameterized resource families such as `logs://{service}/{id}`
+- **Resource subscriptions**: Live update invalidations over SSE or stdio
 - **JSON-RPC 2.0**: Standard protocol for communication
 - **Capability Negotiation**: Clients discover available capabilities
 
@@ -39,6 +41,8 @@ We will implement native MCP support in hyperserve with the following architectu
 
 - **Tool Interface**: Standardized interface for all MCP tools
 - **Resource Interface**: Standardized interface for all MCP resources
+- **ResourceTemplate Interface**: Parameterized resources discoverable through `resources/templates/list`
+- **SubscribableResourceTemplate Interface**: Live resource invalidations through `resources/subscribe`
 - **Built-in Tools**: File operations, HTTP requests, calculations
 - **Built-in Resources**: Server config, metrics, system information, logs
 
@@ -111,6 +115,7 @@ type ServerOptions struct {
 **Custom Extensions:**
 - Register custom tools via `srv.RegisterMCPTool()`
 - Register custom resources via `srv.RegisterMCPResource()`
+- Register custom resource templates via `srv.RegisterMCPResourceTemplate()`
 - Check MCP status with `srv.MCPEnabled()`
 
 ### Usage Pattern
@@ -134,6 +139,7 @@ func (t *MyTool) Schema() map[string]any { /* ... */ }
 func (t *MyTool) Execute(params map[string]any) (any, error) { /* ... */ }
 
 srv.RegisterMCPTool(&MyTool{})
+srv.RegisterMCPResourceTemplate(&MyResourceTemplate{})
 srv.Run()
 ```
 
@@ -227,9 +233,10 @@ This ADR aligns with existing architectural decisions:
 ## Implementation Status
 
 - ✅ **Phase 1**: Core MCP implementation (JSON-RPC, handlers, tools, resources)
-- ⏳ **Phase 2**: WebSocket transport (future consideration)
-- ⏳ **Phase 3**: Advanced tools (database access, etc.)
-- ⏳ **Phase 4**: Tool composition and workflows
+- ✅ **Phase 2**: Resource templates and resource subscriptions over SSE/stdio
+- ⏳ **Phase 3**: WebSocket transport (future consideration)
+- ⏳ **Phase 4**: Advanced tools (database access, etc.)
+- ⏳ **Phase 5**: Tool composition and workflows
 
 ## References
 

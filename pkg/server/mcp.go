@@ -92,6 +92,15 @@ func (srv *Server) RegisterMCPResource(resource mcp.Resource) error {
 	return nil
 }
 
+// RegisterMCPResourceTemplate registers a custom MCP resource template.
+func (srv *Server) RegisterMCPResourceTemplate(template mcp.ResourceTemplate) error {
+	if !srv.MCPEnabled() {
+		return fmt.Errorf("MCP is not enabled on this server")
+	}
+	srv.mcpHandler.RegisterResourceTemplate(template)
+	return nil
+}
+
 // RegisterMCPNamespace registers an entire MCP namespace with its tools and
 // resources. Per-tool/per-resource namespace registration goes through this
 // path — callers that need a single tool in a namespace pass it inside a

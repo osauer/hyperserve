@@ -217,6 +217,9 @@ func (m *sseManager) HandleSSE(w http.ResponseWriter, r *http.Request, mcpHandle
 		http.Error(w, "SSE not supported", http.StatusInternalServerError)
 		return
 	}
+	if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
+		m.logger.Debug("Unable to clear SSE write deadline", "error", err)
+	}
 
 	// Generate IDs FIRST, then bail out before any wire side effect or
 	// registry insertion if crypto/rand failed. The previous shape wrote
@@ -260,6 +263,9 @@ func (m *sseManager) HandleSSE(w http.ResponseWriter, r *http.Request, mcpHandle
 	}
 
 	transport := newSSETransport(clientID, m, requestChan)
+	session := newMCPSession(r.Context(), mcpHandler, transport)
+	defer session.close()
+	engine := mcpHandler.newRPCEngine(session)
 
 	ctx := r.Context()
 	pingTicker := time.NewTicker(m.pingInterval)
@@ -278,11 +284,8 @@ func (m *sseManager) HandleSSE(w http.ResponseWriter, r *http.Request, mcpHandle
 				if request == nil {
 					continue
 				}
-				response := mcpHandler.rpcEngine.ProcessRequestDirect(request)
-				if response != nil {
-					if err := transport.Send(response); err != nil {
-						m.logger.Error("Failed to send response", "error", err, "client", clientID)
-					}
+				if err := mcpHandler.processRequestObjectWithSession(request, transport, session, engine); err != nil {
+					m.logger.Error("Failed to process SSE request", "error", err, "client", clientID)
 				}
 				if request.Method == "initialized" {
 					client.SetInitialized()
@@ -354,6 +357,17 @@ func (m *sseManager) SendToClient(clientID string, response *jsonrpc.Response) e
 		return fmt.Errorf("client not found: %s", clientID)
 	}
 	return client.Send(response)
+}
+
+// SendEventToClient sends an arbitrary SSE event to a specific client.
+func (m *sseManager) SendEventToClient(clientID, event string, data []byte) error {
+	m.mu.RLock()
+	client, exists := m.clients[clientID]
+	m.mu.RUnlock()
+	if !exists {
+		return fmt.Errorf("client not found: %s", clientID)
+	}
+	return client.enqueueEvent(event, data)
 }
 
 // BroadcastToAll sends a response to all connected SSE clients.
@@ -440,7 +454,24 @@ func (t *sseTransport) Send(response *jsonrpc.Response) error {
 	if response == nil {
 		return nil
 	}
-	return t.sseManager.SendToClient(t.clientID, response)
+	data, err := json.Marshal(response)
+	if err != nil {
+		return fmt.Errorf("failed to marshal response: %w", err)
+	}
+	return t.sseManager.SendEventToClient(t.clientID, "message", data)
+}
+
+func (t *sseTransport) SendNotification(method string, params any) error {
+	notification := rpcNotification{
+		JSONRPC: jsonrpc.Version,
+		Method:  method,
+		Params:  params,
+	}
+	data, err := json.Marshal(notification)
+	if err != nil {
+		return fmt.Errorf("failed to marshal notification: %w", err)
+	}
+	return t.sseManager.SendEventToClient(t.clientID, "notification", data)
 }
 
 func (t *sseTransport) Receive() (*jsonrpc.Request, error) {

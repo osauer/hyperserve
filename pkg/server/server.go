@@ -176,6 +176,7 @@ const (
 	paramMCPDev               = "HS_MCP_DEV"
 	paramMCPObservability     = "HS_MCP_OBSERVABILITY"
 	paramMCPTransport         = "HS_MCP_TRANSPORT"
+	paramMCPProtocolVersion   = "HS_MCP_PROTOCOL_VERSION"
 	paramCSPWebWorkerSupport  = "HS_CSP_WEB_WORKER_SUPPORT"
 	paramCORSAllowedOrigins   = "HS_CORS_ALLOWED_ORIGINS"
 	paramCORSAllowCredentials = "HS_CORS_ALLOW_CREDENTIALS"
@@ -403,6 +404,7 @@ func initializeMCPHandler(srv *Server) {
 		Version: srv.Options.MCPServerVersion,
 	}
 	srv.mcpHandler = mcp.NewHandler(serverInfo)
+	srv.mcpHandler.SetProtocolVersion(srv.Options.MCPProtocolVersion)
 	srv.mcpHandler.SetToolCallTimeout(srv.Options.MCPToolCallTimeout)
 
 	if srv.Options.mcpTransportOpts.DeveloperMode {
