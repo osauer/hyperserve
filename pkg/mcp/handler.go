@@ -42,6 +42,7 @@ type Handler struct {
 	cache                 *resourceCache
 	sseManager            *sseManager
 	toolCallTimeout       time.Duration // Set via SetToolCallTimeout; defaults to 30s when zero.
+	originValidator       func(*http.Request) bool
 }
 
 type resourceTemplateEntry struct {
@@ -147,6 +148,15 @@ func (h *Handler) SetLogger(l *slog.Logger) {
 		return
 	}
 	h.logger = l
+}
+
+// SetOriginValidator overrides the default MCP Origin policy. The default
+// accepts requests without Origin (normal for non-browser clients) and
+// requires browser origins to match the request Host. Passing nil restores
+// that default. Applications allowing cross-origin browser clients should
+// authenticate them and validate an explicit origin allowlist here.
+func (h *Handler) SetOriginValidator(validator func(*http.Request) bool) {
+	h.originValidator = validator
 }
 
 func (h *Handler) formatToolName(namespace, toolName string) string {
@@ -347,9 +357,23 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h.logger.Enabled(context.Background(), slog.LevelDebug) {
 		h.logger.Debug("MCP ServeHTTP called", "path", r.URL.Path, "method", r.Method)
 	}
+	if !h.isOriginAllowed(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
 
-	// SSE route via Accept header.
-	if isSSEAccepted(r.Header.Get("Accept")) {
+	// The 2026-07-28 transport is selected by its per-request protocol
+	// metadata. Requests without those headers retain the initialize-era HTTP
+	// behavior, which gives existing 2025 clients an explicit compatibility
+	// path on the same endpoint.
+	if r.Method == http.MethodPost && h.isStreamableHTTPRequest(r) {
+		h.serveStreamableHTTP(w, r)
+		return
+	}
+
+	// Legacy standalone SSE is GET-only. A modern POST must list SSE in Accept,
+	// so routing on Accept without checking the method hijacks valid requests.
+	if r.Method == http.MethodGet && isSSEAccepted(r.Header.Get("Accept")) {
 		h.sseManager.HandleSSE(w, r, h)
 		return
 	}
@@ -459,7 +483,13 @@ func (h *Handler) registerMCPMethods(engine *jsonrpc.Engine, session *mcpSession
 		return h.handleResourcesUnsubscribe(session, params)
 	})
 	engine.RegisterMethod("tools/list", h.handleToolsList)
-	engine.RegisterMethod("tools/call", h.handleToolsCall)
+	engine.RegisterMethod("tools/call", func(params any) (any, error) {
+		ctx := context.Background()
+		if session != nil {
+			ctx = session.ctx
+		}
+		return h.handleToolsCallContext(ctx, params)
+	})
 	engine.RegisterMethod("ping", h.handlePing)
 }
 
@@ -696,6 +726,10 @@ func (h *Handler) handleToolsList(_ any) (any, error) {
 }
 
 func (h *Handler) handleToolsCall(params any) (any, error) {
+	return h.handleToolsCallContext(context.Background(), params)
+}
+
+func (h *Handler) handleToolsCallContext(parent context.Context, params any) (any, error) {
 	var callParams ToolCallParams
 
 	if params != nil {
@@ -718,7 +752,7 @@ func (h *Handler) handleToolsCall(params any) (any, error) {
 		timeout = defaultToolCallTimeout
 	}
 	ctxTool := wrapToolWithContext(tool)
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	result, err := ctxTool.ExecuteWithContext(ctx, callParams.Arguments)
 	if err != nil {
@@ -876,45 +910,53 @@ const htmlHelpTemplate = `<!DOCTYPE html>
     for AI assistant integration.</p>
 
     <div class="note">
-        <strong>Note:</strong> MCP uses JSON-RPC 2.0 over HTTP POST. GET requests are not supported.
+        <strong>Note:</strong> MCP protocol traffic uses JSON-RPC 2.0 over HTTP POST.
+        This GET response is documentation only.
     </div>
 
     <h2>How to Use</h2>
 
     <div class="example">
-        <h3>Initialize Connection</h3>
+        <h3>Discover MCP 2026-07-28</h3>
         <pre>curl -X POST %s \
+  -H "Accept: application/json, text/event-stream" \
   -H "Content-Type: application/json" \
+  -H "MCP-Protocol-Version: 2026-07-28" \
+  -H "Mcp-Method: server/discover" \
   -d '{
     "jsonrpc": "2.0",
-    "method": "initialize",
+    "method": "server/discover",
     "params": {
-      "protocolVersion": "%s",
-      "capabilities": {},
-      "clientInfo": {"name": "test-client", "version": "1.0.0"}
+      "_meta": {"io.modelcontextprotocol/protocolVersion": "2026-07-28"}
     },
     "id": 1
   }'</pre>
     </div>
 
     <div class="example">
-        <h3>List Available Tools</h3>
+        <h3>Legacy 2025 Compatibility</h3>
+        <p>Requests without 2026 per-request headers use the initialize-era
+        compatibility protocol (configured version: <code>%s</code>).</p>
         <pre>curl -X POST %s \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc": "2.0", "method": "tools/list", "id": 2}'</pre>
+  -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test-client","version":"1.0.0"}},"id":1}'</pre>
     </div>
 
     <div class="example">
-        <h3>List Available Resources</h3>
+        <h3>List Available Tools (2026-07-28)</h3>
         <pre>curl -X POST %s \
+  -H "Accept: application/json, text/event-stream" \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc": "2.0", "method": "resources/list", "id": 3}'</pre>
+  -H "MCP-Protocol-Version: 2026-07-28" \
+  -H "Mcp-Method: tools/list" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}},"id":2}'</pre>
     </div>
 
     <h2>Available Methods</h2>
     <ul>
-        <li><code>initialize</code> - Initialize MCP session</li>
-        <li><code>ping</code> - Test connectivity</li>
+        <li><code>server/discover</code> - Discover the current stateless protocol</li>
+        <li><code>initialize</code> - Initialize the legacy 2025 compatibility protocol</li>
+        <li><code>ping</code> - Test legacy protocol connectivity</li>
         <li><code>tools/list</code> - List available tools</li>
         <li><code>tools/call</code> - Execute a tool</li>
         <li><code>resources/list</code> - List available resources</li>
@@ -924,9 +966,9 @@ const htmlHelpTemplate = `<!DOCTYPE html>
         <li><code>resources/unsubscribe</code> - Cancel a resource subscription</li>
     </ul>
 
-    <h2>Server-Sent Events (SSE) Support</h2>
-    <p>This server also supports SSE for real-time communication on the
-    same endpoint. Connect with <code>Accept: text/event-stream</code>; the
+    <h2>Legacy HyperServe Routed SSE</h2>
+    <p>This proprietary compatibility stream is not MCP Streamable HTTP.
+    Connect with <code>Accept: text/event-stream</code>; the
     initial <code>connection</code> event delivers a <code>clientId</code>
     and a <code>bindingToken</code>. Routed POSTs must echo BOTH:</p>
     <ul>

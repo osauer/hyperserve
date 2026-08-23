@@ -98,6 +98,7 @@ type ServerOptions struct {
 	MCPObservability    bool                                        `json:"mcp_observability,omitempty"`
 	MCPDiscoveryPolicy  mcp.DiscoveryPolicy                         `json:"mcp_discovery_policy,omitempty"`
 	MCPDiscoveryFilter  func(toolName string, r *http.Request) bool `json:"-"` // Custom filter function
+	MCPOriginValidator  func(r *http.Request) bool                  `json:"-"`
 	mcpTransportOpts    mcp.TransportOptions                        // Internal transport options
 	// CSP (Content Security Policy) configuration
 	CSPWebWorkerSupport bool         `json:"csp_web_worker_support,omitempty"`

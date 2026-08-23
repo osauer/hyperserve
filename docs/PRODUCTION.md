@@ -115,9 +115,18 @@ can still enumerate. Use it to keep tool names out of casual scrapes
 and CDN-cached payloads. Real access control belongs in auth
 middleware on the MCP endpoint itself.
 
-### SSE binding-token capability
+### Streamable HTTP Origin policy
 
-SSE clients receive a `clientId` and a `bindingToken` in the initial
+MCP rejects a present browser `Origin` unless its scheme, host, and port match
+the request. Requests from normal non-browser clients usually omit Origin and
+remain valid. TLS-terminating proxies or authenticated cross-origin clients
+can install an explicit `WithMCPOriginValidator` policy; do not treat Origin
+as authentication.
+
+### Legacy routed-SSE binding-token capability
+
+The proprietary HyperServe compatibility stream (not MCP 2026-07-28
+Streamable HTTP) gives clients a `clientId` and a `bindingToken` in the initial
 `connection` event. POSTs that should be delivered via that SSE stream
 must present both headers:
 

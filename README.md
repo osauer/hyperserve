@@ -198,9 +198,11 @@ srv, _ := server.NewServer(
 )
 ```
 
-The unified MCP handler supports HTTP, SSE, and stdio transports, discovery,
-namespaces, resource templates, and live resource subscriptions. Built-in
-tools and resources are off by default. See the [MCP guide](./docs/MCP_GUIDE.md).
+The MCP handler supports current stateless Streamable HTTP, initialize-era
+HTTP/stdio compatibility, discovery, namespaces, and resource templates. A
+legacy HyperServe-specific routed-SSE mode remains isolated and documented as
+non-standard. Built-in tools and resources are off by default. See the
+[MCP guide](./docs/MCP_GUIDE.md).
 
 ## Binding and validation
 

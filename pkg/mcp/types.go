@@ -13,8 +13,17 @@ import (
 	"time"
 )
 
-// DefaultProtocolVersion is the MCP protocol version advertised by default.
-const DefaultProtocolVersion = "2025-11-25"
+const (
+	// DefaultProtocolVersion is the initialize-era MCP protocol version
+	// advertised by default. It remains the default for compatibility with
+	// existing 2025 clients while Streamable HTTP negotiates the current
+	// revision independently on each request.
+	DefaultProtocolVersion = "2025-11-25"
+
+	// StreamableHTTPProtocolVersion is the current stateless Streamable HTTP
+	// protocol revision supported by Handler.ServeHTTP.
+	StreamableHTTPProtocolVersion = "2026-07-28"
+)
 
 // ProtocolVersion is kept as a compatibility alias for callers that used the
 // old package constant. New code should prefer DefaultProtocolVersion or a

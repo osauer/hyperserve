@@ -32,15 +32,31 @@ curl http://localhost:8080/.well-known/mcp.json
 
 It returns transport info and (per policy) tool/resource lists.
 
-### HTTP transport
+### Streamable HTTP (MCP 2026-07-28)
 
 ```bash
 curl -X POST http://localhost:8080/mcp \
+  -H "Accept: application/json, text/event-stream" \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
+  -H "MCP-Protocol-Version: 2026-07-28" \
+  -H "Mcp-Method: tools/list" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}},"id":1}'
 ```
 
-### SSE transport
+The endpoint returns JSON for ordinary requests. It validates the mirrored
+protocol/method/name headers, returns 202 with no body for accepted
+notifications, and rejects browser Origins that do not match the request Host.
+Use `server.WithMCPOriginValidator` for an authenticated cross-origin client.
+
+Requests without 2026 per-request metadata, or with the configured legacy
+protocol header, use the initialize-era 2025-11-25 request/response
+compatibility path. It does not implement 2025 sessions or resumable SSE.
+
+### Legacy HyperServe routed SSE
+
+The following is a proprietary compatibility transport, not MCP Streamable
+HTTP. New clients must not use it. It remains temporarily available while
+issue #74 tracks request-scoped SSE and `subscriptions/listen`.
 
 Connect with the SSE Accept header:
 

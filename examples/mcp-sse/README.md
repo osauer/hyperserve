@@ -1,8 +1,10 @@
-# MCP with Server-Sent Events Example
+# Legacy HyperServe Routed SSE Example
 
-Demonstrates HyperServe's unified MCP endpoint: the same `/mcp` URL serves
-both regular HTTP POST requests and SSE streams, selected by the `Accept`
-header.
+Demonstrates HyperServe's proprietary routed-SSE compatibility mode. This is
+not MCP 2026-07-28 Streamable HTTP: it uses a standalone GET stream,
+`X-SSE-*` headers, and non-standard connection/ping events. New MCP clients
+should use the standards-compliant POST transport documented in
+[MCP_GUIDE.md](../../docs/MCP_GUIDE.md).
 
 ## Running
 
@@ -19,7 +21,7 @@ go run ./examples/mcp-sse -mode=client
 ## Key Points
 
 - **Single Endpoint**: Both HTTP POSTs and SSE streams use `/mcp`.
-- **Header-Based Routing**: `Accept: text/event-stream` opens an SSE stream;
+- **GET-only routing**: a GET with `Accept: text/event-stream` opens the legacy stream;
   otherwise the request is treated as a regular JSON-RPC POST.
 - **Connection event**: On stream open, the server emits a `connection`
   event carrying a per-client `clientId` and `bindingToken`.

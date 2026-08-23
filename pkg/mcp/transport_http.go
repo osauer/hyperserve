@@ -27,7 +27,7 @@ func (t *httpTransport) Send(response *jsonrpc.Response) error {
 }
 
 func (t *httpTransport) NoResponse() error {
-	t.w.WriteHeader(http.StatusNoContent)
+	t.w.WriteHeader(http.StatusAccepted)
 	return nil
 }
 

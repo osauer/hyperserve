@@ -1,6 +1,7 @@
 package server
 
 import (
+	"net/http"
 	"time"
 
 	mcp "github.com/osauer/hyperserve/pkg/mcp"
@@ -57,6 +58,20 @@ func WithMCPSupport(name, version string, configs ...mcp.TransportConfig) Server
 			"observabilityMode", srv.Options.mcpTransportOpts.ObservabilityMode,
 			"developerMode", srv.Options.mcpTransportOpts.DeveloperMode,
 		)
+		return nil
+	}
+}
+
+// WithMCPOriginValidator overrides MCP's default same-origin browser policy.
+// The validator receives every MCP request and should allow requests without
+// Origin when non-browser clients are expected. Use an explicit allowlist and
+// do not trust Origin as authentication. Passing nil restores the default.
+func WithMCPOriginValidator(validator func(*http.Request) bool) ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.MCPOriginValidator = validator
+		if srv.mcpHandler != nil {
+			srv.mcpHandler.SetOriginValidator(validator)
+		}
 		return nil
 	}
 }

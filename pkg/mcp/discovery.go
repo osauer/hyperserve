@@ -25,6 +25,7 @@ const (
 // DiscoveryInfo describes the MCP endpoints surfaced by the discovery API.
 type DiscoveryInfo struct {
 	Version      string            `json:"version"`
+	Versions     []string          `json:"versions,omitempty"`
 	Transports   []TransportInfo   `json:"transports"`
 	Endpoints    map[string]string `json:"endpoints"`
 	Capabilities map[string]any    `json:"capabilities,omitempty"`
@@ -69,26 +70,33 @@ func (h *Handler) BuildDiscoveryInfo(r *http.Request, cfg DiscoveryConfig) Disco
 	mcpEndpoint := baseURL + cfg.MCPEndpoint
 
 	info := DiscoveryInfo{
-		Version: h.ProtocolVersion(),
+		Version:  h.ProtocolVersion(),
+		Versions: []string{StreamableHTTPProtocolVersion, h.ProtocolVersion()},
 		Transports: []TransportInfo{
 			{
 				Type:        "http",
 				Endpoint:    mcpEndpoint,
-				Description: "Standard HTTP POST requests with JSON-RPC 2.0",
-				Headers:     map[string]string{"Content-Type": "application/json"},
+				Description: "MCP 2026-07-28 Streamable HTTP POST requests",
+				Headers: map[string]string{
+					"Accept":               "application/json, text/event-stream",
+					"Content-Type":         "application/json",
+					"MCP-Protocol-Version": StreamableHTTPProtocolVersion,
+					"Mcp-Method":           "<JSON-RPC method>",
+				},
 			},
 			{
-				Type:        "sse",
+				Type:        "hyperserve-sse-legacy",
 				Endpoint:    mcpEndpoint,
-				Description: "Server-Sent Events for real-time communication",
+				Description: "Proprietary legacy routed SSE; not MCP Streamable HTTP",
 				Headers:     map[string]string{"Accept": "text/event-stream"},
 			},
 		},
 		Endpoints: map[string]string{
-			"mcp":        mcpEndpoint,
-			"initialize": mcpEndpoint,
-			"tools":      mcpEndpoint,
-			"resources":  mcpEndpoint,
+			"mcp":            mcpEndpoint,
+			"serverDiscover": mcpEndpoint,
+			"initialize":     mcpEndpoint,
+			"tools":          mcpEndpoint,
+			"resources":      mcpEndpoint,
 		},
 	}
 
@@ -134,10 +142,15 @@ func (h *Handler) BuildDiscoveryInfo(r *http.Request, cfg DiscoveryConfig) Disco
 	info.Capabilities = map[string]any{
 		"tools":     toolCapability,
 		"resources": resourceCapability,
+		"streamableHTTP": map[string]any{
+			"version": StreamableHTTPProtocolVersion,
+		},
 		"sse": map[string]any{
 			"enabled":       true,
 			"endpoint":      "same",
 			"headerRouting": true,
+			"legacy":        true,
+			"standard":      false,
 		},
 	}
 

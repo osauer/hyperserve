@@ -1,5 +1,6 @@
-// Example: MCP over SSE. Run with -mode=server for the listener, or
-// -mode=client for a sample SSE consumer that lists tools and calls "echo".
+// Example: legacy HyperServe routed SSE. This proprietary compatibility mode
+// is not MCP Streamable HTTP. Run with -mode=server for the listener, or
+// -mode=client for a sample consumer that lists tools and calls "echo".
 //
 //	go run ./examples/mcp-sse -mode=server
 //	go run ./examples/mcp-sse -mode=client
@@ -71,10 +72,10 @@ func runServer(addr string) {
 	}
 	srv.RegisterMCPTool(echoTool{})
 	srv.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "HyperServe MCP + SSE example")
+		fmt.Fprintln(w, "HyperServe legacy routed-SSE compatibility example")
 		fmt.Fprintln(w, "MCP endpoint: /mcp")
 		fmt.Fprintln(w, "- HTTP: POST /mcp")
-		fmt.Fprintln(w, "- SSE: GET /mcp with Accept: text/event-stream")
+		fmt.Fprintln(w, "- Legacy proprietary stream: GET /mcp with Accept: text/event-stream")
 		fmt.Fprintln(w, "Routed POSTs require X-SSE-Client-ID + X-SSE-Binding headers.")
 	})
 	log.Printf("Server starting on %s", addr)

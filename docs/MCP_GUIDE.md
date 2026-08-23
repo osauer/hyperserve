@@ -10,15 +10,77 @@ HyperServe provides native MCP support through three main configurations:
 2. **Observability** (`MCPObservability()`) - Safe monitoring for production
 3. **Custom Extensions** - Your own tools and resources
 
-HyperServe supports two transport mechanisms for MCP:
-- **HTTP** - Traditional request/response over POST requests
-- **SSE (Server-Sent Events)** - Real-time bidirectional communication
+HyperServe serves two explicitly separated protocol eras on `/mcp`:
 
-## Server-Sent Events (SSE) Support
+- **MCP 2026-07-28 Streamable HTTP** — stateless POST requests with
+  per-request metadata. Ordinary requests currently return JSON.
+- **MCP 2025-11-25 request/response compatibility** — initialize-era HTTP
+  requests with either no protocol header or the configured legacy version.
+  Protocol sessions, resumability, and the revision's standalone SSE behavior
+  are not implemented.
 
-HyperServe's MCP implementation uses a **unified endpoint approach** - both regular HTTP and SSE connections use the same endpoint path. The server automatically routes based on request headers.
+The older `X-SSE-*` routed stream is a proprietary HyperServe compatibility
+transport. It is not MCP Streamable HTTP and new clients must not use it.
 
-### How SSE Works
+## Streamable HTTP (2026-07-28)
+
+Every request is a new POST with both supported response media types and
+mirrored protocol metadata:
+
+```bash
+curl -X POST http://localhost:8080/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'MCP-Protocol-Version: 2026-07-28' \
+  -H 'Mcp-Method: tools/list' \
+  -d '{
+    "jsonrpc":"2.0",
+    "method":"tools/list",
+    "params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}},
+    "id":1
+  }'
+```
+
+`tools/call`, `resources/read`, and `prompts/get` also require `Mcp-Name`.
+Tool parameters marked `x-mcp-header` require the matching `Mcp-Param-*`
+header. HyperServe rejects missing, duplicate, malformed, or mismatched
+metadata and bounds request bodies to 4 MiB. `server/discover` reports the
+current transport version and capabilities.
+
+Browser Origins default to same scheme, host, and port as the request. For an
+authenticated trusted cross-origin client, install an explicit policy:
+
+```go
+server.WithMCPOriginValidator(func(r *http.Request) bool {
+    return r.Header.Get("Origin") == "https://trusted.example"
+})
+```
+
+This callback is an Origin policy, not authentication.
+
+### Conformance status
+
+| Surface | Status |
+|---|---|
+| 2026-07-28 JSON request/response, `server/discover`, tools and resources | Supported |
+| Required standard and annotated tool-parameter headers | Validated |
+| Accepted notifications | `202 Accepted`, empty body |
+| Request-scoped SSE responses | Not yet implemented; issue #74 |
+| `subscriptions/listen` | Not yet implemented; issue #74 |
+| 2025-11-25 request/response fallback | Supported without sessions/resumability |
+| Proprietary `X-SSE-*` routed stream | Legacy compatibility only |
+
+The current path is exercised against the official
+[`github.com/modelcontextprotocol/go-sdk` v1.7.0](https://github.com/modelcontextprotocol/go-sdk/releases/tag/v1.7.0)
+for discovery, `tools/list`, and `tools/call`, in addition to HyperServe's
+protocol and adversarial tests.
+
+## Legacy HyperServe Routed SSE
+
+This section documents the existing proprietary compatibility mode so it
+cannot be confused with standards-compliant Streamable HTTP.
+
+### How the compatibility stream works
 
 1. **Connect with SSE**: send a GET with `Accept: text/event-stream`.
 2. **Capture the connection event**: the server returns a `clientId` *and* a
@@ -51,17 +113,16 @@ curl -X POST http://localhost:8080/mcp \
 # 3. Response arrives on the SSE connection from step 1.
 ```
 
-### Benefits of SSE
+### Compatibility behavior
 
 - **Real-time Updates**: Receive notifications and async responses instantly
 - **Bidirectional**: Send requests while maintaining an open connection
 - **Automatic Keepalive**: Built-in ping/pong every 30 seconds
 - **Single Endpoint**: No need to configure separate SSE paths
 
-### When to Use SSE vs HTTP
-
-- **Use HTTP** for: Simple request/response, AI assistants like Claude Code
-- **Use SSE** for: Live monitoring, debugging sessions, real-time notifications
+- **Use Streamable HTTP** for MCP clients and ordinary request/response work.
+- **Use the legacy stream only** for an existing HyperServe-specific consumer
+  while migrating it. It uses non-standard events and headers.
 
 ## Development with Claude Code
 
@@ -331,9 +392,11 @@ func (quoteResource) Read(ctx context.Context, uri string, params map[string]str
 srv.RegisterMCPResourceTemplate(quoteResource{})
 ```
 
-Templates that also implement `mcp.SubscribableResourceTemplate` enable
-`resources/subscribe` and `resources/unsubscribe` for live sessions over SSE
-or stdio:
+Templates that also implement `mcp.SubscribableResourceTemplate` enable the
+legacy `resources/subscribe` and `resources/unsubscribe` methods over the
+proprietary routed stream or stdio. Current Streamable HTTP will expose these
+updates through `subscriptions/listen`; that remaining work is tracked in
+issue #74.
 
 ```go
 func (quoteResource) Subscribe(ctx context.Context, uri string, params map[string]string, emit mcp.ResourceEmitter) error {
@@ -422,7 +485,11 @@ When calling tools that are in namespaces, use the full prefixed name:
 ```bash
 # Call a namespaced tool
 curl -X POST http://localhost:8080/mcp \
+  -H "Accept: application/json, text/event-stream" \
   -H "Content-Type: application/json" \
+  -H "MCP-Protocol-Version: 2026-07-28" \
+  -H "Mcp-Method: tools/call" \
+  -H "Mcp-Name: mcp__daw__calculator" \
   -d '{
     "jsonrpc": "2.0",
     "method": "tools/call",
@@ -432,7 +499,8 @@ curl -X POST http://localhost:8080/mcp \
         "operation": "add",
         "a": 5,
         "b": 3
-      }
+      },
+      "_meta": {"io.modelcontextprotocol/protocolVersion": "2026-07-28"}
     },
     "id": 1
   }'
@@ -512,16 +580,24 @@ NewTool("backup_database").
 ```bash
 # List available tools
 curl -X POST http://localhost:8080/mcp \
+  -H "Accept: application/json, text/event-stream" \
   -H "Content-Type: application/json" \
+  -H "MCP-Protocol-Version: 2026-07-28" \
+  -H "Mcp-Method: tools/list" \
   -d '{
     "jsonrpc": "2.0",
     "method": "tools/list",
+    "params": {"_meta": {"io.modelcontextprotocol/protocolVersion": "2026-07-28"}},
     "id": 1
   }'
 
 # Execute a tool
 curl -X POST http://localhost:8080/mcp \
+  -H "Accept: application/json, text/event-stream" \
   -H "Content-Type: application/json" \
+  -H "MCP-Protocol-Version: 2026-07-28" \
+  -H "Mcp-Method: tools/call" \
+  -H "Mcp-Name: mcp__hyperserve__server_control" \
   -d '{
     "jsonrpc": "2.0",
     "method": "tools/call",
@@ -529,41 +605,54 @@ curl -X POST http://localhost:8080/mcp \
       "name": "mcp__hyperserve__server_control",
       "arguments": {
         "action": "get_status"
-      }
+      },
+      "_meta": {"io.modelcontextprotocol/protocolVersion": "2026-07-28"}
     },
     "id": 2
   }'
 
 # Read a resource
 curl -X POST http://localhost:8080/mcp \
+  -H "Accept: application/json, text/event-stream" \
   -H "Content-Type: application/json" \
+  -H "MCP-Protocol-Version: 2026-07-28" \
+  -H "Mcp-Method: resources/read" \
+  -H "Mcp-Name: health://server/status" \
   -d '{
     "jsonrpc": "2.0",
     "method": "resources/read",
     "params": {
-      "uri": "health://server/status"
+      "uri": "health://server/status",
+      "_meta": {"io.modelcontextprotocol/protocolVersion": "2026-07-28"}
     },
     "id": 3
   }'
 
 # List resource templates
 curl -X POST http://localhost:8080/mcp \
+  -H "Accept: application/json, text/event-stream" \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"resources/templates/list","id":4}'
+  -H "MCP-Protocol-Version: 2026-07-28" \
+  -H "Mcp-Method: resources/templates/list" \
+  -d '{"jsonrpc":"2.0","method":"resources/templates/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}},"id":4}'
 ```
 
-## Server-Sent Events (SSE) Support
+## Legacy HyperServe Routed SSE Reference
 
-HyperServe includes built-in SSE support for real-time MCP communication. This enables:
+This proprietary compatibility stream enables:
 - Real-time server-to-client notifications
 - Lower latency for interactive tools
 - Better support for streaming responses
 
-### SSE Endpoints
+It is not MCP 2026-07-28 Streamable HTTP: responses are delivered on a
+separate long-lived GET stream, and it does not implement request-scoped SSE
+or `subscriptions/listen`.
+
+### Compatibility endpoints
 
 When MCP is enabled, HyperServe automatically provides:
 - `/mcp` - Standard HTTP endpoint for JSON-RPC POST requests
-- `/mcp` - SSE endpoint when the request sends `Accept: text/event-stream`
+- `/mcp` - legacy stream only for a GET sending `Accept: text/event-stream`
 
 ### Using SSE from JavaScript
 

@@ -2,10 +2,13 @@ package server
 
 import (
 	"bytes"
-	"github.com/osauer/hyperserve/pkg/mcp"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/osauer/hyperserve/pkg/mcp"
 )
 
 // TestMCPProgrammaticConfigurationNoDoubleWarning tests that when MCP is configured
@@ -162,5 +165,26 @@ func TestMCPProtocolVersionProgrammaticConfiguration(t *testing.T) {
 	}
 	if got := srv.MCPHandler().ProtocolVersion(); got != "2025-03-26" {
 		t.Fatalf("MCP protocol version = %q, want 2025-03-26", got)
+	}
+}
+
+func TestMCPOriginValidatorProgrammaticConfiguration(t *testing.T) {
+	srv, err := NewServer(
+		WithMCPSupport("ProgrammaticApp", "3.0.0"),
+		WithMCPOriginValidator(func(r *http.Request) bool {
+			return r.Header.Get("Origin") == "https://trusted.example"
+		}),
+	)
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "http://example.com/mcp", strings.NewReader(`{"jsonrpc":"2.0","method":"ping","id":1}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "https://trusted.example")
+	rec := httptest.NewRecorder()
+	srv.MCPHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("custom MCP Origin validator status = %d, want 200", rec.Code)
 	}
 }

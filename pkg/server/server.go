@@ -406,6 +406,7 @@ func initializeMCPHandler(srv *Server) {
 	srv.mcpHandler = mcp.NewHandler(serverInfo)
 	srv.mcpHandler.SetProtocolVersion(srv.Options.MCPProtocolVersion)
 	srv.mcpHandler.SetToolCallTimeout(srv.Options.MCPToolCallTimeout)
+	srv.mcpHandler.SetOriginValidator(srv.Options.MCPOriginValidator)
 
 	if srv.Options.mcpTransportOpts.DeveloperMode {
 		logger.Warn("⚠️  MCP DEVELOPER MODE ENABLED ⚠️",
