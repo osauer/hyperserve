@@ -60,7 +60,13 @@ func TestDiscoveryUsesConfiguredProtocolVersion(t *testing.T) {
 		Transport:   HTTPTransport,
 		Policy:      DiscoveryPublic,
 	})
-	if info.Version != "2025-06-18" {
-		t.Fatalf("discovery version = %q, want 2025-06-18", info.Version)
+	if info.Version != StreamableHTTPProtocolVersion || len(info.Versions) != 1 {
+		t.Fatalf("default discovery versions = %q/%v, want current only", info.Version, info.Versions)
+	}
+
+	h.SetLegacyRoutedSSEEnabled(true)
+	info = h.BuildDiscoveryInfo(newDiscoveryRequest(""), DiscoveryConfig{MCPEndpoint: "/mcp"})
+	if len(info.Versions) != 2 || info.Versions[1] != "2025-06-18" {
+		t.Fatalf("legacy discovery versions = %v, want configured initialize version", info.Versions)
 	}
 }

@@ -43,7 +43,8 @@ We will implement native MCP support in hyperserve with the following architectu
 - **Resource Interface**: Standardized interface for all MCP resources
 - **ResourceTemplate Interface**: Parameterized resources discoverable through `resources/templates/list`
 - **SubscribableResourceTemplate Interface**: Live resource invalidations through `resources/subscribe`
-- **Built-in Tools**: File operations, HTTP requests, calculations
+- **Built-in Tools**: Sandboxed file operations and calculations. The former
+  HTTP request tool was removed because it created an SSRF surface.
 - **Built-in Resources**: Server config, metrics, system information, logs
 
 ### 3. Security Model

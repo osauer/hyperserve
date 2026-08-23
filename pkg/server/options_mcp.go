@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
@@ -116,6 +117,9 @@ func WithMCPToolCallTimeout(d time.Duration) ServerOptionFunc {
 // clients. Empty values reset to mcp.DefaultProtocolVersion.
 func WithMCPProtocolVersion(version string) ServerOptionFunc {
 	return func(srv *Server) error {
+		if version == mcp.StreamableHTTPProtocolVersion {
+			return fmt.Errorf("MCP protocol version %s is selected per Streamable HTTP request and cannot be configured as the initialize-era version", version)
+		}
 		if version == "" {
 			srv.Options.MCPProtocolVersion = mcp.DefaultProtocolVersion
 			return nil
@@ -123,6 +127,21 @@ func WithMCPProtocolVersion(version string) ServerOptionFunc {
 		srv.Options.MCPProtocolVersion = version
 		if srv.mcpHandler != nil {
 			srv.mcpHandler.SetProtocolVersion(version)
+		}
+		return nil
+	}
+}
+
+// WithMCPLegacyRoutedSSE enables HyperServe's proprietary X-SSE-* routed
+// transport. It is disabled by default and should be used only while clients
+// migrate to MCP 2026-07-28 Streamable HTTP subscriptions/listen.
+//
+// Deprecated: use MCP 2026-07-28 Streamable HTTP.
+func WithMCPLegacyRoutedSSE(enabled bool) ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.MCPLegacyRoutedSSE = enabled
+		if srv.mcpHandler != nil {
+			srv.mcpHandler.SetLegacyRoutedSSEEnabled(enabled)
 		}
 		return nil
 	}

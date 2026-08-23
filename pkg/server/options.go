@@ -94,6 +94,7 @@ type ServerOptions struct {
 	MCPToolCallTimeout  time.Duration                               `json:"mcp_tool_call_timeout,omitempty"`
 	MCPTransport        mcp.TransportType                           `json:"mcp_transport,omitempty"`
 	MCPProtocolVersion  string                                      `json:"mcp_protocol_version,omitempty"`
+	MCPLegacyRoutedSSE  bool                                        `json:"mcp_legacy_routed_sse,omitempty"`
 	MCPDev              bool                                        `json:"mcp_dev,omitempty"`
 	MCPObservability    bool                                        `json:"mcp_observability,omitempty"`
 	MCPDiscoveryPolicy  mcp.DiscoveryPolicy                         `json:"mcp_discovery_policy,omitempty"`

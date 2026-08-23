@@ -10,7 +10,7 @@ LDFLAGS := -ldflags "-X github.com/osauer/hyperserve/pkg/server.Version=$(VERSIO
 MAIN_BRANCH ?= main
 RELEASE_TEST_JOBS ?= 2
 
-.PHONY: build install test test-race fuzz-smoke clean version help check check-examples check-canonical-examples vet fmt modernize modernize-check staticcheck govulncheck govulncheck-tools changelog-lint changelog-stub release-notes release-publish release-smoke release
+.PHONY: build install test test-race fuzz-smoke clean version help check check-examples check-canonical-examples check-compatibility-examples mcp-conformance vet fmt modernize modernize-check staticcheck govulncheck govulncheck-tools changelog-lint changelog-stub release-notes release-publish release-smoke release
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets:\n"} \
@@ -47,6 +47,7 @@ test-race: ## Run the full test suite under the race detector.
 fuzz-smoke: ## Short fuzz pass over every Fuzz* target (15s each).
 	@set -e; \
 	go test -run=^$$ -fuzz=FuzzJSONRPCParse        -fuzztime=15s ./pkg/jsonrpc; \
+	go test -run=^$$ -fuzz=FuzzMCPStreamableHTTP  -fuzztime=15s ./pkg/mcp; \
 	go test -run=^$$ -fuzz=FuzzWebSocketFrameParse -fuzztime=15s ./pkg/websocket; \
 	go test -run=^$$ -fuzz=FuzzCORSOriginMatch     -fuzztime=15s ./pkg/server; \
 	go test -run=^$$ -fuzz=FuzzValidateEmail       -fuzztime=15s ./pkg/server
@@ -168,7 +169,7 @@ release: ## Tag, push, and publish a release: make release RELEASE_VERSION=vX.Y.
 # tells you the exact command if missing. Modernize is different — it's
 # pinned via the `tool` directive in tools/go.mod and invoked from that module, so it
 # auto-downloads on first use and stays reproducible across machines/CI.
-check: vet staticcheck govulncheck govulncheck-tools modernize-check check-examples check-canonical-examples ## gofmt + vet + staticcheck + govulncheck + modernize-check + example gates
+check: vet staticcheck govulncheck govulncheck-tools modernize-check check-examples check-canonical-examples check-compatibility-examples mcp-conformance ## gofmt + vet + staticcheck + govulncheck + modernize-check + example gates
 	@# gofmt over tracked + untracked-but-not-gitignored .go files. Same
 	@# pattern as ibkr — `git ls-files` respects .gitignore so this skips
 	@# /dist, agent worktrees, etc. The intermediate exists-check filters
@@ -221,8 +222,14 @@ check-examples: ## go vet + build + govulncheck in each standalone examples/*/ m
 		(cd $$mod && go vet ./... && go build ./... && govulncheck ./...) || exit 1; \
 	done
 
-check-canonical-examples: ## Build the release-gated MCP, SSE, and API examples
-	go test ./examples/devops ./examples/mcp-sse ./examples/json-api
+check-canonical-examples: ## Build the release-gated observability, current MCP, and API examples
+	go test ./examples/devops ./examples/mcp-extensions ./examples/json-api
+
+check-compatibility-examples: ## Build deprecated transport compatibility examples
+	go test ./examples/mcp-sse
+
+mcp-conformance: ## Verify Streamable HTTP with the official MCP Go SDK
+	go -C tools test ./mcpconformance
 
 # Idiom-drift gate. `go fix -diff` is the toolchain-native fixer (tracks the
 # Go version pinned in go.mod); tools/go.mod's modernize runs the broader gopls

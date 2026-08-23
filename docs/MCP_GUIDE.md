@@ -13,14 +13,16 @@ HyperServe provides native MCP support through three main configurations:
 HyperServe serves two explicitly separated protocol eras on `/mcp`:
 
 - **MCP 2026-07-28 Streamable HTTP** — stateless POST requests with
-  per-request metadata. Ordinary requests currently return JSON.
+  per-request metadata. Finite requests return JSON;
+  `subscriptions/listen` returns request-scoped SSE.
 - **MCP 2025-11-25 request/response compatibility** — initialize-era HTTP
   requests with either no protocol header or the configured legacy version.
   Protocol sessions, resumability, and the revision's standalone SSE behavior
   are not implemented.
 
-The older `X-SSE-*` routed stream is a proprietary HyperServe compatibility
-transport. It is not MCP Streamable HTTP and new clients must not use it.
+The older `X-SSE-*` routed stream is a deprecated, proprietary HyperServe
+compatibility transport. It is disabled by default and new clients must not
+use it.
 
 ## Streamable HTTP (2026-07-28)
 
@@ -41,11 +43,49 @@ curl -X POST http://localhost:8080/mcp \
   }'
 ```
 
-`tools/call`, `resources/read`, and `prompts/get` also require `Mcp-Name`.
+`tools/call` and `resources/read` also require `Mcp-Name`.
 Tool parameters marked `x-mcp-header` require the matching `Mcp-Param-*`
 header. HyperServe rejects missing, duplicate, malformed, or mismatched
 metadata and bounds request bodies to 4 MiB. `server/discover` reports the
 current transport version and capabilities.
+
+### Resource subscriptions
+
+`subscriptions/listen` takes a required JSON-RPC request ID and a required
+`notifications` object. Resource subscriptions use the same concrete URIs
+implemented by `mcp.SubscribableResourceTemplate`:
+
+```bash
+curl -N -X POST http://localhost:8080/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'MCP-Protocol-Version: 2026-07-28' \
+  -H 'Mcp-Method: subscriptions/listen' \
+  -d '{
+    "jsonrpc":"2.0",
+    "method":"subscriptions/listen",
+    "params":{
+      "notifications":{"resourceSubscriptions":["quotes://AAPL"]},
+      "_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}
+    },
+    "id":"quotes-aapl"
+  }'
+```
+
+The first event is
+`notifications/subscriptions/acknowledged` and names only the matched resource
+URIs. Later `notifications/resources/updated` events carry
+`io.modelcontextprotocol/subscriptionId` equal to the listen request ID.
+Duplicate URIs are coalesced; a request may contain at most 128 URIs.
+Unsupported tool, prompt, and resource-list filters are omitted from the
+acknowledgement.
+
+Each stream has one writer, a 32-event queue that blocks producers instead of
+dropping notifications, 30-second write deadlines, and 30-second SSE-comment
+keepalives. It does not emit event IDs, protocol pings, or resumability state.
+Closing the response cancels its producers. Natural producer completion and
+`(*mcp.Handler).Shutdown` send a final `resultType: complete` response; a
+client disconnect does not.
 
 Browser Origins default to same scheme, host, and port as the request. For an
 authenticated trusted cross-origin client, install an explicit policy:
@@ -65,20 +105,34 @@ This callback is an Origin policy, not authentication.
 | 2026-07-28 JSON request/response, `server/discover`, tools and resources | Supported |
 | Required standard and annotated tool-parameter headers | Validated |
 | Accepted notifications | `202 Accepted`, empty body |
-| Request-scoped SSE responses | Not yet implemented; issue #74 |
-| `subscriptions/listen` | Not yet implemented; issue #74 |
+| Request-scoped SSE | Supported for `subscriptions/listen` |
+| Resource subscription acknowledgement, updates, cancellation, graceful completion | Supported |
 | 2025-11-25 request/response fallback | Supported without sessions/resumability |
-| Proprietary `X-SSE-*` routed stream | Legacy compatibility only |
+| Proprietary `X-SSE-*` routed stream | Deprecated; disabled by default |
 
 The current path is exercised against the official
 [`github.com/modelcontextprotocol/go-sdk` v1.7.0](https://github.com/modelcontextprotocol/go-sdk/releases/tag/v1.7.0)
-for discovery, `tools/list`, and `tools/call`, in addition to HyperServe's
-protocol and adversarial tests.
+for discovery, `tools/list`, `tools/call`, listen acknowledgement, resource
+updates, and cancellation, in addition to HyperServe's protocol and
+adversarial tests. The SDK dependency exists only in the separate `tools`
+module and is not shipped to library users.
 
 ## Legacy HyperServe Routed SSE
 
 This section documents the existing proprietary compatibility mode so it
 cannot be confused with standards-compliant Streamable HTTP.
+
+Enable it only while migrating an existing HyperServe-specific client:
+
+```go
+srv, err := server.NewServer(
+    server.WithMCPSupport("service", "1.0.0"),
+    server.WithMCPLegacyRoutedSSE(true),
+)
+```
+
+Without that option, GET and DELETE on `/mcp` return `405` with `Allow: POST`,
+and traffic carrying `X-SSE-*` routing headers fails explicitly.
 
 ### How the compatibility stream works
 
@@ -392,11 +446,10 @@ func (quoteResource) Read(ctx context.Context, uri string, params map[string]str
 srv.RegisterMCPResourceTemplate(quoteResource{})
 ```
 
-Templates that also implement `mcp.SubscribableResourceTemplate` enable the
-legacy `resources/subscribe` and `resources/unsubscribe` methods over the
-proprietary routed stream or stdio. Current Streamable HTTP will expose these
-updates through `subscriptions/listen`; that remaining work is tracked in
-issue #74.
+Templates that also implement `mcp.SubscribableResourceTemplate` enable
+current `subscriptions/listen` resource updates. They also support legacy
+`resources/subscribe` and `resources/unsubscribe` over stdio or the explicitly
+enabled proprietary routed stream.
 
 ```go
 func (quoteResource) Subscribe(ctx context.Context, uri string, params map[string]string, emit mcp.ResourceEmitter) error {
@@ -645,12 +698,11 @@ This proprietary compatibility stream enables:
 - Better support for streaming responses
 
 It is not MCP 2026-07-28 Streamable HTTP: responses are delivered on a
-separate long-lived GET stream, and it does not implement request-scoped SSE
-or `subscriptions/listen`.
+separate long-lived GET stream with proprietary routing headers.
 
 ### Compatibility endpoints
 
-When MCP is enabled, HyperServe automatically provides:
+When `WithMCPLegacyRoutedSSE(true)` is set, HyperServe provides:
 - `/mcp` - Standard HTTP endpoint for JSON-RPC POST requests
 - `/mcp` - legacy stream only for a GET sending `Accept: text/event-stream`
 

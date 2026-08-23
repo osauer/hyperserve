@@ -297,6 +297,9 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 	if err := autoConfigureMCPFromEnv(srv); err != nil {
 		return nil, err
 	}
+	if err := validateMCPProtocolVersion(srv.Options); err != nil {
+		return nil, err
+	}
 
 	openTemplateRoot(srv)
 
@@ -407,6 +410,8 @@ func initializeMCPHandler(srv *Server) {
 	srv.mcpHandler.SetProtocolVersion(srv.Options.MCPProtocolVersion)
 	srv.mcpHandler.SetToolCallTimeout(srv.Options.MCPToolCallTimeout)
 	srv.mcpHandler.SetOriginValidator(srv.Options.MCPOriginValidator)
+	//lint:ignore SA1019 Server wiring must apply the explicit legacy compatibility option.
+	srv.mcpHandler.SetLegacyRoutedSSEEnabled(srv.Options.MCPLegacyRoutedSSE)
 
 	if srv.Options.mcpTransportOpts.DeveloperMode {
 		logger.Warn("⚠️  MCP DEVELOPER MODE ENABLED ⚠️",
@@ -442,6 +447,19 @@ func initializeMCPHandler(srv *Server) {
 	logger.Debug("MCP handler initialized", "endpoint", srv.Options.MCPEndpoint)
 
 	srv.setupDiscoveryEndpoints()
+}
+
+func validateMCPProtocolVersion(options *ServerOptions) error {
+	version := strings.TrimSpace(options.MCPProtocolVersion)
+	if version == "" {
+		options.MCPProtocolVersion = mcp.DefaultProtocolVersion
+		return nil
+	}
+	if version == mcp.StreamableHTTPProtocolVersion {
+		return fmt.Errorf("MCP protocol version %s is selected per Streamable HTTP request and cannot be configured as the initialize-era version", version)
+	}
+	options.MCPProtocolVersion = version
+	return nil
 }
 
 // Run starts the server and blocks until a shutdown signal is received.
@@ -981,6 +999,15 @@ func (srv *Server) setDeferredInitError(err error) {
 }
 
 func (srv *Server) shutdown(ctx context.Context) error {
+	var mcpShutdownErr error
+	if srv.mcpHandler != nil {
+		mcpCtx, cancelMCP := mcpShutdownContext(ctx)
+		if err := srv.mcpHandler.Shutdown(mcpCtx); err != nil {
+			mcpShutdownErr = fmt.Errorf("MCP handler shutdown error: %w", err)
+			logger.Error("Error during MCP handler shutdown.", "error", err)
+		}
+		cancelMCP()
+	}
 	if srv.deferred.initCancel != nil {
 		srv.deferred.initCancel()
 	}
@@ -1066,7 +1093,7 @@ func (srv *Server) shutdown(ctx context.Context) error {
 	for err := range errChan {
 		shutdownErrs = append(shutdownErrs, err)
 	}
-	shutdownErr := errors.Join(shutdownErrs...)
+	shutdownErr := errors.Join(append([]error{mcpShutdownErr}, shutdownErrs...)...)
 
 	// Clean up resources
 	srv.stopCleanup()
@@ -1084,6 +1111,21 @@ func (srv *Server) shutdown(ctx context.Context) error {
 	}
 
 	return shutdownErr
+}
+
+func mcpShutdownContext(parent context.Context) (context.Context, context.CancelFunc) {
+	const maximum = 5 * time.Second
+	timeout := maximum
+	if deadline, ok := parent.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if half := remaining / 2; half < timeout {
+			timeout = half
+		}
+	}
+	if timeout <= 0 {
+		return context.WithCancel(parent)
+	}
+	return context.WithTimeout(parent, timeout)
 }
 
 // WebSocketUpgrader returns a WebSocket upgrader that tracks the upgrade in

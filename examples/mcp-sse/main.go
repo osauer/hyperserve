@@ -66,6 +66,8 @@ func runServer(addr string) {
 	srv, err := serverpkg.NewServer(
 		serverpkg.WithAddr(addr),
 		serverpkg.WithMCPSupport("sse-example", "1.0.0"),
+		//lint:ignore SA1019 This example intentionally release-tests the deprecated compatibility transport.
+		serverpkg.WithMCPLegacyRoutedSSE(true),
 	)
 	if err != nil {
 		log.Fatal(err)

@@ -43,7 +43,7 @@ func TestGenerateCreatesProject(t *testing.T) {
 	if !strings.Contains(content, "module github.com/example/sample-service") {
 		t.Fatalf("go.mod missing module declaration: %s", content)
 	}
-	if !strings.Contains(content, "github.com/osauer/hyperserve v1.3.1") {
+	if !strings.Contains(content, "github.com/osauer/hyperserve v1.4.0") {
 		t.Fatalf("go.mod missing hyperserve requirement: %s", content)
 	}
 	if !strings.Contains(content, "replace github.com/osauer/hyperserve =>") {

@@ -1,6 +1,7 @@
 # {{ .ServiceTitle }}
 
-Generated with `hyperserve-init`. This project bootstraps a production-grade HyperServe deployment with hardened defaults and optional MCP automation surfaces.
+Generated with `hyperserve-init`. This project bootstraps a HyperServe service
+with hardened HTTP defaults and optional MCP automation surfaces.
 
 ## Quick Start
 
@@ -17,6 +18,11 @@ Configuration lives in `configs/default.json`. Override any value with environme
 - `HS_MCP_ENABLED=true` enables Model Context Protocol support.
 - `HS_HARDENED_MODE=true` enforces security headers.
 - `SERVER_ADDR=":9090"` changes the HTTP listener.
+
+MCP is disabled unless the project was generated with `--with-mcp` or enabled
+later through configuration. The generated MCP endpoint includes operational
+resources such as recent logs and has no application-specific authorization
+policy. Protect `/mcp` with authentication middleware before exposing it.
 
 ## Deployment
 

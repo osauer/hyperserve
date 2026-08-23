@@ -67,14 +67,17 @@ func TestBuildDiscoveryInfoBasics(t *testing.T) {
 		Policy:      DiscoveryPublic,
 	})
 
-	if info.Version != ProtocolVersion {
-		t.Errorf("Version = %q, want %q", info.Version, ProtocolVersion)
+	if info.Version != StreamableHTTPProtocolVersion {
+		t.Errorf("Version = %q, want %q", info.Version, StreamableHTTPProtocolVersion)
 	}
 	if got := info.Endpoints["mcp"]; got != "http://example.test/mcp" {
 		t.Errorf("Endpoints[mcp] = %q, want http://example.test/mcp", got)
 	}
-	if len(info.Transports) != 2 {
-		t.Fatalf("len(Transports) = %d, want 2 (http + sse)", len(info.Transports))
+	if len(info.Transports) != 1 || info.Transports[0].Type != "http" {
+		t.Fatalf("Transports = %+v, want current HTTP only", info.Transports)
+	}
+	if _, ok := info.Capabilities["sse"]; ok {
+		t.Fatalf("Capabilities[sse] present without legacy opt-in: %+v", info.Capabilities["sse"])
 	}
 	tools, ok := info.Capabilities["tools"].(map[string]any)
 	if !ok {
@@ -86,6 +89,18 @@ func TestBuildDiscoveryInfoBasics(t *testing.T) {
 	avail, ok := tools["available"].([]string)
 	if !ok || len(avail) != 1 || avail[0] != "calc" {
 		t.Errorf("tools.available = %v, want [calc]", tools["available"])
+	}
+}
+
+func TestBuildDiscoveryInfoIncludesLegacySSEOnlyWhenEnabled(t *testing.T) {
+	h := newDiscoveryHandler(t)
+	h.SetLegacyRoutedSSEEnabled(true)
+	info := h.BuildDiscoveryInfo(newDiscoveryRequest(""), DiscoveryConfig{MCPEndpoint: "/mcp"})
+	if len(info.Transports) != 2 || info.Transports[1].Type != "hyperserve-sse-legacy" {
+		t.Fatalf("Transports = %+v, want opted-in legacy SSE", info.Transports)
+	}
+	if _, ok := info.Capabilities["sse"]; !ok {
+		t.Fatal("Capabilities[sse] missing after legacy opt-in")
 	}
 }
 

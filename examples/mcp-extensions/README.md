@@ -18,7 +18,8 @@ lower-level builder so both shapes are visible.
 
 ### MCP Resources
 - **blog://posts/{id}** - Read a concrete blog post by ID
-- **resources/subscribe** - Subscribe to a concrete post URI over SSE or stdio
+- **subscriptions/listen** - Subscribe to a concrete post URI over Streamable HTTP SSE
+- **resources/subscribe** - Subscribe to a concrete post URI over stdio
 
 ## Key Concepts
 
@@ -145,29 +146,27 @@ curl -X POST http://localhost:8080/mcp \
   }'
 ```
 
-For live post invalidations, connect to `/mcp` with `Accept:
-text/event-stream`, then route a `resources/subscribe` request with the
-returned `clientId` and `bindingToken`. The notification is
-`notifications/resources/updated`; clients call `resources/read` to fetch the
-latest post body.
+For live post invalidations, open a current `subscriptions/listen` POST. The
+first SSE event acknowledges the matched URI; later
+`notifications/resources/updated` events tell clients to call
+`resources/read` for the latest body.
 
 ```bash
-# 1. Keep this open and copy clientId + bindingToken from the connection event.
-curl -N -H "Accept: text/event-stream" http://localhost:8080/mcp
-
-# 2. Subscribe to a concrete resource URI over the routed SSE session.
-curl -X POST http://localhost:8080/mcp \
-  -H "Content-Type: application/json" \
-  -H "X-SSE-Client-ID: sse-..." \
-  -H "X-SSE-Binding: <bindingToken>" \
-  -d '{"jsonrpc":"2.0","method":"resources/subscribe","params":{"uri":"blog://posts/post-123"},"id":5}'
-
-# 3. Later, cancel the subscription.
-curl -X POST http://localhost:8080/mcp \
-  -H "Content-Type: application/json" \
-  -H "X-SSE-Client-ID: sse-..." \
-  -H "X-SSE-Binding: <bindingToken>" \
-  -d '{"jsonrpc":"2.0","method":"resources/unsubscribe","params":{"uri":"blog://posts/post-123"},"id":6}'
+# Keep this request open. Closing it cancels the subscription.
+curl -N -X POST http://localhost:8080/mcp \
+	-H "Accept: application/json, text/event-stream" \
+	-H "Content-Type: application/json" \
+	-H "MCP-Protocol-Version: 2026-07-28" \
+	-H "Mcp-Method: subscriptions/listen" \
+	-d '{
+	  "jsonrpc":"2.0",
+	  "method":"subscriptions/listen",
+	  "params":{
+	    "notifications":{"resourceSubscriptions":["blog://posts/post-123"]},
+	    "_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}
+	  },
+	  "id":"post-123"
+	}'
 ```
 
 For stdio MCP servers, use the same JSON-RPC payloads as newline-delimited

@@ -219,6 +219,8 @@ func TestMCPBuiltinDefaults(t *testing.T) {
 func TestMCPGetRequest(t *testing.T) {
 	srv, err := server.NewServer(
 		server.WithMCPSupport("test-server", "1.0.0"),
+		//lint:ignore SA1019 This regression intentionally exercises legacy compatibility.
+		server.WithMCPLegacyRoutedSSE(true),
 	)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)

@@ -105,10 +105,6 @@
                 <h4>list_directory</h4>
                 <p>List directory contents (sandboxed)</p>
             </div>
-            <div class="item">
-                <h4>http_request</h4>
-                <p>Make HTTP requests to external services</p>
-            </div>
         </div>
         
         <h3 style="margin-top: 1.5rem;">🔧 Custom Tools</h3>
@@ -153,14 +149,14 @@
     <div class="card">
         <h2>Quick Start Examples</h2>
         
-        <h3>Initialize Connection</h3>
+        <h3>Initialize-era Compatibility</h3>
         <pre>curl -X POST http://localhost:8080{{.MCPEndpoint}} \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
     "method": "initialize",
     "params": {
-        "protocolVersion": "2024-11-05",
+        "protocolVersion": "2025-11-25",
         "capabilities": {},
         "clientInfo": {"name": "test", "version": "1.0"}
     },

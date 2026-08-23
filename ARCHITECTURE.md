@@ -12,7 +12,9 @@ flat.
 ### 1. Single Runtime Dependency
 - `golang.org/x/time` for the rate-limiter token bucket.
 - Everything else uses the Go standard library.
-- `tools/go.mod` owns `golang.org/x/tools` for the modernize check gate, keeping developer tooling out of the shipped module graph.
+- `tools/go.mod` owns `golang.org/x/tools`, the official MCP SDK conformance
+  dependency, and their transitive graphs, keeping developer tooling out of
+  the shipped module graph.
 
 ### 2. Standard Library First
 - `net/http` for the server, `crypto/tls` for TLS, `os.Root` for the static-file sandbox.
@@ -25,7 +27,9 @@ flat.
 
 ### 4. AI / MCP as a First-Class Surface
 - The MCP server lives in `pkg/mcp` and is the differentiator vs `net/http` + a third-party router.
-- HTTP, SSE, and stdio transports share one handler; discovery endpoints (`/.well-known/mcp.json`) expose capabilities.
+- Current Streamable HTTP uses finite JSON responses and request-scoped SSE
+  for `subscriptions/listen`; stdio shares the same handler. Proprietary routed
+  SSE is default-off deprecated compatibility behavior.
 - Built-in tools and resources are opt-in (`WithMCPBuiltinTools(true)`); they are demos, not production wiring.
 
 ## Architecture Overview
@@ -51,7 +55,7 @@ Flexible middleware architecture supporting:
 Native MCP implementation providing:
 - Tool registration and execution
 - Resource management
-- Multiple transport support (HTTP, SSE, stdio)
+- Streamable HTTP (JSON plus request-scoped SSE) and stdio transports
 - Discovery endpoints
 - Namespace isolation
 
@@ -103,7 +107,8 @@ Dependency direction is one-way: `pkg/mcp/builtin` → `pkg/server` + `pkg/mcp`;
 - Security-header middleware (`SecureWeb`, `SecureAPI`) available out of the box; off by default.
 - Rate limiting is per-route and per-client, with a periodic cleanup ticker.
 - Static file serving is sandboxed via `os.Root`.
-- The MCP discovery filter (`WithMCPDiscoveryFilter`) lets you gate tool visibility on a JWT or RBAC predicate.
+- The MCP discovery filter (`WithMCPDiscoveryFilter`) gates only discovery
+  visibility. Authorization middleware must protect the MCP endpoint itself.
 
 ## Performance
 

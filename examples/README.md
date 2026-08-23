@@ -33,7 +33,7 @@ Each subdirectory is a self-contained `main` package. Run with `go run ./example
 |---|---|
 | [mcp-basic](./mcp-basic/) | Smallest MCP server: enable, expose built-in tools/resources. |
 | [mcp-cli](./mcp-cli/) | An MCP server configured by application-owned flags for HTTP or stdio. |
-| [mcp-sse](./mcp-sse/) | Current Streamable HTTP plus isolated legacy routed-SSE compatibility on `/mcp`. |
+| [mcp-sse](./mcp-sse/) | Deprecated routed-SSE compatibility, with the required explicit opt-in. |
 | [mcp-stdio](./mcp-stdio/) | MCP over stdio for embedding in editors / process-supervised hosts. |
 | [mcp-discovery](./mcp-discovery/) | `/.well-known/mcp.json` discovery with policy filtering. |
 | [mcp-extensions](./mcp-extensions/) | Custom MCP tools and resources beyond the built-ins. |

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	jsonrpc "github.com/osauer/hyperserve/pkg/jsonrpc"
@@ -43,6 +44,12 @@ type Handler struct {
 	sseManager            *sseManager
 	toolCallTimeout       time.Duration // Set via SetToolCallTimeout; defaults to 30s when zero.
 	originValidator       func(*http.Request) bool
+	legacyRoutedSSE       bool
+	streamWriteTimeout    time.Duration
+	streamKeepalive       time.Duration
+	streamMu              sync.Mutex
+	streams               map[*streamableSSE]struct{}
+	shuttingDown          bool
 }
 
 type resourceTemplateEntry struct {
@@ -77,6 +84,9 @@ func NewHandler(serverInfo ServerInfo) *Handler {
 		logger:                logger,
 		cache:                 newResourceCache(100),
 		sseManager:            newSSEManager(),
+		streamWriteTimeout:    streamableSSEWriteTimeout,
+		streamKeepalive:       streamableSSEKeepalive,
+		streams:               make(map[*streamableSSE]struct{}),
 	}
 	handler.rpcEngine = handler.newRPCEngine(nil)
 	return handler
@@ -88,10 +98,19 @@ func (h *Handler) ServerInfo() ServerInfo { return h.serverInfo }
 // ProtocolVersion returns the MCP protocol version this handler advertises.
 func (h *Handler) ProtocolVersion() string { return h.protocolVersion }
 
-// SetProtocolVersion overrides the MCP protocol version advertised in
-// initialize and discovery responses. Empty values reset to the default.
+// SetProtocolVersion overrides the initialize-era compatibility version
+// advertised in legacy responses and discovery. Empty values reset to the
+// default. StreamableHTTPProtocolVersion is selected independently through
+// per-request metadata and cannot be configured as the legacy version.
 func (h *Handler) SetProtocolVersion(version string) {
 	if strings.TrimSpace(version) == "" {
+		h.protocolVersion = DefaultProtocolVersion
+		return
+	}
+	if version == StreamableHTTPProtocolVersion {
+		h.logger.Warn("Current Streamable HTTP version cannot be used as the initialize-era compatibility version",
+			"version", version,
+			"fallback", DefaultProtocolVersion)
 		h.protocolVersion = DefaultProtocolVersion
 		return
 	}
@@ -157,6 +176,15 @@ func (h *Handler) SetLogger(l *slog.Logger) {
 // authenticate them and validate an explicit origin allowlist here.
 func (h *Handler) SetOriginValidator(validator func(*http.Request) bool) {
 	h.originValidator = validator
+}
+
+// SetLegacyRoutedSSEEnabled enables HyperServe's proprietary X-SSE-* routed
+// stream. It is disabled by default and exists only for migration of existing
+// HyperServe-specific clients.
+//
+// Deprecated: use MCP 2026-07-28 Streamable HTTP and subscriptions/listen.
+func (h *Handler) SetLegacyRoutedSSEEnabled(enabled bool) {
+	h.legacyRoutedSSE = enabled
 }
 
 func (h *Handler) formatToolName(namespace, toolName string) string {
@@ -288,15 +316,18 @@ func (h *Handler) Tool(name string) (Tool, bool) {
 
 // Capabilities returns the server's MCP capabilities.
 func (h *Handler) Capabilities() Capabilities {
-	return Capabilities{
+	capabilities := Capabilities{
 		Resources: &ResourcesCapability{Subscribe: h.hasSubscribableResourceTemplates(), ListChanged: false},
 		Tools:     &ToolsCapability{ListChanged: false},
-		SSE: &SSECapability{
+	}
+	if h.legacyRoutedSSE {
+		capabilities.SSE = &SSECapability{
 			Enabled:       true,
 			Endpoint:      "same",
 			HeaderRouting: true,
-		},
+		}
 	}
+	return capabilities
 }
 
 func (h *Handler) hasSubscribableResourceTemplates() bool {
@@ -361,6 +392,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
+	if h.isShuttingDown() {
+		http.Error(w, "Server is shutting down", http.StatusServiceUnavailable)
+		return
+	}
 
 	// The 2026-07-28 transport is selected by its per-request protocol
 	// metadata. Requests without those headers retain the initialize-era HTTP
@@ -371,47 +406,53 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Legacy standalone SSE is GET-only. A modern POST must list SSE in Accept,
-	// so routing on Accept without checking the method hijacks valid requests.
-	if r.Method == http.MethodGet && isSSEAccepted(r.Header.Get("Accept")) {
-		h.sseManager.HandleSSE(w, r, h)
-		return
-	}
-
-	// GET requests get a helpful HTML or JSON status.
-	if r.Method == http.MethodGet {
-		accept := r.Header.Get("Accept")
-		if isJSONAccepted(accept) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			status := map[string]any{
-				"status":       "ready",
-				"server":       h.serverInfo,
-				"capabilities": h.Capabilities(),
-				"endpoint":     r.URL.Path,
-				"transport":    "http",
-			}
-			if err := json.NewEncoder(w).Encode(status); err != nil {
-				h.logger.Error("Failed to encode JSON status", "error", err)
-				http.Error(w, "Internal server error", http.StatusInternalServerError)
-			}
+	if h.legacyRoutedSSE {
+		// The proprietary standalone stream is GET-only. It is reachable only
+		// after an application explicitly opts into the compatibility mode.
+		if r.Method == http.MethodGet && isSSEAccepted(r.Header.Get("Accept")) {
+			h.sseManager.HandleSSE(w, r, h)
 			return
 		}
 
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(http.StatusOK)
-		// MCPEndpoint is server-controlled, but the request can land on any
-		// subtree pattern (e.g. "/mcp/") that lets r.URL.Path carry attacker
-		// input. Escape unconditionally — the few characters we'd want
-		// rendered verbatim are not worth the XSS surface.
-		path := html.EscapeString(r.URL.Path)
-		fmt.Fprintf(w, htmlHelpTemplate, path, h.protocolVersion, path, path, path, path)
+		// Preserve the old human/status GET surface together with the legacy
+		// transport; standards-only endpoints reject every non-POST method.
+		if r.Method == http.MethodGet {
+			accept := r.Header.Get("Accept")
+			if isJSONAccepted(accept) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				status := map[string]any{
+					"status":       "ready",
+					"server":       h.serverInfo,
+					"capabilities": h.Capabilities(),
+					"endpoint":     r.URL.Path,
+					"transport":    "http",
+				}
+				if err := json.NewEncoder(w).Encode(status); err != nil {
+					h.logger.Error("Failed to encode JSON status", "error", err)
+				}
+				return
+			}
+
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			path := html.EscapeString(r.URL.Path)
+			fmt.Fprintf(w, htmlHelpTemplate, path, h.protocolVersion, path, path, path, path)
+			return
+		}
+
+		if clientID := r.Header.Get("X-SSE-Client-ID"); clientID != "" {
+			h.handleSSERoutedRequest(w, r, clientID)
+			return
+		}
+	} else if hasLegacyRoutedSSEHeaders(r.Header) {
+		http.Error(w, "Legacy routed SSE is disabled", http.StatusBadRequest)
 		return
 	}
 
-	// SSE-routed responses: client ID in header.
-	if clientID := r.Header.Get("X-SSE-Client-ID"); clientID != "" {
-		h.handleSSERoutedRequest(w, r, clientID)
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -505,12 +546,16 @@ func (h *Handler) handleInitialize(params any) (any, error) {
 		}
 	}
 	h.logger.Debug("MCP client initialized", "client", initParams.ClientInfo.Name, "version", initParams.ClientInfo.Version)
+	instructions := "After receiving this response, send an 'initialized' notification. For live HTTP updates, use MCP 2026-07-28 subscriptions/listen."
+	if h.legacyRoutedSSE {
+		instructions += " Deprecated routed SSE is enabled temporarily; connect to the same endpoint with 'Accept: text/event-stream'."
+	}
 
 	return map[string]any{
 		"protocolVersion": h.protocolVersion,
 		"capabilities":    h.Capabilities(),
 		"serverInfo":      h.serverInfo,
-		"instructions":    "Follow the initialization protocol: after receiving this response, send an 'initialized' notification, then the server will send a 'ready' notification. For SSE support, connect to the SAME endpoint with 'Accept: text/event-stream' header.",
+		"instructions":    instructions,
 	}, nil
 }
 
@@ -886,7 +931,7 @@ func (h *Handler) handleSSERoutedRequest(w http.ResponseWriter, r *http.Request,
 
 // (Previously: RegistersseClient/UnregistersseClient/SendSSENotification.
 // SendSSENotification had zero callers; the Register/Unregister pair was
-// moved into sseManager.registerRequestChan/unregisterRequestChan as the
+// consolidated into sseManager admission and request-channel ownership as the
 // SSE state machine now lives entirely in one place.)
 
 const htmlHelpTemplate = `<!DOCTYPE html>

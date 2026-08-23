@@ -27,7 +27,9 @@ go run ./cmd/server
 - `--module` *(required)* – Go module path for the new project.
 - `--name` – Human-friendly display name (defaults to the module tail).
 - `--out` – Output directory (defaults to the service name).
-- `--with-mcp` – Toggle MCP surfaces (defaults to `true`).
+- `--with-mcp` – Enable MCP surfaces (defaults to `false`). The generated
+  endpoint includes operational built-ins; add application authorization
+  middleware around `/mcp` before exposing it in production.
 - `--force` – Allow generation into a non-empty directory.
 - `--local-replace` – Add a `replace` directive pointing at a local HyperServe checkout (useful for development and the automated tests).
 

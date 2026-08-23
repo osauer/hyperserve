@@ -49,8 +49,10 @@ type DiscoveryConfig struct {
 	Transport TransportType
 	// Policy controls discovery list visibility.
 	Policy DiscoveryPolicy
-	// Dev indicates the server is running in MCP developer mode and may
-	// therefore expose tools that would otherwise be hidden.
+	// Dev is retained for v1 source compatibility and has no effect. Tool
+	// registration and IsDiscoverable control exposure.
+	//
+	// Deprecated: this field is a no-op and will be removed in v2.
 	Dev bool
 	// Filter, if non-nil, makes the final decision per tool. It overrides the
 	// default rules entirely.
@@ -70,8 +72,8 @@ func (h *Handler) BuildDiscoveryInfo(r *http.Request, cfg DiscoveryConfig) Disco
 	mcpEndpoint := baseURL + cfg.MCPEndpoint
 
 	info := DiscoveryInfo{
-		Version:  h.ProtocolVersion(),
-		Versions: []string{StreamableHTTPProtocolVersion, h.ProtocolVersion()},
+		Version:  StreamableHTTPProtocolVersion,
+		Versions: []string{StreamableHTTPProtocolVersion},
 		Transports: []TransportInfo{
 			{
 				Type:        "http",
@@ -84,20 +86,23 @@ func (h *Handler) BuildDiscoveryInfo(r *http.Request, cfg DiscoveryConfig) Disco
 					"Mcp-Method":           "<JSON-RPC method>",
 				},
 			},
-			{
-				Type:        "hyperserve-sse-legacy",
-				Endpoint:    mcpEndpoint,
-				Description: "Proprietary legacy routed SSE; not MCP Streamable HTTP",
-				Headers:     map[string]string{"Accept": "text/event-stream"},
-			},
 		},
 		Endpoints: map[string]string{
 			"mcp":            mcpEndpoint,
 			"serverDiscover": mcpEndpoint,
-			"initialize":     mcpEndpoint,
 			"tools":          mcpEndpoint,
 			"resources":      mcpEndpoint,
 		},
+	}
+	if h.legacyRoutedSSE {
+		info.Versions = append(info.Versions, h.ProtocolVersion())
+		info.Transports = append(info.Transports, TransportInfo{
+			Type:        "hyperserve-sse-legacy",
+			Endpoint:    mcpEndpoint,
+			Description: "Deprecated proprietary routed SSE; not MCP Streamable HTTP",
+			Headers:     map[string]string{"Accept": "text/event-stream"},
+		})
+		info.Endpoints["initialize"] = mcpEndpoint
 	}
 
 	tools := h.RegisteredTools()
@@ -143,15 +148,18 @@ func (h *Handler) BuildDiscoveryInfo(r *http.Request, cfg DiscoveryConfig) Disco
 		"tools":     toolCapability,
 		"resources": resourceCapability,
 		"streamableHTTP": map[string]any{
-			"version": StreamableHTTPProtocolVersion,
+			"version":             StreamableHTTPProtocolVersion,
+			"subscriptionsListen": true,
 		},
-		"sse": map[string]any{
+	}
+	if h.legacyRoutedSSE {
+		info.Capabilities["sse"] = map[string]any{
 			"enabled":       true,
 			"endpoint":      "same",
 			"headerRouting": true,
 			"legacy":        true,
-			"standard":      false,
-		},
+			"deprecated":    true,
+		}
 	}
 
 	if cfg.Transport == StdioTransport {

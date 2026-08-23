@@ -203,11 +203,18 @@ if err != nil {
 }
 ```
 
-The MCP handler supports current stateless Streamable HTTP, initialize-era
-HTTP/stdio compatibility, discovery, namespaces, and resource templates. A
-legacy HyperServe-specific routed-SSE mode remains isolated and documented as
-non-standard. Built-in tools and resources are off by default. See the
-[MCP guide](./docs/MCP_GUIDE.md) for the implemented protocol surface.
+The MCP handler supports MCP 2026-07-28 Streamable HTTP: finite requests return
+JSON and `subscriptions/listen` provides request-scoped SSE for live resource
+invalidations. Streams use a bounded, cancellation-aware queue and complete
+gracefully during server shutdown. Discovery advertises only the standard
+transport by default.
+
+Initialize-era HTTP/stdio request-response remains available for 2025-11-25
+clients. HyperServe's older routed `X-SSE-*` transport is deprecated and off by
+default; temporarily restore it with
+`server.WithMCPLegacyRoutedSSE(true)`. Built-in tools and resources remain off
+by default. See the [MCP guide](./docs/MCP_GUIDE.md) for the request headers,
+subscription API, limits, and migration notes.
 
 ## Scaffold a service
 
@@ -221,7 +228,9 @@ cd payments
 go run ./cmd/server
 ```
 
-Use `--with-mcp=false` to omit MCP and `--local-replace` when developing
+MCP is omitted by default because the scaffold does not guess an application
+authentication policy. Pass `--with-mcp` only when you will protect `/mcp`
+with your own authorization middleware. Use `--local-replace` when developing
 against a local HyperServe checkout.
 
 ## Development

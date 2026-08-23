@@ -1,8 +1,10 @@
 package mcp
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -51,6 +53,9 @@ func (h *Handler) isStreamableHTTPRequest(r *http.Request) bool {
 		return false
 	}
 	if len(versions) != 1 {
+		return true
+	}
+	if versions[0] == StreamableHTTPProtocolVersion {
 		return true
 	}
 	// The configured initialize-era version uses the legacy request/response
@@ -110,17 +115,6 @@ func normalizedHostPort(hostport, scheme string) (string, string) {
 	return u.Hostname(), port
 }
 
-func acceptsExactMediaType(header, want string) bool {
-	for part := range strings.SplitSeq(header, ",") {
-		mediaType, params, err := mime.ParseMediaType(strings.TrimSpace(part))
-		if err != nil || !strings.EqualFold(mediaType, want) || mediaTypeQualityRejected(params["q"]) {
-			continue
-		}
-		return true
-	}
-	return false
-}
-
 func mediaTypeQualityRejected(value string) bool {
 	if value == "" {
 		return false
@@ -129,32 +123,87 @@ func mediaTypeQualityRejected(value string) bool {
 	return err != nil || quality <= 0 || quality > 1
 }
 
+func hasLegacyRoutedSSEHeaders(header http.Header) bool {
+	return len(header.Values("X-SSE-Client-ID")) != 0 || len(header.Values("X-SSE-Binding")) != 0
+}
+
+func validateStreamableAccept(header http.Header) bool {
+	values := header.Values("Accept")
+	if len(values) == 0 {
+		return false
+	}
+	seenJSON := false
+	seenSSE := false
+	for part := range strings.SplitSeq(strings.Join(values, ","), ",") {
+		mediaType, params, err := mime.ParseMediaType(strings.TrimSpace(part))
+		if err != nil || mediaTypeQualityRejected(params["q"]) {
+			return false
+		}
+		switch {
+		case strings.EqualFold(mediaType, "application/json"):
+			seenJSON = true
+		case strings.EqualFold(mediaType, "text/event-stream"):
+			seenSSE = true
+		}
+	}
+	return seenJSON && seenSSE
+}
+
 func (h *Handler) serveStreamableHTTP(w http.ResponseWriter, r *http.Request) {
-	accept := r.Header.Get("Accept")
-	if !acceptsExactMediaType(accept, "application/json") || !acceptsExactMediaType(accept, "text/event-stream") {
-		h.writeStreamableError(w, http.StatusNotAcceptable, nil, jsonrpc.ErrorCodeInvalidRequest,
+	if hasLegacyRoutedSSEHeaders(r.Header) {
+		h.writeStreamableError(w, http.StatusBadRequest, nil, errorCodeHeaderMismatch,
+			"X-SSE-* headers are not valid for Streamable HTTP", nil)
+		return
+	}
+	if !validateStreamableAccept(r.Header) {
+		h.writeStreamableError(w, http.StatusBadRequest, nil, jsonrpc.ErrorCodeInvalidRequest,
 			"Accept must list application/json and text/event-stream", nil)
 		return
 	}
 
-	contentType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	contentTypes := r.Header.Values("Content-Type")
+	if len(contentTypes) != 1 {
+		h.writeStreamableError(w, http.StatusUnsupportedMediaType, nil, jsonrpc.ErrorCodeInvalidRequest,
+			"Content-Type must be a single application/json value", nil)
+		return
+	}
+	contentType, _, err := mime.ParseMediaType(contentTypes[0])
 	if err != nil || !strings.EqualFold(contentType, "application/json") {
-		h.writeStreamableError(w, http.StatusBadRequest, nil, jsonrpc.ErrorCodeInvalidRequest,
+		h.writeStreamableError(w, http.StatusUnsupportedMediaType, nil, jsonrpc.ErrorCodeInvalidRequest,
 			"Content-Type must be application/json", nil)
 		return
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, streamableHTTPMaxBody)
-	var request jsonrpc.Request
-	decoder := json.NewDecoder(r.Body)
-	if err := decoder.Decode(&request); err != nil {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
+			h.writeStreamableError(w, http.StatusRequestEntityTooLarge, nil, jsonrpc.ErrorCodeInvalidRequest,
+				"Request body is too large", nil)
+			return
+		}
 		h.writeStreamableError(w, http.StatusBadRequest, nil, jsonrpc.ErrorCodeParseError, "Parse error", nil)
 		return
 	}
-	var trailing any
-	if err := decoder.Decode(&trailing); err != io.EOF {
-		h.writeStreamableError(w, http.StatusBadRequest, request.ID, jsonrpc.ErrorCodeParseError,
-			"Request body must contain one JSON-RPC message", nil)
+	if err := validateUniqueJSON(body); err != nil {
+		h.writeStreamableError(w, http.StatusBadRequest, nil, jsonrpc.ErrorCodeParseError, "Parse error", nil)
+		return
+	}
+
+	var request jsonrpc.Request
+	if err := json.Unmarshal(body, &request); err != nil {
+		h.writeStreamableError(w, http.StatusBadRequest, nil, jsonrpc.ErrorCodeParseError, "Parse error", nil)
+		return
+	}
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(body, &envelope); err != nil || envelope == nil || envelope["result"] != nil || envelope["error"] != nil || request.JSONRPC != jsonrpc.Version || request.Method == "" {
+		h.writeStreamableError(w, http.StatusBadRequest, request.ID, jsonrpc.ErrorCodeInvalidRequest,
+			"Request body must contain one JSON-RPC request", nil)
+		return
+	}
+	if !request.IsNotification() && !validJSONRPCID(request.ID) {
+		h.writeStreamableError(w, http.StatusBadRequest, nil, jsonrpc.ErrorCodeInvalidRequest,
+			"JSON-RPC id must be a string or safe integer", nil)
 		return
 	}
 
@@ -165,6 +214,10 @@ func (h *Handler) serveStreamableHTTP(w http.ResponseWriter, r *http.Request) {
 	if !isCurrentProtocolMethod(request.Method) {
 		h.writeStreamableError(w, http.StatusNotFound, request.ID, jsonrpc.ErrorCodeMethodNotFound,
 			"Method not found", map[string]any{"method": request.Method})
+		return
+	}
+	if request.Method == "subscriptions/listen" {
+		h.serveSubscriptionsListen(w, r, &request)
 		return
 	}
 
@@ -192,6 +245,13 @@ func (h *Handler) serveStreamableHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
+	if response.Error != nil {
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			h.logger.Error("Failed to encode Streamable HTTP error response", "error", err)
+		}
+		return
+	}
 	response.Result, err = h.streamableResult(response.Result)
 	if err != nil {
 		h.writeStreamableError(w, http.StatusInternalServerError, request.ID, jsonrpc.ErrorCodeInternalError,
@@ -203,6 +263,76 @@ func (h *Handler) serveStreamableHTTP(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		h.logger.Error("Failed to encode Streamable HTTP response", "error", err)
 	}
+}
+
+func validJSONRPCID(id any) bool {
+	switch value := id.(type) {
+	case string:
+		return true
+	case float64:
+		return !math.IsNaN(value) && !math.IsInf(value, 0) && math.Trunc(value) == value && math.Abs(value) <= 1<<53-1
+	default:
+		return false
+	}
+}
+
+func validateUniqueJSON(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var visit func() error
+	visit = func() error {
+		token, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		delim, ok := token.(json.Delim)
+		if !ok {
+			return nil
+		}
+		switch delim {
+		case '{':
+			seen := make(map[string]struct{})
+			for decoder.More() {
+				keyToken, err := decoder.Token()
+				if err != nil {
+					return err
+				}
+				key, ok := keyToken.(string)
+				if !ok {
+					return fmt.Errorf("JSON object key is not a string")
+				}
+				if _, duplicate := seen[key]; duplicate {
+					return fmt.Errorf("duplicate JSON object key %q", key)
+				}
+				seen[key] = struct{}{}
+				if err := visit(); err != nil {
+					return err
+				}
+			}
+			_, err = decoder.Token()
+			return err
+		case '[':
+			for decoder.More() {
+				if err := visit(); err != nil {
+					return err
+				}
+			}
+			_, err = decoder.Token()
+			return err
+		default:
+			return fmt.Errorf("unexpected JSON delimiter %q", delim)
+		}
+	}
+	if err := visit(); err != nil {
+		return err
+	}
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return fmt.Errorf("request body contains more than one JSON value")
+		}
+		return err
+	}
+	return nil
 }
 
 func (h *Handler) validateStreamableRequest(r *http.Request, request *jsonrpc.Request) (int, *jsonrpc.ErrorDetails) {
@@ -263,7 +393,7 @@ func headerMismatch(message string) (int, *jsonrpc.ErrorDetails) {
 func streamableRequestName(method string, params map[string]any) (string, bool) {
 	var field string
 	switch method {
-	case "tools/call", "prompts/get":
+	case "tools/call":
 		field = "name"
 	case "resources/read":
 		field = "uri"
@@ -309,7 +439,10 @@ func (h *Handler) validateToolParameterHeaders(header http.Header, method string
 	if !ok {
 		return ""
 	}
-	bindings := collectToolHeaderBindings(tool.Schema(), nil, nil)
+	bindings, annotationError := collectToolHeaderBindings(tool.Schema(), nil, nil)
+	if annotationError != "" {
+		return annotationError
+	}
 	arguments, _ := params["arguments"].(map[string]any)
 	for _, binding := range bindings {
 		value, present := nestedValue(arguments, binding.path)
@@ -331,7 +464,7 @@ func (h *Handler) validateToolParameterHeaders(header http.Header, method string
 	return ""
 }
 
-func collectToolHeaderBindings(schema map[string]any, path []string, seen map[string]struct{}) []toolHeaderBinding {
+func collectToolHeaderBindings(schema map[string]any, path []string, seen map[string]struct{}) ([]toolHeaderBinding, string) {
 	if seen == nil {
 		seen = make(map[string]struct{})
 	}
@@ -340,22 +473,33 @@ func collectToolHeaderBindings(schema map[string]any, path []string, seen map[st
 	for propertyName, raw := range properties {
 		property, _ := raw.(map[string]any)
 		propertyPath := append(append([]string(nil), path...), propertyName)
-		if annotation, ok := property["x-mcp-header"].(string); ok && validHTTPToken(annotation) {
-			valueType, _ := property["type"].(string)
-			key := strings.ToLower(annotation)
-			_, duplicate := seen[key]
-			if !duplicate && (valueType == "string" || valueType == "integer" || valueType == "boolean") {
-				seen[key] = struct{}{}
-				bindings = append(bindings, toolHeaderBinding{
-					headerName: annotation,
-					path:       propertyPath,
-					valueType:  valueType,
-				})
+		if rawAnnotation, exists := property["x-mcp-header"]; exists {
+			annotation, ok := rawAnnotation.(string)
+			if !ok || !validHTTPToken(annotation) {
+				return nil, "tool schema contains an invalid x-mcp-header annotation"
 			}
+			valueType, _ := property["type"].(string)
+			if valueType != "string" && valueType != "integer" && valueType != "boolean" {
+				return nil, "tool schema uses x-mcp-header on an unsupported parameter type"
+			}
+			key := strings.ToLower(annotation)
+			if _, duplicate := seen[key]; duplicate {
+				return nil, "tool schema contains duplicate x-mcp-header annotations"
+			}
+			seen[key] = struct{}{}
+			bindings = append(bindings, toolHeaderBinding{
+				headerName: annotation,
+				path:       propertyPath,
+				valueType:  valueType,
+			})
 		}
-		bindings = append(bindings, collectToolHeaderBindings(property, propertyPath, seen)...)
+		nested, annotationError := collectToolHeaderBindings(property, propertyPath, seen)
+		if annotationError != "" {
+			return nil, annotationError
+		}
+		bindings = append(bindings, nested...)
 	}
-	return bindings
+	return bindings, ""
 }
 
 func validHTTPToken(value string) bool {
@@ -413,7 +557,7 @@ func toolHeaderValueMatches(headerValue string, bodyValue any, valueType string)
 
 func isCurrentProtocolMethod(method string) bool {
 	switch method {
-	case "server/discover", "resources/list", "resources/templates/list", "resources/read", "tools/list", "tools/call":
+	case "server/discover", "resources/list", "resources/templates/list", "resources/read", "tools/list", "tools/call", "subscriptions/listen":
 		return true
 	default:
 		return false
@@ -426,7 +570,7 @@ func (h *Handler) handleServerDiscover(_ any) (any, error) {
 		"supportedVersions": []string{StreamableHTTPProtocolVersion},
 		"capabilities": map[string]any{
 			"tools":     map[string]any{},
-			"resources": map[string]any{},
+			"resources": map[string]any{"subscribe": h.hasSubscribableResourceTemplates()},
 		},
 		// Registrations and authorization context can vary between deployments.
 		// Do not invite shared caches to retain a capability view by default.

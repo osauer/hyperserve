@@ -535,14 +535,11 @@ func TestMCPHandler_ServeHTTP_MethodNotAllowed(t *testing.T) {
 
 	handler.ServeHTTP(w, req)
 
-	// GET requests now return helpful HTML documentation
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200 for GET request, got %d", w.Code)
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Expected status 405 for GET request, got %d", w.Code)
 	}
-
-	contentType := w.Header().Get("Content-Type")
-	if contentType != "text/html; charset=utf-8" {
-		t.Errorf("Expected Content-Type text/html; charset=utf-8, got %s", contentType)
+	if got := w.Header().Get("Allow"); got != http.MethodPost {
+		t.Errorf("Expected Allow POST, got %q", got)
 	}
 }
 
@@ -715,6 +712,8 @@ func TestMCPNamespace_EmptyNamespace(t *testing.T) {
 
 func TestMCPHandler_ServeHTTP_AcceptJSON(t *testing.T) {
 	handler := mcp.NewHandler(mcp.ServerInfo{Name: "test", Version: "1.0"})
+	//lint:ignore SA1019 This regression intentionally exercises legacy compatibility.
+	handler.SetLegacyRoutedSSEEnabled(true)
 
 	tests := []struct {
 		name   string
@@ -780,6 +779,8 @@ func TestMCPHandler_ServeHTTP_AcceptJSON(t *testing.T) {
 
 func TestMCPHandler_ServeHTTP_AcceptHTML(t *testing.T) {
 	handler := mcp.NewHandler(mcp.ServerInfo{Name: "test", Version: "1.0"})
+	//lint:ignore SA1019 This regression intentionally exercises legacy compatibility.
+	handler.SetLegacyRoutedSSEEnabled(true)
 
 	tests := []struct {
 		name   string
@@ -825,6 +826,8 @@ func TestMCPHandler_ServeHTTP_AcceptHTML(t *testing.T) {
 
 func TestMCPHandler_GetCapabilities_Consistency(t *testing.T) {
 	handler := mcp.NewHandler(mcp.ServerInfo{Name: "test", Version: "1.0"})
+	//lint:ignore SA1019 This regression intentionally exercises legacy compatibility.
+	handler.SetLegacyRoutedSSEEnabled(true)
 
 	// Get capabilities from GET request
 	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
@@ -878,6 +881,8 @@ func TestMCPHandler_GetCapabilities_Consistency(t *testing.T) {
 
 func TestMCPHandler_AcceptHeader_EdgeCases(t *testing.T) {
 	handler := mcp.NewHandler(mcp.ServerInfo{Name: "test", Version: "1.0"})
+	//lint:ignore SA1019 This regression intentionally exercises legacy compatibility.
+	handler.SetLegacyRoutedSSEEnabled(true)
 
 	tests := []struct {
 		name        string

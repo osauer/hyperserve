@@ -24,6 +24,82 @@ Entries tier by audience:
 Shape is enforced by `make changelog-lint RELEASE_VERSION=vX.Y.Z`; scaffold a
 new entry with `make changelog-stub RELEASE_VERSION=vX.Y.Z`.
 
+## [1.4.0] - 2026-08-23 17:15 CEST
+
+### What's new
+
+- MCP 2026-07-28 live resource subscriptions now use the standard
+  request-scoped `subscriptions/listen` SSE response.
+- HyperServe's proprietary routed SSE transport is deprecated and disabled by
+  default; applications can opt in temporarily while clients migrate.
+- Listen streams now have bounded delivery, strict request validation, and
+  graceful completion during handler and server shutdown.
+
+### Added
+
+- Added `server.WithMCPLegacyRoutedSSE` and
+  `(*mcp.Handler).SetLegacyRoutedSSEEnabled` as explicit compatibility switches
+  for the former routed `X-SSE-*` transport.
+- Added idempotent `(*mcp.Handler).Shutdown`, which completes active
+  `subscriptions/listen` streams before server lifecycle cancellation.
+- Added official MCP Go SDK v1.7.0 conformance coverage in the separate
+  developer-tools module; the shipped module keeps its single runtime
+  dependency.
+
+### Changed
+
+- MCP discovery advertises only current Streamable HTTP by default and reports
+  the legacy transport only when compatibility mode is enabled.
+- `GET` and `DELETE` on the standards-only MCP endpoint now return `405` with
+  `Allow: POST`; unsupported RPC methods and transport errors use precise HTTP
+  and JSON-RPC mappings.
+- Generated services now leave MCP disabled unless `--with-mcp` is passed,
+  because application-specific authorization cannot be generated safely.
+
+### Deprecated
+
+- Deprecated HyperServe's GET SSE stream and routed POST flow. Enable it only
+  with `server.WithMCPLegacyRoutedSSE(true)` during migration to
+  `subscriptions/listen`.
+
+### Fixed
+
+- Resource subscription streams acknowledge only matched URIs, preserve
+  acknowledgement/update/completion ordering, block instead of dropping when
+  their 32-event queue is full, and cancel producers on disconnect.
+- Handler shutdown rejects new standard and legacy streams, interrupts stalled
+  writes at the shutdown deadline, and reserves time for the remaining server
+  shutdown phases.
+- Environment, JSON, and functional configuration now enforce the same rule:
+  the current per-request protocol revision cannot be configured as the
+  initialize-era fallback version.
+
+### Security
+
+- Current-protocol parsing rejects duplicate JSON keys, ambiguous singleton
+  headers, response-shaped bodies, invalid IDs, malformed media types,
+  oversized requests, invalid origins, and legacy/current transport confusion.
+- Tool parameters with malformed, duplicate, or unsupported `x-mcp-header`
+  annotations now fail closed instead of silently bypassing header validation.
+
+### Documentation
+
+- Added ADR-0012 and updated the README, MCP/production/scaffolding guides,
+  discovery surfaces, Claude instructions, and examples with the conformance
+  matrix, bounds, shutdown behavior, and legacy migration option.
+
+### Verification
+
+- `make check`
+- `go test ./...`
+- `make test-race`
+- `make fuzz-smoke`
+- `make mcp-conformance`
+- `govulncheck ./...`
+- `govulncheck -C tools -tags=tools -scan=module`
+- standalone example-module `go vet`, build, and `govulncheck` gates
+- `make release-smoke RELEASE_VERSION=v1.4.0`
+
 ## [1.3.1] - 2026-08-23 09:52 CEST
 
 ### What's new

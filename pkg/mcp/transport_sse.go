@@ -58,6 +58,7 @@ type sseManager struct {
 	clients      map[string]*sseClient
 	requestChans map[string]chan *jsonrpc.Request
 	mu           sync.RWMutex
+	closed       bool
 	logger       *slog.Logger
 	pingInterval time.Duration
 }
@@ -72,15 +73,18 @@ func newSSEManager() *sseManager {
 	}
 }
 
-// registerRequestChan creates the per-client request channel that routed
-// POSTs are queued onto. Caller (HandleSSE) must hold no locks; this method
-// takes the manager's write lock.
-func (m *sseManager) registerRequestChan(clientID string) chan *jsonrpc.Request {
+// admitClient atomically registers a legacy stream and its routed-request
+// channel unless shutdown has closed admission.
+func (m *sseManager) admitClient(clientID string, client *sseClient) (chan *jsonrpc.Request, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.closed {
+		return nil, false
+	}
 	ch := make(chan *jsonrpc.Request, 10)
+	m.clients[clientID] = client
 	m.requestChans[clientID] = ch
-	return ch
+	return ch, true
 }
 
 // unregisterRequestChan closes and removes the per-client request channel.
@@ -99,6 +103,21 @@ func (m *sseManager) requestChanFor(clientID string) (chan *jsonrpc.Request, boo
 	defer m.mu.RUnlock()
 	ch, ok := m.requestChans[clientID]
 	return ch, ok
+}
+
+// CloseAll asks every connected legacy SSE client to terminate. Individual
+// handlers retain ownership of registry cleanup as they unwind.
+func (m *sseManager) CloseAll() {
+	m.mu.Lock()
+	m.closed = true
+	clients := make([]*sseClient, 0, len(m.clients))
+	for _, client := range m.clients {
+		clients = append(clients, client)
+	}
+	m.mu.Unlock()
+	for _, client := range clients {
+		client.Close()
+	}
 }
 
 func newSSEClient(id, bindingToken string, w http.ResponseWriter, flusher http.Flusher) *sseClient {
@@ -232,17 +251,19 @@ func (m *sseManager) HandleSSE(w http.ResponseWriter, r *http.Request, mcpHandle
 		return
 	}
 
+	client := newSSEClient(clientID, bindingToken, w, flusher)
+	requestChan, admitted := m.admitClient(clientID, client)
+	if !admitted {
+		http.Error(w, "Server is shutting down", http.StatusServiceUnavailable)
+		return
+	}
+	defer m.removeClient(clientID)
+	defer m.unregisterRequestChan(clientID)
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
-
-	client := newSSEClient(clientID, bindingToken, w, flusher)
-	m.addClient(clientID, client)
-	defer m.removeClient(clientID)
-
-	requestChan := m.registerRequestChan(clientID)
-	defer m.unregisterRequestChan(clientID)
 
 	m.logger.Info("SSE client connected", "client", clientID)
 
@@ -397,10 +418,14 @@ func (m *sseManager) lookup(id string) (*sseClient, bool) {
 	return c, ok
 }
 
-func (m *sseManager) addClient(id string, client *sseClient) {
+func (m *sseManager) addClient(id string, client *sseClient) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.closed {
+		return false
+	}
 	m.clients[id] = client
+	return true
 }
 
 func (m *sseManager) removeClient(id string) {

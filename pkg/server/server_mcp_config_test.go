@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -171,6 +173,54 @@ func TestMCPProtocolVersionProgrammaticConfiguration(t *testing.T) {
 	}
 	if got := srv.MCPHandler().ProtocolVersion(); got != "2025-03-26" {
 		t.Fatalf("MCP protocol version = %q, want 2025-03-26", got)
+	}
+}
+
+func TestMCPCurrentProtocolVersionCannotBeConfiguredAsLegacy(t *testing.T) {
+	_, err := NewServer(
+		WithMCPSupport("ProgrammaticApp", "3.0.0"),
+		WithMCPProtocolVersion(mcp.StreamableHTTPProtocolVersion),
+	)
+	if err == nil {
+		t.Fatal("configuring current Streamable HTTP as initialize-era version succeeded")
+	}
+}
+
+func TestMCPCurrentProtocolVersionRejectedFromEnvironmentAndJSON(t *testing.T) {
+	t.Run("environment", func(t *testing.T) {
+		t.Setenv(paramMCPProtocolVersion, mcp.StreamableHTTPProtocolVersion)
+		if _, err := NewServer(); err == nil {
+			t.Fatal("current protocol version from environment succeeded")
+		}
+	})
+
+	t.Run("JSON", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "server.json")
+		body := `{"mcp_protocol_version":"` + mcp.StreamableHTTPProtocolVersion + `"}`
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv(paramConfigPath, path)
+		if _, err := NewServer(); err == nil {
+			t.Fatal("current protocol version from JSON succeeded")
+		}
+	})
+}
+
+func TestMCPLegacyRoutedSSEProgrammaticConfiguration(t *testing.T) {
+	srv, err := NewServer(
+		WithMCPSupport("ProgrammaticApp", "3.0.0"),
+		WithMCPLegacyRoutedSSE(true),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+	req.Header.Set("Accept", "application/json")
+	rec := httptest.NewRecorder()
+	srv.MCPHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("legacy status GET = %d, want 200", rec.Code)
 	}
 }
 

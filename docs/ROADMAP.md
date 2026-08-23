@@ -4,7 +4,7 @@ _Last updated: 2026-05-24 07:43 CEST (v1 line)._
 
 HyperServe is a library-first Go HTTP framework with in-process MCP for
 agentic workloads. The near-term roadmap is about making that story sharp:
-production MCP observability, SSE transport correctness, and a small set of
+production MCP observability, Streamable HTTP correctness, and a small set of
 canonical examples that stay release-gated.
 
 ## Product Thesis
@@ -19,11 +19,13 @@ without an out-of-process bridge.
 These three examples define the release story:
 
 - `examples/devops`: production MCP observability.
-- `examples/mcp-sse`: MCP over the unified SSE/HTTP endpoint.
+- `examples/mcp-extensions`: current Streamable HTTP subscriptions over SSE.
 - `examples/json-api`: a normal JSON API server using method-aware routes and typed binding.
 
 Other examples are supplemental. They should not dilute the main README or
 release gate unless they protect a specific production contract.
+`examples/mcp-sse` remains release-gated separately as a deprecated routed-SSE
+compatibility regression, not as the primary transport story.
 
 ## Near-Term Work
 

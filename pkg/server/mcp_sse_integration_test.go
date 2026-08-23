@@ -21,6 +21,8 @@ func TestMCPWithSSEIntegration(t *testing.T) {
 		Version: "1.0.0",
 	}
 	handler := mcp.NewHandler(serverInfo)
+	//lint:ignore SA1019 This regression intentionally exercises legacy compatibility.
+	handler.SetLegacyRoutedSSEEnabled(true)
 
 	// Register a test tool
 	handler.RegisterTool(&testTool{})

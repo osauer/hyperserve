@@ -123,11 +123,32 @@ remain valid. TLS-terminating proxies or authenticated cross-origin clients
 can install an explicit `WithMCPOriginValidator` policy; do not treat Origin
 as authentication.
 
+Finite MCP requests return JSON. `subscriptions/listen` keeps its POST
+response open as `text/event-stream`; configure reverse proxies to preserve
+streaming, disable response transformation/buffering, and allow idle periods
+longer than the 30-second keepalive. HyperServe sends
+`Cache-Control: no-cache, no-transform` and `X-Accel-Buffering: no`, uses a
+30-second deadline for each write, and bounds each stream to 32 queued events
+and 128 requested resource URIs. Producers block when the queue is full; events
+are never silently dropped.
+
+The standard endpoint deliberately has no protocol sessions, resumability IDs,
+or GET stream. GET and DELETE return `405` with `Allow: POST`. Malformed
+metadata, Accept values, parameters, or transport-confusion headers return
+`400`; oversized bodies return `413`; unsupported content types return `415`;
+unsupported RPC methods return `404`; invalid Origins return `403`.
+
+`Server.Stop` and the normal signal path call `(*mcp.Handler).Shutdown` before
+canceling the HTTP base context so active listens can receive their final
+`resultType: complete` response. Applications that mount an `mcp.Handler`
+directly should call its idempotent `Shutdown(ctx)` during graceful shutdown.
+
 ### Legacy routed-SSE binding-token capability
 
 The proprietary HyperServe compatibility stream (not MCP 2026-07-28
-Streamable HTTP) gives clients a `clientId` and a `bindingToken` in the initial
-`connection` event. POSTs that should be delivered via that SSE stream
+Streamable HTTP) is deprecated and disabled by default. Enable it temporarily
+with `server.WithMCPLegacyRoutedSSE(true)`. It gives clients a `clientId` and a
+`bindingToken` in the initial `connection` event. POSTs routed to that stream
 must present both headers:
 
 ```

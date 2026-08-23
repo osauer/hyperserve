@@ -118,19 +118,38 @@ func TestHandlerRegisterNamespace(t *testing.T) {
 }
 
 func TestHandlerCapabilities(t *testing.T) {
-	caps := newHandlerForTest(t).Capabilities()
-	if caps.Tools == nil || caps.Resources == nil || caps.SSE == nil {
-		t.Errorf("Capabilities missing one of Tools/Resources/SSE: %+v", caps)
+	h := newHandlerForTest(t)
+	caps := h.Capabilities()
+	if caps.Tools == nil || caps.Resources == nil {
+		t.Errorf("Capabilities missing Tools or Resources: %+v", caps)
 	}
-	if !caps.SSE.Enabled {
-		t.Error("Capabilities.SSE.Enabled = false, want true")
+	if caps.SSE != nil {
+		t.Errorf("Capabilities.SSE = %+v, want nil by default", caps.SSE)
+	}
+	h.SetLegacyRoutedSSEEnabled(true)
+	if caps = h.Capabilities(); caps.SSE == nil || !caps.SSE.Enabled {
+		t.Errorf("Capabilities.SSE = %+v after opt-in, want enabled", caps.SSE)
 	}
 }
 
-// TestServeHTTPRejectsNonPOST exercises the GET path that returns the JSON
-// status helper. Used to live untested.
-func TestServeHTTPReturnsJSONStatusOnGET(t *testing.T) {
+func TestServeHTTPRejectsGETByDefault(t *testing.T) {
 	h := newHandlerForTest(t)
+	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+	req.Header.Set("Accept", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want 405", rec.Code)
+	}
+	if got := rec.Header().Get("Allow"); got != http.MethodPost {
+		t.Errorf("Allow = %q, want POST", got)
+	}
+}
+
+func TestServeHTTPReturnsLegacyJSONStatusOnGETWhenEnabled(t *testing.T) {
+	h := newHandlerForTest(t)
+	h.SetLegacyRoutedSSEEnabled(true)
 	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
 	req.Header.Set("Accept", "application/json")
 	rec := httptest.NewRecorder()

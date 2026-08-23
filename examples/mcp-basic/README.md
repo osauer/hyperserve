@@ -5,7 +5,7 @@ Demonstrates hyperserve's Model Context Protocol (MCP) support, enabling AI assi
 ## Features
 
 - JSON-RPC 2.0 protocol endpoint
-- Built-in tools (calculator, file operations, HTTP requests)
+- Built-in tools (calculator and sandboxed file operations)
 - Built-in resources (config, metrics, system info, logs)
 - Custom tool example (timestamp generator)
 - Custom resource example (server status)
@@ -14,6 +14,11 @@ Demonstrates hyperserve's Model Context Protocol (MCP) support, enabling AI assi
 - Template-based dashboard
 
 ## Usage
+
+The curl commands below use HyperServe's explicit 2025-11-25 initialize-era
+request/response fallback. New integrations should use the 2026-07-28 request
+metadata documented in the [MCP guide](../../docs/MCP_GUIDE.md), including
+`subscriptions/listen` for live updates.
 
 ```bash
 # Run the server (from the repo root)

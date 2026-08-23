@@ -30,6 +30,22 @@ func TestWithOnShutdown(t *testing.T) {
 	}
 }
 
+func TestMCPShutdownContextReservesOuterBudget(t *testing.T) {
+	parent, cancelParent := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancelParent()
+	child, cancelChild := mcpShutdownContext(parent)
+	defer cancelChild()
+	parentDeadline, parentOK := parent.Deadline()
+	childDeadline, childOK := child.Deadline()
+	if !parentOK || !childOK {
+		t.Fatal("expected parent and MCP shutdown deadlines")
+	}
+	reserved := parentDeadline.Sub(childDeadline)
+	if reserved < 70*time.Millisecond || reserved > 130*time.Millisecond {
+		t.Fatalf("reserved outer shutdown budget = %v, want approximately half", reserved)
+	}
+}
+
 // TestMultipleShutdownHooks verifies multiple hooks can be registered
 func TestMultipleShutdownHooks(t *testing.T) {
 	t.Parallel()

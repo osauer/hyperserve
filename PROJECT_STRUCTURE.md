@@ -45,7 +45,8 @@ import (
 ## Root files
 
 - `go.mod` / `go.sum` — Shipped module + single external dependency (`golang.org/x/time`).
-- `tools/go.mod` / `tools/go.sum` — Developer-only modernize dependency graph.
+- `tools/go.mod` / `tools/go.sum` — Developer-only modernization and official
+  MCP SDK conformance dependency graph.
 - `Makefile` — `build` / `install` / `test` / `check` (runs `vet`, `staticcheck`, `modernize`, `govulncheck`).
 - `README.md` — Overview and Quick Start.
 - `ARCHITECTURE.md` — Design notes for the layered package layout.

@@ -280,6 +280,18 @@ func (t *headerAnnotatedTool) Schema() map[string]any {
 }
 func (t *headerAnnotatedTool) Execute(map[string]any) (any, error) { return "ok", nil }
 
+type malformedHeaderAnnotatedTool struct {
+	name   string
+	schema map[string]any
+}
+
+func (t *malformedHeaderAnnotatedTool) Name() string { return t.name }
+func (t *malformedHeaderAnnotatedTool) Description() string {
+	return "invalid header annotation fixture"
+}
+func (t *malformedHeaderAnnotatedTool) Schema() map[string]any              { return t.schema }
+func (t *malformedHeaderAnnotatedTool) Execute(map[string]any) (any, error) { return "unexpected", nil }
+
 func TestStreamableHTTPToolParameterHeaders(t *testing.T) {
 	h := newHandlerForTest(t)
 	tool := &headerAnnotatedTool{}
@@ -323,6 +335,40 @@ func TestStreamableHTTPToolParameterHeaders(t *testing.T) {
 	}
 }
 
+func TestStreamableHTTPRejectsInvalidToolHeaderAnnotations(t *testing.T) {
+	tests := []struct {
+		name       string
+		properties map[string]any
+	}{
+		{name: "malformed", properties: map[string]any{"value": map[string]any{"type": "string", "x-mcp-header": "bad header"}}},
+		{name: "unsupported type", properties: map[string]any{"value": map[string]any{"type": "array", "x-mcp-header": "Value"}}},
+		{name: "duplicate", properties: map[string]any{
+			"one": map[string]any{"type": "string", "x-mcp-header": "Value"},
+			"two": map[string]any{"type": "string", "x-mcp-header": "value"},
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHandlerForTest(t)
+			tool := &malformedHeaderAnnotatedTool{
+				name:   "invalid-" + strings.ReplaceAll(tt.name, " ", "-"),
+				schema: map[string]any{"type": "object", "properties": tt.properties},
+			}
+			h.RegisterTool(tool)
+			req := newStreamableRequest(t, "tools/call", map[string]any{"name": tool.Name(), "arguments": map[string]any{}}, 1)
+			req.Header.Set(headerName, tool.Name())
+			rec := serveStreamable(t, h, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+			}
+			response := decodeRPCResponse(t, rec)
+			if response.Error == nil || response.Error.Code != errorCodeHeaderMismatch {
+				t.Fatalf("error = %+v, want HeaderMismatch", response.Error)
+			}
+		})
+	}
+}
+
 func TestStreamableHTTPRejectsMalformedTransportRequests(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -334,21 +380,21 @@ func TestStreamableHTTPRejectsMalformedTransportRequests(t *testing.T) {
 			mutate: func(r *http.Request) {
 				r.Header.Set("Accept", "application/json")
 			},
-			wantStatus: http.StatusNotAcceptable,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "wildcard does not replace explicit JSON",
 			mutate: func(r *http.Request) {
 				r.Header.Set("Accept", "*/*, text/event-stream")
 			},
-			wantStatus: http.StatusNotAcceptable,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "wrong content type",
 			mutate: func(r *http.Request) {
 				r.Header.Set("Content-Type", "text/plain")
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusUnsupportedMediaType,
 		},
 		{
 			name: "multiple messages",
@@ -364,7 +410,7 @@ func TestStreamableHTTPRejectsMalformedTransportRequests(t *testing.T) {
 				data := `{"jsonrpc":"2.0","method":"ping","params":{"payload":"` + strings.Repeat("x", streamableHTTPMaxBody) + `"}}`
 				r.Body = ioNopCloser(data)
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusRequestEntityTooLarge,
 		},
 	}
 
@@ -377,6 +423,128 @@ func TestStreamableHTTPRejectsMalformedTransportRequests(t *testing.T) {
 				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tt.wantStatus, rec.Body.String())
 			}
 		})
+	}
+}
+
+func TestStreamableHTTPRejectsAmbiguousAndConfusedRequests(t *testing.T) {
+	tests := []struct {
+		name       string
+		body       string
+		mutate     func(*http.Request)
+		wantStatus int
+		wantCode   int
+	}{
+		{
+			name:       "duplicate top-level key",
+			body:       `{"jsonrpc":"2.0","method":"tools/list","method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}},"id":1}`,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   jsonrpc.ErrorCodeParseError,
+		},
+		{
+			name:       "duplicate metadata key",
+			body:       `{"jsonrpc":"2.0","method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/protocolVersion":"2026-07-28"}},"id":1}`,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   jsonrpc.ErrorCodeParseError,
+		},
+		{
+			name:       "response-shaped result",
+			body:       `{"jsonrpc":"2.0","method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}},"result":{},"id":1}`,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   jsonrpc.ErrorCodeInvalidRequest,
+		},
+		{
+			name:       "null id",
+			body:       `{"jsonrpc":"2.0","method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}},"id":null}`,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   jsonrpc.ErrorCodeInvalidRequest,
+		},
+		{
+			name:       "fractional id",
+			body:       `{"jsonrpc":"2.0","method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}},"id":1.5}`,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   jsonrpc.ErrorCodeInvalidRequest,
+		},
+		{
+			name:       "duplicate protocol header",
+			mutate:     func(r *http.Request) { r.Header.Add(headerProtocolVersion, StreamableHTTPProtocolVersion) },
+			wantStatus: http.StatusBadRequest,
+			wantCode:   errorCodeHeaderMismatch,
+		},
+		{
+			name:       "duplicate content type",
+			mutate:     func(r *http.Request) { r.Header.Add("Content-Type", "application/json") },
+			wantStatus: http.StatusUnsupportedMediaType,
+			wantCode:   jsonrpc.ErrorCodeInvalidRequest,
+		},
+		{
+			name:       "malformed accept",
+			mutate:     func(r *http.Request) { r.Header.Set("Accept", "application/json;q=bogus, text/event-stream") },
+			wantStatus: http.StatusBadRequest,
+			wantCode:   jsonrpc.ErrorCodeInvalidRequest,
+		},
+		{
+			name:       "legacy client header",
+			mutate:     func(r *http.Request) { r.Header.Set("X-SSE-Client-ID", "legacy") },
+			wantStatus: http.StatusBadRequest,
+			wantCode:   errorCodeHeaderMismatch,
+		},
+		{
+			name:       "legacy binding header",
+			mutate:     func(r *http.Request) { r.Header.Set("X-SSE-Binding", "legacy") },
+			wantStatus: http.StatusBadRequest,
+			wantCode:   errorCodeHeaderMismatch,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := newStreamableRequest(t, "tools/list", nil, 1)
+			if tt.body != "" {
+				req.Body = ioNopCloser(tt.body)
+			}
+			if tt.mutate != nil {
+				tt.mutate(req)
+			}
+			rec := serveStreamable(t, newHandlerForTest(t), req)
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+			response := decodeRPCResponse(t, rec)
+			if response.Error == nil || response.Error.Code != tt.wantCode {
+				t.Fatalf("error = %+v, want code %d", response.Error, tt.wantCode)
+			}
+		})
+	}
+}
+
+func TestStreamableHTTPRejectsNonPOSTAndDisabledLegacyRouting(t *testing.T) {
+	h := newHandlerForTest(t)
+	for _, method := range []string{http.MethodGet, http.MethodDelete} {
+		req := httptest.NewRequest(method, "/mcp", nil)
+		rec := serveStreamable(t, h, req)
+		if rec.Code != http.StatusMethodNotAllowed || rec.Header().Get("Allow") != http.MethodPost {
+			t.Fatalf("%s status/Allow = %d/%q, want 405/POST", method, rec.Code, rec.Header().Get("Allow"))
+		}
+	}
+
+	legacy := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","method":"ping","id":1}`))
+	legacy.Header.Set("Content-Type", "application/json")
+	legacy.Header.Set("X-SSE-Client-ID", "legacy")
+	rec := serveStreamable(t, h, legacy)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "disabled") {
+		t.Fatalf("disabled legacy status/body = %d/%q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCurrentProtocolMetadataCannotSelectLegacyValidation(t *testing.T) {
+	h := newHandlerForTest(t)
+	h.SetProtocolVersion(StreamableHTTPProtocolVersion)
+	if h.ProtocolVersion() != DefaultProtocolVersion {
+		t.Fatalf("ProtocolVersion = %q, want normalized legacy default", h.ProtocolVersion())
+	}
+	rec := serveStreamable(t, h, newStreamableRequest(t, "tools/list", nil, 1))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("current request status = %d; body=%s", rec.Code, rec.Body.String())
 	}
 }
 

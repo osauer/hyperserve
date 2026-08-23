@@ -11,12 +11,14 @@ import (
 	"github.com/osauer/hyperserve/internal/scaffold"
 )
 
+const defaultWithMCP = false
+
 func main() {
 	var (
 		module       = flag.String("module", "", "Go module path for the new project (required)")
 		name         = flag.String("name", "", "Service name (defaults to the last segment of the module path)")
 		out          = flag.String("out", "", "Output directory (defaults to service name)")
-		withMCP      = flag.Bool("with-mcp", true, "Generate with Model Context Protocol support enabled")
+		withMCP      = flag.Bool("with-mcp", defaultWithMCP, "Generate with Model Context Protocol support enabled")
 		force        = flag.Bool("force", false, "Allow writing into a non-empty directory")
 		localReplace = flag.String("local-replace", "", "Add a replace directive pointing to a local hyperserve checkout")
 	)

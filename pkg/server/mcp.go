@@ -138,7 +138,6 @@ func (srv *Server) setupDiscoveryEndpoints() {
 			DefaultAddr: srv.Options.Addr,
 			Transport:   srv.Options.MCPTransport,
 			Policy:      srv.Options.MCPDiscoveryPolicy,
-			Dev:         srv.Options.MCPDev,
 			Filter:      srv.Options.MCPDiscoveryFilter,
 		}
 	}

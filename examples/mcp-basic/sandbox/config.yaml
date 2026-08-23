@@ -4,7 +4,6 @@ version: 1.0.0
 features:
   - file_access
   - calculations
-  - http_requests
   - system_info
 sandbox: true
 security: enabled

@@ -48,6 +48,21 @@ protocol/method/name headers, returns 202 with no body for accepted
 notifications, and rejects browser Origins that do not match the request Host.
 Use `server.WithMCPOriginValidator` for an authenticated cross-origin client.
 
+Resource templates implementing `mcp.SubscribableResourceTemplate` are
+available through a request-scoped SSE POST:
+
+```bash
+curl -N -X POST http://localhost:8080/mcp \
+  -H "Accept: application/json, text/event-stream" \
+  -H "Content-Type: application/json" \
+  -H "MCP-Protocol-Version: 2026-07-28" \
+  -H "Mcp-Method: subscriptions/listen" \
+  -d '{"jsonrpc":"2.0","method":"subscriptions/listen","params":{"notifications":{"resourceSubscriptions":["quotes://AAPL"]},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}},"id":"quotes"}'
+```
+
+The acknowledgement is always first. Close the response to cancel the
+subscription; server shutdown sends a final `resultType: complete` response.
+
 Requests without 2026 per-request metadata, or with the configured legacy
 protocol header, use the initialize-era 2025-11-25 request/response
 compatibility path. It does not implement 2025 sessions or resumable SSE.
@@ -55,8 +70,9 @@ compatibility path. It does not implement 2025 sessions or resumable SSE.
 ### Legacy HyperServe routed SSE
 
 The following is a proprietary compatibility transport, not MCP Streamable
-HTTP. New clients must not use it. It remains temporarily available while
-issue #74 tracks request-scoped SSE and `subscriptions/listen`.
+HTTP. New clients must not use it. It is disabled by default; an existing
+HyperServe-specific client may temporarily enable it with
+`server.WithMCPLegacyRoutedSSE(true)`.
 
 Connect with the SSE Accept header:
 
@@ -103,8 +119,11 @@ server.WithMCPDiscoveryFilter(func(toolName string, r *http.Request) bool { ... 
 
 ## Development conventions
 
-- `make check` is the gate: gofmt + vet + staticcheck + govulncheck + modernize.
-- `make test` runs unit + race-detected tests.
+- `make check` is the gate: formatting, vet, staticcheck, vulnerability scans
+  for root/tools/examples, modernization, canonical/compatibility examples,
+  and official MCP SDK conformance.
+- `make test` runs the native check gate plus the unit suite; use
+  `make test-race` for the race detector.
 - New features ship with: tests, doc comments, example update where relevant.
 - Honor library design practices (functional options, narrow exports).
 

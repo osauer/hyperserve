@@ -20,6 +20,8 @@ func TestMCPSSEEndpoint(t *testing.T) {
 	// Create a server with MCP enabled
 	srv, err := server.NewServer(
 		server.WithMCPSupport("test-server", "1.0.0"),
+		//lint:ignore SA1019 This regression intentionally exercises legacy compatibility.
+		server.WithMCPLegacyRoutedSSE(true),
 		server.WithMCPBuiltinTools(true),
 	)
 	if err != nil {

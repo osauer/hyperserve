@@ -260,6 +260,7 @@ func TestResourceSubscribeStdioNotification(t *testing.T) {
 
 func TestResourceSubscribeSSEDelivery(t *testing.T) {
 	h := newHandlerForTest(t)
+	h.SetLegacyRoutedSSEEnabled(true)
 	template := newLiveQuoteTemplate()
 	h.RegisterResourceTemplate(template)
 	server := httptest.NewServer(h)
@@ -349,6 +350,7 @@ func TestResourceSubscribeSSEDelivery(t *testing.T) {
 
 func TestSSESurvivesHTTPWriteTimeout(t *testing.T) {
 	h := newHandlerForTest(t)
+	h.SetLegacyRoutedSSEEnabled(true)
 	server := httptest.NewUnstartedServer(h)
 	server.Config.WriteTimeout = 200 * time.Millisecond
 	server.Start()
