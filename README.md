@@ -35,28 +35,23 @@ Public packages:
 
 [Go 1.27](https://go.dev/doc/go1.27) makes an already strong standard library
 better: `net/http` is a capable router and server, and `encoding/json` now runs
-on the v2 implementation, with notably faster unmarshaling. HyperServe is
-useful when the problem is no longer one handler, but the same service plumbing
-accumulating around every handler:
+on the v2 implementation, with notably faster unmarshaling. If routes plus JSON
+are all you need, use `net/http` directly. HyperServe earns its place when the
+same service plumbing starts accumulating around every handler:
 
-- **Stay in the standard HTTP model.** Routes use `http.ServeMux` patterns,
-  handlers remain `http.Handler` or `http.HandlerFunc`, and middleware keeps
-  the usual `func(http.Handler) http.Handler` shape. Existing Go code does not
-  need a framework-specific context or adapter layer.
+- **Keep the standard HTTP model.** Routes use `http.ServeMux` patterns,
+  handlers remain `http.Handler` or `http.HandlerFunc`, and middleware follows
+  the familiar handler-wrapper model.
 - **Own less boundary and lifecycle glue.** Typed request binding, validation,
   safe error responses, default timeouts, panic recovery, logging, metrics,
   graceful shutdown, readiness, health endpoints, and rooted static-file
   serving live in one tested server shell.
-- **Use one WebSocket API at both edges.** The server upgrader and outbound
-  client put origin checking, message-size limits, handshake validation, and
-  context-aware client I/O in one small package instead of requiring a separate
-  networking stack.
+- **Use one WebSocket package at both edges.** Server upgrades, outbound dialing,
+  origin and message limits, handshake validation, and context-aware client I/O
+  share one API.
 
-If routes plus JSON are all you need, use `net/http` directly. Adopt HyperServe
-when you would otherwise maintain this same service shell in each binary. Its
-value is the integration between these concerns, not replacing Go's standard
-library. MCP remains optional; it is not the reason to choose the HTTP and
-WebSocket layer.
+The value is this integration, not a replacement programming model. MCP remains
+optional to the HTTP and WebSocket layer.
 
 ## HTTP quick start
 
@@ -71,98 +66,103 @@ package main
 
 import (
     "fmt"
+    "log"
     "net/http"
 
     "github.com/osauer/hyperserve/pkg/server"
 )
 
 func main() {
-    srv, _ := server.NewServer()
+    // Adds the default logging, metrics, recovery, timeouts, and health server.
+    srv, err := server.NewServer(server.WithHealthServer())
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Routes and handlers remain ordinary net/http.
     srv.GET("/", func(w http.ResponseWriter, _ *http.Request) {
         fmt.Fprintln(w, "Hello, World!")
     })
-    srv.Run()
+
+    // Blocks until failure or SIGINT/SIGTERM, then drains active requests.
+    if err := srv.Run(); err != nil {
+        log.Fatal(err)
+    }
 }
 ```
 
-The result is a small production-shaped server without hiding the underlying
-HTTP model. Add options only for concerns the service actually has, such as a
-separate health listener, rate limiting, hardened headers, rooted static-file
-serving, or deferred startup.
+Add options only for concerns the service has. See
+[`deferred-init`](./examples/deferred-init/) for readiness-gated startup and
+shutdown hooks.
 
-## Outbound WebSocket client
+## Binding and validation
+
+Go 1.27 improves JSON parsing, but endpoint code still has to decode input,
+validate its contract, map errors safely, and encode a response. `JSONHandler`
+collapses that boundary code without adding a dependency:
+
+```go
+type CreateUser struct {
+    Email string `json:"email" validate:"required,email"` // request contract
+}
+
+srv.POST("/users", server.JSONHandler(
+    func(ctx context.Context, in CreateUser) (User, error) {
+        // Binding and validation passed; this is only business logic.
+        return createUser(ctx, in)
+    },
+))
+```
+
+Malformed or invalid input becomes a structured `400`; unexpected errors become
+a generic `500` without leaking details. Use `BindJSON`, `BindQuery`, `BindForm`,
+and `Validate` directly for custom envelopes, streaming, or multi-step responses.
+See [`examples/binding`](./examples/binding/) for both levels.
+
+## WebSockets
 
 `websocket.Dial` supports `ws` and `wss`, context cancellation throughout the
 opening handshake, TLS verification, bounded redirects, custom headers,
 subprotocol negotiation, and a 1 MiB default read limit. Client frames are
 masked on the wire as required by RFC 6455.
 
-The snippet below opens one authenticated, time-bounded handshake, sends one
-message, and reads one reply. It shows how a relay, event feed, or worker can
-reuse an application's existing HTTP client and cancellation tree. Reconnect
-and retry policy deliberately remain with the application.
-
 ```go
-package relay
-
-import (
-    "context"
-    "net/http"
-    "time"
-
-    "github.com/osauer/hyperserve/pkg/websocket"
-)
-
-func exchange(ctx context.Context, relayURL, token string, httpClient *http.Client) error {
+func exchange(ctx context.Context, relayURL, token string, client *http.Client) ([]byte, error) {
+    // This deadline bounds the handshake, not the upgraded connection.
     dialCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
     defer cancel()
 
     conn, resp, err := websocket.Dial(dialCtx, relayURL, &websocket.DialOptions{
-        HTTPClient:   httpClient,
+        // Preserve the caller's transport, proxy, cookies, and redirects.
+        HTTPClient:   client,
         HTTPHeader:   http.Header{"Authorization": {"Bearer " + token}},
         Subprotocols: []string{"relay.v1"},
     })
     if err != nil {
-        _ = resp // non-nil when the peer returned an HTTP response
-        return err
+        if resp != nil {
+            return nil, fmt.Errorf("relay handshake: %s: %w", resp.Status, err)
+        }
+        return nil, err
     }
     defer conn.Close()
 
     if err := conn.Write(ctx, websocket.TextMessage, []byte("online")); err != nil {
-        return err
+        return nil, err
     }
-    messageType, payload, err := conn.Read(ctx)
-    _ = messageType
-    _ = payload
-    return err
+    _, reply, err := conn.Read(ctx)
+    return reply, err
 }
 ```
 
 `Read` and `Write` accept contexts and support one concurrent reader plus one
-concurrent writer. Canceling either operation closes a potentially partial
-connection. `ReadMessage`, `WriteMessage`, and deadline setters remain
-available for lower-level use. `CloseWithStatus` sends an explicit close code
-and reason; `Close` sends normal closure. Compression and other WebSocket
-extensions are not negotiated.
-
-Pass a configured `HTTPClient` to preserve its transport, proxy, cookie jar,
-redirect callback, and handshake timeout. `http.DefaultClient` uses
-`http.ProxyFromEnvironment` through the standard transport. HyperServe copies
-the client and applies `HTTPClient.Timeout` only to the handshake, so it does
-not expire the upgraded connection. Custom transports must return an
-`io.ReadWriteCloser` body for a successful 101 response; `http.Transport`
-does. `HTTPClient` is mutually exclusive with `NetDialer` and `TLSConfig`.
-
-## WebSocket server
-
-The server counterpart solves the browser upgrade boundary: accept only known
-origins, cap message memory, and then work with complete messages. This minimal
-echo handler is the protocol skeleton; application code can keep the same
-connection API while replacing the echo with its own loop or dispatcher.
+concurrent writer. Reconnect policy remains with the application. The same
+package handles the server side:
 
 ```go
 upgrader := websocket.Upgrader{
+    // Browser upgrades are same-origin by default; name cross-origin peers.
     AllowedOrigins: []string{"https://app.example.com"},
+    // Bound the aggregate size of fragmented messages.
     MaxMessageSize: 512 << 10,
 }
 
@@ -173,73 +173,46 @@ srv.GET("/ws", func(w http.ResponseWriter, r *http.Request) {
     }
     defer conn.Close()
 
-    messageType, payload, err := conn.ReadMessage()
-    if err == nil {
-        err = conn.WriteMessage(messageType, payload)
+    for {
+        messageType, payload, err := conn.Read(r.Context())
+        if err != nil {
+            return
+        }
+        if err := conn.Write(r.Context(), messageType, payload); err != nil {
+            return
+        }
     }
-    _ = err
 })
 ```
 
-The upgrader defaults to same-origin browser requests. Configure
-`AllowedOrigins` or `CheckOrigin` deliberately for cross-origin clients. See
-the [WebSocket guide](./docs/WEBSOCKET_GUIDE.md) for handshake, limits, and
-deployment details.
+See the [WebSocket guide](./docs/WEBSOCKET_GUIDE.md) for close semantics,
+transport ownership, proxy behavior, deadlines, and unsupported extensions.
 
 ## MCP
 
 Enable MCP programmatically:
 
 ```go
-srv, _ := server.NewServer(
+srv, err := server.NewServer(
     server.WithMCPSupport("payments", "1.0.0"),
     server.WithMCPBuiltinTools(true),
     server.WithMCPBuiltinResources(true),
 )
+if err != nil {
+    log.Fatal(err)
+}
 ```
 
 The MCP handler supports current stateless Streamable HTTP, initialize-era
 HTTP/stdio compatibility, discovery, namespaces, and resource templates. A
 legacy HyperServe-specific routed-SSE mode remains isolated and documented as
 non-standard. Built-in tools and resources are off by default. See the
-[MCP guide](./docs/MCP_GUIDE.md).
-
-## Binding and validation
-
-`server.JSONHandler`, `BindJSON`, `BindQuery`, `BindForm`, and `Validate`
-cover typed request input without another dependency. Supported validation
-rules are `required`, `min`, `max`, `len`, `email`, `url`, and `oneof`.
-
-Go 1.27 improves JSON parsing, but endpoint code still has to decode input,
-validate its contract, choose safe status codes, and encode a response. This
-snippet collapses that repeated boundary code so the function contains only
-the operation being performed:
-
-```go
-type CreateUser struct {
-    Email string `json:"email" validate:"required,email"`
-}
-
-srv.POST("/users", server.JSONHandler(
-    func(ctx context.Context, in CreateUser) (User, error) {
-        return createUser(ctx, in)
-    },
-))
-```
-
-Malformed or invalid input becomes a structured `400` response. Successful
-output is encoded as JSON; expected application errors can provide an HTTP
-status, while unexpected errors become a generic `500` without leaking their
-details. Use the lower-level bind helpers when an endpoint needs custom
-envelopes, streaming, or multi-step responses.
-
-See [`examples/binding`](./examples/binding/) for typed and lower-level forms.
+[MCP guide](./docs/MCP_GUIDE.md) for the implemented protocol surface.
 
 ## Scaffold a service
 
-The initializer is for the point where copying a working `main.go` starts to
-create drift. It generates the module, server entry point, and tests as a
-starting boundary—not an application architecture you must keep.
+The initializer generates a module, server entry point, and tests. It is a
+starting boundary, not an application architecture you must keep.
 
 ```sh
 go install github.com/osauer/hyperserve/cmd/hyperserve-init@latest
