@@ -53,7 +53,10 @@ Releases must pass:
 - `go test ./...`
 - `make check`
 - standalone example-module checks
-- canonical examples: `examples/devops`, `examples/mcp-sse`, and `examples/json-api`
+- canonical examples: `examples/devops`, `examples/mcp-extensions`, and
+  `examples/json-api`
+- deprecated transport compatibility example: `examples/mcp-sse`
+- official MCP SDK conformance in the separated `tools` module
 - scaffold generation plus `go test ./...` inside the generated project
 
 GitHub Release notes are rendered from `.github/release-notes-template.md` plus
