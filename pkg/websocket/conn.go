@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"sync"
 	"time"
@@ -20,7 +21,8 @@ import (
 // close-echo responses inside ReadMessage. writeMu serialises every
 // WriteFrame call to keep frames whole on the wire.
 type lowConn struct {
-	conn     net.Conn
+	conn     io.ReadWriteCloser
+	netConn  net.Conn
 	reader   *FrameReader
 	writer   *FrameWriter
 	isServer bool
@@ -49,9 +51,15 @@ type lowConn struct {
 }
 
 // newLowConn creates a new low-level WebSocket connection.
-func newLowConn(netConn net.Conn, buf *bufio.ReadWriter, isServer bool, maxMessageSize int64) *lowConn {
+func newLowConn(conn io.ReadWriteCloser, buf *bufio.ReadWriter, isServer bool, maxMessageSize int64) *lowConn {
+	netConn, _ := conn.(net.Conn)
+	return newLowConnWithNetConn(conn, netConn, buf, isServer, maxMessageSize)
+}
+
+func newLowConnWithNetConn(conn io.ReadWriteCloser, netConn net.Conn, buf *bufio.ReadWriter, isServer bool, maxMessageSize int64) *lowConn {
 	return &lowConn{
-		conn:           netConn,
+		conn:           conn,
+		netConn:        netConn,
 		reader:         NewFrameReader(buf.Reader, maxMessageSize),
 		writer:         NewFrameWriter(buf.Writer, isServer),
 		isServer:       isServer,
@@ -334,27 +342,42 @@ func validCloseCode(code int) bool {
 
 // SetDeadline sets the read and write deadlines
 func (c *lowConn) SetDeadline(t time.Time) error {
-	return c.conn.SetDeadline(t)
+	if c.netConn == nil {
+		return fmt.Errorf("websocket: connection deadlines: %w", errors.ErrUnsupported)
+	}
+	return c.netConn.SetDeadline(t)
 }
 
 // SetReadDeadline sets the read deadline
 func (c *lowConn) SetReadDeadline(t time.Time) error {
-	return c.conn.SetReadDeadline(t)
+	if c.netConn == nil {
+		return fmt.Errorf("websocket: read deadline: %w", errors.ErrUnsupported)
+	}
+	return c.netConn.SetReadDeadline(t)
 }
 
 // SetWriteDeadline sets the write deadline
 func (c *lowConn) SetWriteDeadline(t time.Time) error {
-	return c.conn.SetWriteDeadline(t)
+	if c.netConn == nil {
+		return fmt.Errorf("websocket: write deadline: %w", errors.ErrUnsupported)
+	}
+	return c.netConn.SetWriteDeadline(t)
 }
 
 // LocalAddr returns the local network address
 func (c *lowConn) LocalAddr() net.Addr {
-	return c.conn.LocalAddr()
+	if c.netConn == nil {
+		return nil
+	}
+	return c.netConn.LocalAddr()
 }
 
 // RemoteAddr returns the remote network address
 func (c *lowConn) RemoteAddr() net.Addr {
-	return c.conn.RemoteAddr()
+	if c.netConn == nil {
+		return nil
+	}
+	return c.netConn.RemoteAddr()
 }
 
 func (c *lowConn) abort() {

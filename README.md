@@ -73,12 +73,13 @@ import (
     "github.com/osauer/hyperserve/pkg/websocket"
 )
 
-func exchange(ctx context.Context, relayURL, token string) error {
+func exchange(ctx context.Context, relayURL, token string, httpClient *http.Client) error {
     dialCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
     defer cancel()
 
     conn, resp, err := websocket.Dial(dialCtx, relayURL, &websocket.DialOptions{
-        HTTPHeader:  http.Header{"Authorization": {"Bearer " + token}},
+        HTTPClient:   httpClient,
+        HTTPHeader:   http.Header{"Authorization": {"Bearer " + token}},
         Subprotocols: []string{"relay.v1"},
     })
     if err != nil {
@@ -103,6 +104,14 @@ connection. `ReadMessage`, `WriteMessage`, and deadline setters remain
 available for lower-level use. `CloseWithStatus` sends an explicit close code
 and reason; `Close` sends normal closure. Compression and other WebSocket
 extensions are not negotiated.
+
+Pass a configured `HTTPClient` to preserve its transport, proxy, cookie jar,
+redirect callback, and handshake timeout. `http.DefaultClient` uses
+`http.ProxyFromEnvironment` through the standard transport. HyperServe copies
+the client and applies `HTTPClient.Timeout` only to the handshake, so it does
+not expire the upgraded connection. Custom transports must return an
+`io.ReadWriteCloser` body for a successful 101 response; `http.Transport`
+does. `HTTPClient` is mutually exclusive with `NetDialer` and `TLSConfig`.
 
 ## WebSocket server
 

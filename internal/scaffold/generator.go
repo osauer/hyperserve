@@ -15,7 +15,7 @@ import (
 	"go/format"
 )
 
-const latestStableVersion = "v1.3.0"
+const latestStableVersion = "v1.3.1"
 
 // Generate scaffolds a new HyperServe project and returns the absolute output directory.
 func Generate(opts Options) (string, error) {

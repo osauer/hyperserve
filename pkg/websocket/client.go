@@ -13,16 +13,27 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
-const maxRedirects = 10
+const (
+	maxRedirects              = 10
+	handshakeErrorBodyTimeout = 3 * time.Second
+)
 
 // DialOptions configures an outbound WebSocket connection.
 type DialOptions struct {
+	// HTTPClient performs the opening handshake. Its Transport, proxy,
+	// cookie jar, redirect callback, and timeout are preserved. A successful
+	// 101 response body must implement io.ReadWriteCloser; http.Transport does.
+	// HTTPClient cannot be combined with NetDialer or TLSConfig.
+	HTTPClient *http.Client
+
 	// HTTPHeader is copied into the opening handshake. Dial owns the
 	// WebSocket protocol headers and overwrites conflicting values.
 	HTTPHeader http.Header
@@ -43,9 +54,10 @@ type DialOptions struct {
 }
 
 // Dial opens a WebSocket connection to a ws or wss URL. The context covers
-// TCP, TLS, request, response, and redirect processing. On an HTTP handshake
-// failure, the returned response is non-nil when one was received; its body is
-// buffered up to 64 KiB and remains readable after Dial returns.
+// TCP, TLS, request, response, and redirect processing. When HTTPClient is
+// provided, its transport owns dialing, TLS, and proxy behavior. On an HTTP
+// handshake failure, the returned response is non-nil when one was received;
+// its body is buffered up to 64 KiB and remains readable after Dial returns.
 func Dial(ctx context.Context, rawURL string, opts *DialOptions) (*Conn, *http.Response, error) {
 	if ctx == nil {
 		return nil, nil, errors.New("websocket: nil context")
@@ -58,6 +70,9 @@ func Dial(ctx context.Context, rawURL string, opts *DialOptions) (*Conn, *http.R
 	if opts == nil {
 		opts = &DialOptions{}
 	}
+	if opts.HTTPClient != nil && (opts.NetDialer != nil || opts.TLSConfig != nil) {
+		return nil, nil, errors.New("websocket: HTTPClient cannot be combined with NetDialer or TLSConfig")
+	}
 	for _, protocol := range opts.Subprotocols {
 		if !validSubprotocol(protocol) {
 			return nil, nil, fmt.Errorf("websocket: invalid subprotocol %q", protocol)
@@ -65,6 +80,9 @@ func Dial(ctx context.Context, rawURL string, opts *DialOptions) (*Conn, *http.R
 	}
 
 	header := cloneDialHeader(opts.HTTPHeader)
+	if opts.HTTPClient != nil {
+		return dialHTTPClient(ctx, u, header, opts)
+	}
 	for redirects := 0; ; redirects++ {
 		conn, resp, err := dialOnce(ctx, u, header, opts)
 		if err == nil {
@@ -95,6 +113,169 @@ func Dial(ctx context.Context, rawURL string, opts *DialOptions) (*Conn, *http.R
 		}
 		u = next
 	}
+}
+
+func dialHTTPClient(ctx context.Context, u *url.URL, header http.Header, opts *DialOptions) (*Conn, *http.Response, error) {
+	client := *opts.HTTPClient
+
+	originalCheckRedirect := client.CheckRedirect
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		normalizeHTTPRedirectScheme(req.URL)
+		if len(via) >= maxRedirects {
+			return fmt.Errorf("%w: too many redirects", ErrBadHandshake)
+		}
+		previous := via[len(via)-1].URL
+		if secureURLScheme(previous.Scheme) && !secureURLScheme(req.URL.Scheme) {
+			return fmt.Errorf("%w: refusing wss to ws redirect", ErrBadHandshake)
+		}
+		if originalCheckRedirect != nil {
+			if err := originalCheckRedirect(req, via); err != nil {
+				return err
+			}
+		}
+		normalizeHTTPRedirectScheme(req.URL)
+		if secureURLScheme(previous.Scheme) && !secureURLScheme(req.URL.Scheme) {
+			return fmt.Errorf("%w: refusing wss to ws redirect", ErrBadHandshake)
+		}
+		if !sameOrigin(previous, req.URL) {
+			deleteHeaderFold(req.Header, "Authorization")
+			deleteHeaderFold(req.Header, "Cookie")
+			deleteHeaderFold(req.Header, "Proxy-Authorization")
+		}
+		return nil
+	}
+
+	key, err := handshakeKey()
+	if err != nil {
+		return nil, nil, err
+	}
+	httpURL := *u
+	normalizeHTTPRedirectScheme(&httpURL)
+	dialCtx, finishHandshake := newHandshakeContext(ctx, client.Timeout)
+	client.Timeout = 0
+	req, err := http.NewRequestWithContext(dialCtx, http.MethodGet, httpURL.String(), nil)
+	if err != nil {
+		_ = finishHandshake()
+		return nil, nil, fmt.Errorf("websocket: create handshake request: %w", err)
+	}
+	req.Header = header.Clone()
+	setHandshakeHeaders(req.Header, key, opts.Subprotocols)
+
+	var traceMu sync.Mutex
+	var tracedConn net.Conn
+	trace := &httptrace.ClientTrace{GotConn: func(info httptrace.GotConnInfo) {
+		traceMu.Lock()
+		tracedConn = info.Conn
+		traceMu.Unlock()
+	}}
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
+
+	resp, err := client.Do(req)
+	contextErr := finishHandshake()
+	if err != nil {
+		if contextErr != nil {
+			return nil, resp, contextErr
+		}
+		return nil, resp, contextOrError(dialCtx, fmt.Errorf("websocket: HTTP handshake: %w", err))
+	}
+	if contextErr != nil {
+		_ = resp.Body.Close()
+		resp.Body = http.NoBody
+		return nil, resp, contextErr
+	}
+	if err := validateServerHandshake(resp, key, opts.Subprotocols); err != nil {
+		preserveHandshakeErrorBody(resp)
+		return nil, resp, err
+	}
+
+	rwc, ok := resp.Body.(io.ReadWriteCloser)
+	if !ok {
+		bodyType := fmt.Sprintf("%T", resp.Body)
+		_ = resp.Body.Close()
+		resp.Body = http.NoBody
+		return nil, resp, fmt.Errorf("%w: HTTP transport returned non-writable response body %s", ErrBadHandshake, bodyType)
+	}
+	traceMu.Lock()
+	netConn := tracedConn
+	traceMu.Unlock()
+	if bodyConn, ok := rwc.(net.Conn); ok {
+		netConn = bodyConn
+	}
+
+	maxMessageSize := opts.MaxMessageSize
+	if maxMessageSize <= 0 {
+		maxMessageSize = defaultMaxMessageSize
+	}
+	buf := bufio.NewReadWriter(bufio.NewReader(rwc), bufio.NewWriter(rwc))
+	low := newLowConnWithNetConn(rwc, netConn, buf, false, maxMessageSize)
+	conn := newConn(low)
+	conn.subprotocol = resp.Header.Get("Sec-WebSocket-Protocol")
+	resp.Body = http.NoBody
+	return conn, resp, nil
+}
+
+type handshakeContext struct {
+	context.Context
+	deadline    time.Time
+	hasDeadline bool
+}
+
+func (c *handshakeContext) Deadline() (time.Time, bool) {
+	return c.deadline, c.hasDeadline
+}
+
+// newHandshakeContext preserves the caller's values, deadline, and
+// cancellation during the HTTP round trip. finish stops those signals without
+// canceling the successful upgraded stream, which some custom transports keep
+// tied to Request.Context after RoundTrip returns.
+func newHandshakeContext(parent context.Context, timeout time.Duration) (context.Context, func() error) {
+	base := context.WithoutCancel(parent)
+	cancelCtx, cancel := context.WithCancelCause(base)
+	deadline, hasDeadline := parent.Deadline()
+	if timeout > 0 {
+		timeoutDeadline := time.Now().Add(timeout)
+		if !hasDeadline || timeoutDeadline.Before(deadline) {
+			deadline = timeoutDeadline
+			hasDeadline = true
+		}
+	}
+	dialCtx := &handshakeContext{Context: cancelCtx, deadline: deadline, hasDeadline: hasDeadline}
+
+	parentDone := make(chan struct{})
+	stopParent := context.AfterFunc(parent, func() {
+		defer close(parentDone)
+		cancel(context.Cause(parent))
+	})
+
+	var timeoutTimer *time.Timer
+	var timeoutDone chan struct{}
+	if timeout > 0 {
+		timeoutDone = make(chan struct{})
+		timeoutTimer = time.AfterFunc(timeout, func() {
+			defer close(timeoutDone)
+			cancel(context.DeadlineExceeded)
+		})
+	}
+
+	finish := func() error {
+		if timeoutTimer != nil && !timeoutTimer.Stop() {
+			<-timeoutDone
+		}
+		if !stopParent() {
+			<-parentDone
+		}
+		if parent.Err() != nil {
+			return parent.Err()
+		}
+		if errors.Is(context.Cause(cancelCtx), context.DeadlineExceeded) {
+			return context.DeadlineExceeded
+		}
+		if cancelCtx.Err() != nil {
+			return context.Canceled
+		}
+		return nil
+	}
+	return dialCtx, finish
 }
 
 func dialOnce(ctx context.Context, u *url.URL, header http.Header, opts *DialOptions) (*Conn, *http.Response, error) {
@@ -142,11 +323,10 @@ func dialOnce(ctx context.Context, u *url.URL, header http.Header, opts *DialOpt
 		netConn = tlsConn
 	}
 
-	keyBytes := make([]byte, 16)
-	if _, err := rand.Read(keyBytes); err != nil {
-		return nil, nil, fmt.Errorf("websocket: handshake nonce: %w", err)
+	key, err := handshakeKey()
+	if err != nil {
+		return nil, nil, err
 	}
-	key := base64.StdEncoding.EncodeToString(keyBytes)
 
 	req := &http.Request{
 		Method: http.MethodGet,
@@ -155,16 +335,7 @@ func dialOnce(ctx context.Context, u *url.URL, header http.Header, opts *DialOpt
 		Header: header.Clone(),
 	}
 	req = req.WithContext(ctx)
-	req.Header.Set("Connection", "Upgrade")
-	req.Header.Set("Upgrade", "websocket")
-	req.Header.Set("Sec-WebSocket-Key", key)
-	req.Header.Set("Sec-WebSocket-Version", websocketVersion)
-	if len(opts.Subprotocols) > 0 {
-		req.Header.Set("Sec-WebSocket-Protocol", strings.Join(opts.Subprotocols, ", "))
-	} else {
-		req.Header.Del("Sec-WebSocket-Protocol")
-	}
-	req.Header.Del("Sec-WebSocket-Extensions")
+	setHandshakeHeaders(req.Header, key, opts.Subprotocols)
 
 	if err := req.Write(netConn); err != nil {
 		return nil, nil, contextOrError(ctx, fmt.Errorf("websocket: write handshake: %w", err))
@@ -176,7 +347,7 @@ func dialOnce(ctx context.Context, u *url.URL, header http.Header, opts *DialOpt
 		return nil, nil, contextOrError(ctx, fmt.Errorf("websocket: read handshake: %w", err))
 	}
 	if err := validateServerHandshake(resp, key, opts.Subprotocols); err != nil {
-		bufferResponseBody(resp)
+		preserveHandshakeErrorBody(resp)
 		return nil, resp, err
 	}
 
@@ -253,12 +424,25 @@ func parseRedirectURL(base, location *url.URL) (*url.URL, error) {
 	return parseWebSocketURL(next.String())
 }
 
+func normalizeHTTPRedirectScheme(u *url.URL) {
+	switch u.Scheme {
+	case "ws":
+		u.Scheme = "http"
+	case "wss":
+		u.Scheme = "https"
+	}
+}
+
+func secureURLScheme(scheme string) bool {
+	return scheme == "wss" || scheme == "https"
+}
+
 func websocketAddress(u *url.URL) string {
 	if u.Port() != "" {
 		return u.Host
 	}
 	port := "80"
-	if u.Scheme == "wss" {
+	if secureURLScheme(u.Scheme) {
 		port = "443"
 	}
 	return net.JoinHostPort(u.Hostname(), port)
@@ -298,6 +482,27 @@ func cloneDialHeader(source http.Header) http.Header {
 	return header
 }
 
+func handshakeKey() (string, error) {
+	keyBytes := make([]byte, 16)
+	if _, err := rand.Read(keyBytes); err != nil {
+		return "", fmt.Errorf("websocket: handshake nonce: %w", err)
+	}
+	return base64.StdEncoding.EncodeToString(keyBytes), nil
+}
+
+func setHandshakeHeaders(header http.Header, key string, subprotocols []string) {
+	header.Set("Connection", "Upgrade")
+	header.Set("Upgrade", "websocket")
+	header.Set("Sec-WebSocket-Key", key)
+	header.Set("Sec-WebSocket-Version", websocketVersion)
+	if len(subprotocols) > 0 {
+		header.Set("Sec-WebSocket-Protocol", strings.Join(subprotocols, ", "))
+	} else {
+		header.Del("Sec-WebSocket-Protocol")
+	}
+	header.Del("Sec-WebSocket-Extensions")
+}
+
 func reservedHandshakeHeader(name string) bool {
 	return strings.EqualFold(name, "Connection") ||
 		strings.EqualFold(name, "Upgrade") ||
@@ -332,9 +537,28 @@ func bufferResponseBody(resp *http.Response) {
 		resp.Body = http.NoBody
 		return
 	}
-	data, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-	_ = resp.Body.Close()
+	body := resp.Body
+	closed := make(chan struct{})
+	timer := time.AfterFunc(handshakeErrorBodyTimeout, func() {
+		_ = body.Close()
+		close(closed)
+	})
+	data, _ := io.ReadAll(io.LimitReader(body, 64<<10))
+	if !timer.Stop() {
+		<-closed
+	} else {
+		_ = body.Close()
+	}
 	resp.Body = io.NopCloser(bytes.NewReader(data))
+}
+
+func preserveHandshakeErrorBody(resp *http.Response) {
+	if resp.StatusCode == http.StatusSwitchingProtocols {
+		_ = resp.Body.Close()
+		resp.Body = http.NoBody
+		return
+	}
+	bufferResponseBody(resp)
 }
 
 func contextOrError(ctx context.Context, err error) error {

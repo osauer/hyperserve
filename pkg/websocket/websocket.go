@@ -146,7 +146,11 @@ func (c *Conn) Read(ctx context.Context) (messageType int, p []byte, err error) 
 	if ctx == nil {
 		return 0, nil, errors.New("websocket: nil context")
 	}
-	err = withContextDeadline(ctx, c.conn.SetReadDeadline, func() error {
+	var setDeadline func(time.Time) error
+	if c.conn.netConn != nil {
+		setDeadline = c.conn.SetReadDeadline
+	}
+	err = withContextIO(ctx, setDeadline, c.conn.abort, func() error {
 		messageType, p, err = c.conn.ReadMessage()
 		return err
 	})
@@ -163,7 +167,11 @@ func (c *Conn) Write(ctx context.Context, messageType int, data []byte) error {
 	if ctx == nil {
 		return errors.New("websocket: nil context")
 	}
-	err := withContextDeadline(ctx, c.conn.SetWriteDeadline, func() error {
+	var setDeadline func(time.Time) error
+	if c.conn.netConn != nil {
+		setDeadline = c.conn.SetWriteDeadline
+	}
+	err := withContextIO(ctx, setDeadline, c.conn.abort, func() error {
 		return c.conn.WriteMessage(messageType, data)
 	})
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -186,8 +194,10 @@ func (c *Conn) WriteMessage(messageType int, data []byte) error {
 
 // WriteControl writes a control message with the given deadline
 func (c *Conn) WriteControl(messageType int, data []byte, deadline time.Time) error {
-	c.conn.SetWriteDeadline(deadline)
-	defer c.conn.SetWriteDeadline(time.Time{})
+	if err := c.conn.SetWriteDeadline(deadline); err != nil {
+		return err
+	}
+	defer func() { _ = c.conn.SetWriteDeadline(time.Time{}) }()
 	return c.conn.WriteControl(messageType, data)
 }
 
@@ -354,25 +364,32 @@ func IsCloseError(err error, codes ...int) bool {
 	return false
 }
 
-func withContextDeadline(ctx context.Context, setDeadline func(time.Time) error, fn func() error) error {
+func withContextIO(ctx context.Context, setDeadline func(time.Time) error, abort func(), fn func() error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if deadline, ok := ctx.Deadline(); ok {
+	if deadline, ok := ctx.Deadline(); ok && setDeadline != nil {
 		if err := setDeadline(deadline); err != nil {
 			return err
 		}
 	}
 	done := make(chan struct{})
 	stop := context.AfterFunc(ctx, func() {
-		_ = setDeadline(time.Now())
+		if setDeadline == nil {
+			abort()
+		} else {
+			_ = setDeadline(time.Now())
+		}
 		close(done)
 	})
 	err := fn()
 	if !stop() {
 		<-done
 	}
-	clearErr := setDeadline(time.Time{})
+	var clearErr error
+	if setDeadline != nil {
+		clearErr = setDeadline(time.Time{})
+	}
 	if err != nil {
 		return contextOrError(ctx, err)
 	}

@@ -2,7 +2,7 @@
 
 HyperServe's `github.com/osauer/hyperserve/pkg/websocket` package implements
 RFC 6455 without an external WebSocket dependency. It supports HTTP server
-upgrades and direct outbound `ws`/`wss` clients.
+upgrades and outbound `ws`/`wss` clients.
 
 ## Outbound client
 
@@ -11,7 +11,8 @@ ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 defer cancel()
 
 conn, resp, err := websocket.Dial(ctx, "wss://relay.example.com/ws", &websocket.DialOptions{
-    HTTPHeader:  http.Header{"Authorization": {"Bearer " + token}},
+    HTTPClient:   relayHTTPClient,
+    HTTPHeader:   http.Header{"Authorization": {"Bearer " + token}},
     Subprotocols: []string{"relay.v1"},
 })
 if err != nil {
@@ -30,13 +31,27 @@ messageType, payload, err := conn.Read(ctx)
 
 - context-aware TCP, TLS, request, response, and redirect handling;
 - normal certificate and hostname verification for `wss`;
+- the supplied HTTP client's transport, proxy, cookie jar, redirect callback,
+  and handshake timeout;
 - up to ten redirects, with credentials stripped across origins and secure to
   insecure redirects rejected;
 - validation of the upgrade, accept key, subprotocol, and extension response;
 - correct masking of every client data and control frame.
 
-The client connects directly to the target host; HTTP proxy tunneling is not
-part of the current API. Compression and other extensions are rejected.
+With no `HTTPClient`, HyperServe connects directly and `NetDialer` plus
+`TLSConfig` configure the socket and TLS handshake. With `HTTPClient`, its
+transport owns dialing, TLS, and proxy behavior; the options are mutually
+exclusive. The standard transport supports HTTP proxies, `CONNECT` tunnels
+for `wss`, and `http.ProxyFromEnvironment`.
+
+HyperServe shallow-copies the supplied client. `HTTPClient.Timeout` bounds the
+opening handshake only and is cleared on the copy before `Do`, so net/http
+does not wrap or expire the upgraded stream. A custom transport must return a
+writable `io.ReadWriteCloser` response body for status 101. If it does not
+expose a `net.Conn`, context-aware `Read` and `Write` still cancel by closing
+the stream, but explicit deadline setters return `errors.ErrUnsupported` and
+`LocalAddr`/`RemoteAddr` return nil. Compression and other extensions are
+rejected.
 
 `Read` and `Write` accept contexts. Canceling a context interrupts the active
 network operation and closes the connection because a frame may have been

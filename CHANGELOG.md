@@ -24,6 +24,45 @@ Entries tier by audience:
 Shape is enforced by `make changelog-lint RELEASE_VERSION=vX.Y.Z`; scaffold a
 new entry with `make changelog-stub RELEASE_VERSION=vX.Y.Z`.
 
+## [1.3.1] - 2026-08-23 09:52 CEST
+
+### What's new
+
+- Outbound WebSocket connections can now use a configured `*http.Client`,
+  preserving custom transports, HTTP proxies, cookie jars, redirects, and
+  handshake timeouts.
+- The standard transport supports direct connections, HTTP proxy forwarding,
+  and `CONNECT` tunnels for `wss`, including proxy selection from the
+  environment.
+
+### Fixed
+
+- Added `DialOptions.HTTPClient` so applications migrating from
+  coder/websocket do not silently lose their existing transport and proxy
+  behavior.
+- `HTTPClient.Timeout` now bounds only the opening handshake; it cannot wrap or
+  expire the live upgraded stream after `Dial` returns.
+- HTTP-client redirects retain the ten-request cap, reject secure-to-insecure
+  downgrades, and strip credentials across origins even when a redirect
+  callback mutates the next request.
+- Custom transports with writable 101 response bodies support context-aware
+  I/O; incompatible non-writable bodies and conflicting dial options fail
+  explicitly.
+
+### Documentation
+
+- Documented HTTP-client migration, proxy/TLS ownership, timeout behavior, and
+  the deadline/address limits of transports that do not expose `net.Conn`.
+
+### Verification
+
+- `make check`
+- `go test ./...`
+- `(cd examples/auth && go test ./...)`
+- `make test-race`
+- `make fuzz-smoke`
+- `make release-smoke RELEASE_VERSION=v1.3.1`
+
 ## [1.3.0] - 2026-08-23 09:22 CEST
 
 ### What's new
