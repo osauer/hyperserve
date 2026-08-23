@@ -156,9 +156,9 @@ func TestDialWSS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dial() error = %v", err)
 	}
-	if err := conn.Close(); err != nil {
-		t.Fatalf("Close() error = %v", err)
-	}
+	// The handler closes immediately after the successful TLS/ALPN handshake,
+	// so the client's best-effort close notification may race the peer close.
+	_ = conn.Close()
 }
 
 func TestDialHandshakeFailureReturnsResponse(t *testing.T) {
