@@ -234,6 +234,11 @@ Use `DefaultServerOptions`, modify the returned value, and pass it through
 snapshot. See the [configuration example](./examples/configuration/) for the
 precedence rules.
 
+Filesystem roots are disabled by default. Applications that deliberately serve
+disk-backed assets opt in with `WithStaticDir(path)` and
+`WithTemplateDir(path)`; applications serving embedded assets do not need to
+clear library-selected paths.
+
 ## Packages and stability
 
 The name was inspired by hyperHTML; the design follows the same preference for

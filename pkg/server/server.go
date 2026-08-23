@@ -501,7 +501,9 @@ func (srv *Server) run(triggerCtx context.Context) error {
 	if srv.Options.RunHealthServer {
 		err := srv.initHealthServer()
 		if err != nil {
-			return err
+			// Construction already owns cleanup resources, so even a failed first
+			// bind must finish through the ordinary shutdown path.
+			return srv.shutdownAfter(err)
 		}
 	}
 
@@ -519,20 +521,24 @@ func (srv *Server) run(triggerCtx context.Context) error {
 		if srv.Options.CertFile == "" || srv.Options.KeyFile == "" {
 			listenErr = fmt.Errorf("TLS enabled but no key or cert file provided")
 			logger.Error(listenErr.Error(), "key", srv.Options.KeyFile, "cert", srv.Options.CertFile)
-			return listenErr
+			// Run and RunContext promise to release ownership on every return,
+			// including configuration errors discovered immediately before bind.
+			return srv.shutdownAfter(listenErr)
 		}
 		// Configure TLS settings
 		srv.httpServer.TLSConfig = srv.tlsConfig()
 		srv.httpServer.Addr = srv.Options.TLSAddr
 		listener, listenErr = net.Listen("tcp", srv.Options.TLSAddr)
 		if listenErr != nil {
-			return fmt.Errorf("failed to listen on %s: %w", srv.Options.TLSAddr, listenErr)
+			// The health listener may already be serving at this point.
+			return srv.shutdownAfter(fmt.Errorf("failed to listen on %s: %w", srv.Options.TLSAddr, listenErr))
 		}
 	} else {
 		srv.httpServer.Addr = srv.Options.Addr
 		listener, listenErr = net.Listen("tcp", srv.Options.Addr)
 		if listenErr != nil {
-			return fmt.Errorf("failed to listen on %s: %w", srv.Options.Addr, listenErr)
+			// The health listener may already be serving at this point.
+			return srv.shutdownAfter(fmt.Errorf("failed to listen on %s: %w", srv.Options.Addr, listenErr))
 		}
 	}
 

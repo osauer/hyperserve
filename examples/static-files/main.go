@@ -8,9 +8,9 @@ import (
 )
 
 func main() {
-	// Create a server configured to serve static files
-	// The default static directory is "static/"
-	srv, err := serverpkg.NewServer()
+	// Filesystem roots are deliberately explicit: an embedding application's
+	// working directory must never become web content by convention alone.
+	srv, err := serverpkg.NewServer(serverpkg.WithStaticDir("./static"))
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}

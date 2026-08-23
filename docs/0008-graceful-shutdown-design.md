@@ -90,18 +90,12 @@ func (s *Server) Stop() error {
 ## Examples
 
 ```go
-// Basic usage
+// The application owns appCtx and cancels it when its complete process
+// lifecycle should stop. HyperServe drains requests and releases resources
+// before RunContext returns.
 srv, _ := server.NewServer()
-go srv.Run()
-
-// Graceful shutdown on SIGTERM
-sigChan := make(chan os.Signal, 1)
-signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-<-sigChan
-
-log.Info("Shutting down gracefully...")
-if err := srv.Stop(); err != nil {
-    log.Error("Shutdown error", "error", err)
+if err := srv.RunContext(appCtx); err != nil {
+    log.Error("Server stopped", "error", err)
 }
 
 // Custom shutdown timeout

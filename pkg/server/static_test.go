@@ -11,17 +11,38 @@ import (
 )
 
 func TestHandleStaticFailsClosedWhenRootOpenFails(t *testing.T) {
-	srv, err := NewServer()
+	srv, err := NewServer(WithStaticDir(filepath.Join(t.TempDir(), "missing")))
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
 	t.Cleanup(func() { _ = srv.Stop() })
 
-	srv.Options.StaticDir = filepath.Join(t.TempDir(), "missing")
 	if err := srv.HandleStaticChecked("/static/"); err == nil {
 		t.Fatal("HandleStaticChecked succeeded with a missing root")
 	}
 	assertStaticRouteClosed(t, srv, "/static/", "/static/secret.txt")
+}
+
+func TestWithStaticDirServesExplicitRoot(t *testing.T) {
+	staticDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(staticDir, "asset.txt"), []byte("explicit root"), 0o600); err != nil {
+		t.Fatalf("write static asset: %v", err)
+	}
+
+	srv, err := NewServer(WithStaticDir(staticDir))
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	t.Cleanup(func() { _ = srv.Stop() })
+	if err := srv.HandleStaticChecked("/static/"); err != nil {
+		t.Fatalf("HandleStaticChecked: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	srv.mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/static/asset.txt", nil))
+	if recorder.Code != http.StatusOK || recorder.Body.String() != "explicit root" {
+		t.Fatalf("static response: status=%d body=%q", recorder.Code, recorder.Body.String())
+	}
 }
 
 func TestHandleStaticDoesNotServeWorkingDirectory(t *testing.T) {

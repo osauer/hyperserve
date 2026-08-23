@@ -24,6 +24,48 @@ Entries tier by audience:
 Shape is enforced by `make changelog-lint RELEASE_VERSION=vX.Y.Z`; scaffold a
 new entry with `make changelog-stub RELEASE_VERSION=vX.Y.Z`.
 
+## [1.6.0] - 2026-08-23 21:21 CEST
+
+HyperServe now keeps filesystem roots and application shutdown under the
+embedding application's explicit ownership.
+
+### What's new
+
+- Static and template roots are disabled until the application selects them;
+  embedded-asset applications no longer have to clear working-directory paths.
+- `Run` and `RunContext` clean up a partially started server when a listener
+  cannot bind or TLS configuration prevents startup.
+
+### Added
+
+- Added `WithStaticDir` as the explicit counterpart to `WithTemplateDir` for
+  applications that intentionally serve disk-backed assets.
+
+### Changed
+
+- `DefaultServerOptions` now leaves `StaticDir` and `TemplateDir` empty.
+  Applications relying on `static/` or `template/` must select those roots
+  explicitly.
+
+### Fixed
+
+- Network startup failures now run shutdown hooks, stop cleanup workers, close
+  rooted filesystem handles, and stop an already-bound health listener before
+  returning the original startup error.
+
+### Security
+
+- Bare construction no longer treats specially named directories beneath the
+  process working directory as application filesystem authorities.
+
+### Verification
+
+- `make check`
+- `go test ./...`
+- `make test-race`
+- `make fuzz-smoke`
+- `make release-smoke RELEASE_VERSION=v1.6.0`
+
 ## [1.5.0] - 2026-08-23 18:57 CEST
 
 HyperServe can now fit inside applications that already own process signals,

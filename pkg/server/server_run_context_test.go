@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	"net"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -12,8 +14,13 @@ import (
 func TestRunContextCancellationGracefullyStopsServer(t *testing.T) {
 	t.Parallel()
 
+	var shutdownCalls atomic.Int32
 	srv, err := NewServer(
 		WithAddr("127.0.0.1:0"),
+		WithOnShutdown(func(context.Context) error {
+			shutdownCalls.Add(1)
+			return nil
+		}),
 	)
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
@@ -47,6 +54,61 @@ func TestRunContextCancellationGracefullyStopsServer(t *testing.T) {
 	if srv.isRunning.Load() || srv.isReady.Load() {
 		t.Fatalf("server state after cancellation: running=%v ready=%v", srv.isRunning.Load(), srv.isReady.Load())
 	}
+	if got := shutdownCalls.Load(); got != 1 {
+		t.Fatalf("shutdown hook calls = %d, want 1", got)
+	}
+}
+
+func TestRunContextStartupFailureCleansPartiallyStartedServer(t *testing.T) {
+	t.Parallel()
+
+	mainListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve main address: %v", err)
+	}
+	defer mainListener.Close()
+
+	healthProbe, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve health address: %v", err)
+	}
+	healthAddr := healthProbe.Addr().String()
+	if err := healthProbe.Close(); err != nil {
+		t.Fatalf("release health address: %v", err)
+	}
+
+	var shutdownCalls atomic.Int32
+	srv, err := NewServer(
+		WithAddr(mainListener.Addr().String()),
+		WithHealthServer(),
+		WithHealthAddr(healthAddr),
+		WithOnShutdown(func(context.Context) error {
+			shutdownCalls.Add(1)
+			return nil
+		}),
+	)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	err = srv.RunContext(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "failed to listen") {
+		t.Fatalf("RunContext startup error = %v, want listen failure", err)
+	}
+	if got := shutdownCalls.Load(); got != 1 {
+		t.Fatalf("shutdown hook calls = %d, want 1", got)
+	}
+	select {
+	case <-srv.rateLimiters.cleanupDone:
+	default:
+		t.Fatal("startup failure did not release server cleanup resources")
+	}
+
+	rebound, err := net.Listen("tcp", healthAddr)
+	if err != nil {
+		t.Fatalf("health listener remained open after main startup failure: %v", err)
+	}
+	_ = rebound.Close()
 }
 
 func TestRunContextAlreadyCanceledSkipsStartupAndCleansUp(t *testing.T) {

@@ -225,6 +225,11 @@ func TestRunReturnsErrorWhenTLSMisconfigured(t *testing.T) {
 	if srv.isRunning.Load() {
 		t.Fatal("expected server to be marked as not running after TLS startup failure")
 	}
+	select {
+	case <-srv.rateLimiters.cleanupDone:
+	default:
+		t.Fatal("TLS startup failure did not release server cleanup resources")
+	}
 }
 
 // Template Directory Validation Tests

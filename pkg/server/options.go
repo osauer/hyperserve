@@ -139,20 +139,22 @@ type ServerOptions struct {
 }
 
 var defaultServerOptions = &ServerOptions{
-	Addr:                   ":8080",
-	TLSAddr:                ":8443",
-	HealthAddr:             ":9080",
-	EnableTLS:              false,
-	KeyFile:                "server.key",
-	CertFile:               "server.crt",
-	RateLimit:              1,
-	Burst:                  10,
-	ReadTimeout:            30 * time.Second, // Increased from 5s for better compatibility
-	WriteTimeout:           30 * time.Second, // Increased from 10s for better compatibility
-	IdleTimeout:            120 * time.Second,
-	ReadHeaderTimeout:      10 * time.Second, // Slowloris protection
-	StaticDir:              "static/",
-	TemplateDir:            "template/",
+	Addr:              ":8080",
+	TLSAddr:           ":8443",
+	HealthAddr:        ":9080",
+	EnableTLS:         false,
+	KeyFile:           "server.key",
+	CertFile:          "server.crt",
+	RateLimit:         1,
+	Burst:             10,
+	ReadTimeout:       30 * time.Second, // Increased from 5s for better compatibility
+	WriteTimeout:      30 * time.Second, // Increased from 10s for better compatibility
+	IdleTimeout:       120 * time.Second,
+	ReadHeaderTimeout: 10 * time.Second, // Slowloris protection
+	// Filesystem capabilities are opt-in. A library default must not turn the
+	// embedding process's working directory into an application asset root.
+	StaticDir:              "",
+	TemplateDir:            "",
 	RunHealthServer:        false,
 	AuthTokenValidatorFunc: func(token string) (bool, error) { return false, nil },
 	FIPSMode:               false,
@@ -742,6 +744,15 @@ func WithRateLimit(limit RateLimit, burst int) ServerOptionFunc {
 func WithCORS(opts *CORSOptions) ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.CORS = normalizeCORSOptions(opts)
+		return nil
+	}
+}
+
+// WithStaticDir sets the directory root used by [Server.HandleStaticChecked].
+// The directory is opened and validated when the static route is registered.
+func WithStaticDir(dir string) ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.StaticDir = dir
 		return nil
 	}
 }

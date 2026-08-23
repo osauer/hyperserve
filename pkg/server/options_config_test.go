@@ -140,6 +140,33 @@ func TestNewServerIgnoresAmbientConfiguration(t *testing.T) {
 	}
 }
 
+func TestDefaultServerOptionsDisableFilesystemRoots(t *testing.T) {
+	options := DefaultServerOptions()
+	if options.StaticDir != "" || options.TemplateDir != "" {
+		t.Fatalf("default filesystem roots: static=%q template=%q, want both empty", options.StaticDir, options.TemplateDir)
+	}
+
+	workingDir := t.TempDir()
+	for _, dir := range []string{"static", "template"} {
+		if err := os.Mkdir(filepath.Join(workingDir, dir), 0o755); err != nil {
+			t.Fatalf("create ambient %s directory: %v", dir, err)
+		}
+	}
+	t.Chdir(workingDir)
+
+	srv, err := NewServer()
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	t.Cleanup(func() { _ = srv.Stop() })
+	if srv.Options.StaticDir != "" || srv.Options.TemplateDir != "" {
+		t.Fatalf("server filesystem roots: static=%q template=%q, want both empty", srv.Options.StaticDir, srv.Options.TemplateDir)
+	}
+	if srv.staticRoot != nil || srv.templateRoot != nil {
+		t.Fatalf("bare NewServer opened ambient roots: static=%v template=%v", srv.staticRoot != nil, srv.templateRoot != nil)
+	}
+}
+
 func TestWithOptionsDefensivelyClones(t *testing.T) {
 	options := DefaultServerOptions()
 	options.CORS = &CORSOptions{AllowedOrigins: []string{"https://before.example"}}

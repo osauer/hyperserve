@@ -213,6 +213,10 @@ with `os.OpenRoot`. If the root cannot be opened, it returns an error and does
 not register the route:
 
 ```go
+srv, err := server.NewServer(server.WithStaticDir("./static"))
+if err != nil {
+    return err
+}
 if err := srv.HandleStaticChecked("/static/"); err != nil {
     return fmt.Errorf("mount static files: %w", err)
 }

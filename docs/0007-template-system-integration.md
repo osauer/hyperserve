@@ -26,6 +26,10 @@ Provide optional template integration using Go's `html/template`:
 - No template parsing or directory access when templates aren't configured
 - Use standard Go template syntax
 
+`TemplateDir` is empty by default. The embedding application must select the
+root explicitly, so an unrelated working-directory entry cannot become part of
+the server merely because it is named `template`.
+
 Templates are configured via:
 ```go
 server.WithTemplateDir("./templates")

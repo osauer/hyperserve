@@ -15,7 +15,7 @@ This example shows how to serve static files (HTML, CSS, JavaScript) with HyperS
 ```
 02-static-files/
 ├── main.go          # Server code
-├── static/          # Static files directory (default)
+├── static/          # Static files selected explicitly by main.go
 │   ├── index.html   # Homepage
 │   ├── about.html   # About page
 │   ├── css/
@@ -73,7 +73,12 @@ You'll see security headers like:
 ### 1. Static File Serving
 
 ```go
-// Serve static files from the default "static/" directory
+server, err := server.NewServer(server.WithStaticDir("./static"))
+if err != nil {
+    log.Fatal(err)
+}
+
+// Register the explicitly configured root at the URL root.
 if err := server.HandleStaticChecked("/"); err != nil {
     log.Fatal(err)
 }
