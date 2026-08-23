@@ -10,8 +10,7 @@ lifecycle, typed request binding, security middleware, observability,
 WebSockets, and optional Model Context Protocol (MCP). Routes still use
 `http.ServeMux` patterns, and handlers remain `http.Handler` values.
 
-It began as the Go API server I wanted to own. The name was inspired by
-hyperHTML; the design came from the same preference for a small, understandable
+The name was inspired by hyperHTML; the design came from the same preference for a small, understandable
 core.
 
 The runtime module has one external dependency. Its WebSocket, JSON-RPC, and MCP
