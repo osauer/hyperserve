@@ -80,7 +80,9 @@ func main() {
 	// Configure template and static directories
 	srv.Options.TemplateDir = "./templates"
 	srv.Options.StaticDir = "./static"
-	srv.HandleStatic("/static/")
+	if err := srv.HandleStaticChecked("/static/"); err != nil {
+		log.Fatalf("Static files unavailable: %v", err)
+	}
 
 	// Handler for streaming
 	srv.HandleFunc("/numbers/stream", numbersStreamHandler)

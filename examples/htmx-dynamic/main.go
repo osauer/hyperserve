@@ -29,7 +29,9 @@ func main() {
 	srv.AddMiddlewareStack("/", serverpkg.SecureWeb(srv.Options))
 
 	// Static content route (e.g., CSS, JS)
-	srv.HandleStatic("/static/")
+	if err := srv.HandleStaticChecked("/static/"); err != nil {
+		log.Fatalf("Static files unavailable: %v", err)
+	}
 
 	// Main page route with HTMX support
 	srv.HandleTemplate("/", "index.html", &pageData{

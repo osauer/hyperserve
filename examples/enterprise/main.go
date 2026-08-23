@@ -58,7 +58,9 @@ func main() {
 	srv.HandleFunc("/api/data", apiDataHandler)
 
 	// Serve static files securely (uses os.Root in Go 1.24)
-	srv.HandleStatic("/static/")
+	if err := srv.HandleStaticChecked("/static/"); err != nil {
+		log.Fatalf("Static files unavailable: %v", err)
+	}
 
 	log.Println("Starting enterprise server with FIPS 140-3 mode...")
 	log.Println("Server features:")

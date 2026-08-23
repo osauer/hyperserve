@@ -76,7 +76,9 @@ func main() {
 	})
 
 	// 2. Static file serving
-	srv.HandleStatic("/static/")
+	if err := srv.HandleStaticChecked("/static/"); err != nil {
+		log.Fatalf("Static files unavailable: %v", err)
+	}
 
 	// 3. Public API endpoint (no auth required, but has security headers)
 	srv.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {

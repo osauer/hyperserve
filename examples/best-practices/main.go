@@ -104,7 +104,9 @@ func main() {
 
 	// Static files with proper caching headers
 	srv.AddMiddleware("/static/", serverpkg.HeadersMiddleware(srv.Options))
-	srv.HandleStatic("/static/")
+	if err := srv.HandleStaticChecked("/static/"); err != nil {
+		log.Fatalf("Static files unavailable: %v", err)
+	}
 
 	// BEST PRACTICE: Let hyperserve handle graceful shutdown
 	// No need for custom signal handling!

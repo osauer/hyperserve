@@ -163,10 +163,12 @@ func (h *Handler) Logger() *slog.Logger { return h.logger }
 // silence output.
 func (h *Handler) SetLogger(l *slog.Logger) {
 	if l == nil {
-		h.logger = logger
-		return
+		l = logger
 	}
 	h.logger = l
+	if h.rpcEngine != nil {
+		h.rpcEngine.SetLogger(l)
+	}
 }
 
 // SetOriginValidator overrides the default MCP Origin policy. The default

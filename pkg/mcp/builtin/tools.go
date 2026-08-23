@@ -25,8 +25,8 @@ import (
 var logger = slog.Default()
 
 // The previously-exported SetDefaultLogger had zero callers and was removed.
-// Builtin tools use the package logger; server-side logger injection happens
-// via slog.SetDefault at server-init time.
+// Builtin tools use the package logger. MCP log resources wrap only their
+// handler's injected logger and never replace this package logger.
 
 // closeWithLog closes an io.Closer and logs any error.
 func closeWithLog(c io.Closer, name string) {

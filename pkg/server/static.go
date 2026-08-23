@@ -5,15 +5,14 @@ package server
 // os.Root-backed file server that powers them.
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-// EnsureTrailingSlash ensures that a directory path ends with a trailing
-// slash. Used to normalize directory paths for the http.Dir fallback in
-// HandleStatic.
+// EnsureTrailingSlash ensures that a directory path ends with a trailing slash.
 func EnsureTrailingSlash(dir string) string {
 	if dir != "" && !strings.HasSuffix(dir, string(filepath.Separator)) {
 		dir += string(filepath.Separator)
@@ -21,31 +20,37 @@ func EnsureTrailingSlash(dir string) string {
 	return dir
 }
 
-// HandleStatic registers a handler for serving static files from the
-// configured static directory. The pattern should typically end with a
-// wildcard (e.g., "/static/"). Uses os.Root for secure file access when
-// available (Go 1.24+); falls back to http.Dir if the root open fails.
+// HandleStatic registers a handler that serves files only through an os.Root
+// confined to Options.StaticDir. A root-open failure is logged and leaves the
+// route unregistered.
+//
+// Deprecated: use HandleStaticChecked to handle setup failures explicitly.
 func (srv *Server) HandleStatic(pattern string) {
+	if err := srv.HandleStaticChecked(pattern); err != nil {
+		logger.Error("Static route not registered", "pattern", pattern, "error", err)
+	}
+}
+
+// HandleStaticChecked registers a handler that serves files only through an
+// os.Root confined to Options.StaticDir. It returns an error without
+// registering the route if the configured root cannot be opened.
+func (srv *Server) HandleStaticChecked(pattern string) error {
 	if srv.staticRoot == nil && srv.Options.StaticDir != "" {
 		staticRoot, err := os.OpenRoot(srv.Options.StaticDir)
 		if err != nil {
-			logger.Warn("Failed to open static root directory, falling back to http.Dir", "error", err, "dir", srv.Options.StaticDir)
-		} else {
-			srv.staticRoot = staticRoot
-			logger.Info("Static root initialized", "dir", srv.Options.StaticDir)
+			return fmt.Errorf("open static root %q: %w", srv.Options.StaticDir, err)
 		}
+		srv.staticRoot = staticRoot
+		logger.Info("Static root initialized", "dir", srv.Options.StaticDir)
+	}
+	if srv.staticRoot == nil {
+		return fmt.Errorf("static directory is not configured")
 	}
 
 	srv.registerRoute(pattern)
-
-	if srv.staticRoot != nil {
-		srv.mux.Handle(pattern, http.StripPrefix(pattern, srv.rootFileServer()))
-		logger.Info("Static file serving using secure os.Root", "pattern", pattern)
-	} else {
-		staticDir := EnsureTrailingSlash(srv.Options.StaticDir)
-		srv.mux.Handle(pattern, http.StripPrefix(pattern, http.FileServer(http.Dir(staticDir))))
-		logger.Info("Static file serving using http.Dir", "pattern", pattern, "dir", staticDir)
-	}
+	srv.mux.Handle(pattern, http.StripPrefix(pattern, srv.rootFileServer()))
+	logger.Info("Static file serving using secure os.Root", "pattern", pattern)
+	return nil
 }
 
 // rootFileServer creates an http.Handler that serves files from srv.staticRoot

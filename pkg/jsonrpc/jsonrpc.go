@@ -88,6 +88,15 @@ func NewEngine(logger *slog.Logger) *Engine {
 	}
 }
 
+// SetLogger replaces the logger used by the engine. Passing nil restores the
+// process default. Configure the logger before processing requests.
+func (engine *Engine) SetLogger(logger *slog.Logger) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	engine.logger = logger
+}
+
 // RegisterMethod registers a method handler with the JSON-RPC engine.
 func (engine *Engine) RegisterMethod(name string, handler MethodHandler) {
 	engine.methods[name] = handler

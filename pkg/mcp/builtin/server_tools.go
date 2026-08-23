@@ -260,7 +260,7 @@ func (t *DevGuideTool) Execute(params map[string]any) (any, error) {
 				{"name": "dev_guide", "purpose": "This help tool", "topics": []string{"overview", "tools", "resources", "examples", "workflows"}},
 			},
 			"resources": []map[string]any{
-				{"uri": "logs://server/stream", "purpose": "Real-time server logs"},
+				{"uri": "logs://server/stream", "purpose": "Real-time MCP server logs"},
 				{"uri": "routes://server/all", "purpose": "Detailed route information"},
 			},
 			"tip": "Use 'dev_guide' with topic='examples' to see usage examples",
@@ -291,7 +291,7 @@ func (t *DevGuideTool) Execute(params map[string]any) (any, error) {
 			"available_resources": []map[string]any{
 				{
 					"uri":         "logs://server/stream",
-					"description": "Real-time server log stream",
+					"description": "Real-time MCP server log stream",
 					"contents":    "Recent log entries with timestamp, level, message",
 					"use_case":    "Monitor server activity during development",
 				},

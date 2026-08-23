@@ -140,7 +140,9 @@ func BenchmarkStaticFile(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	srv.HandleStatic("/static/")
+	if err := srv.HandleStaticChecked("/static/"); err != nil {
+		b.Fatal(err)
+	}
 	req := httptest.NewRequest("GET", "/static/test.txt", nil)
 
 	b.ReportAllocs()

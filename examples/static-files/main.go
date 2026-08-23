@@ -21,7 +21,9 @@ func main() {
 
 	// Serve static files from the ./static directory
 	// When someone visits /, it will automatically serve static/index.html
-	srv.HandleStatic("/")
+	if err := srv.HandleStaticChecked("/"); err != nil {
+		log.Fatalf("Static files unavailable: %v", err)
+	}
 
 	// You can also add custom routes alongside static files
 	srv.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {

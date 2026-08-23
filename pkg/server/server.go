@@ -412,6 +412,10 @@ func initializeMCPHandler(srv *Server) {
 		Version: srv.Options.MCPServerVersion,
 	}
 	srv.mcpHandler = mcp.NewHandler(serverInfo)
+	// The MCP handler owns its logging chain. Seed it from the logger injected
+	// into the server package, then let presets wrap only this handler without
+	// replacing process-wide defaults.
+	srv.mcpHandler.SetLogger(logger)
 	srv.mcpHandler.SetProtocolVersion(srv.Options.MCPProtocolVersion)
 	srv.mcpHandler.SetToolCallTimeout(srv.Options.MCPToolCallTimeout)
 	srv.mcpHandler.SetOriginValidator(srv.Options.MCPOriginValidator)

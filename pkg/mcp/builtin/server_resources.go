@@ -114,8 +114,9 @@ func (r *ServerHealthResource) Read() (any, error) {
 
 func (r *ServerHealthResource) List() ([]string, error) { return []string{r.URI()}, nil }
 
-// ServerLogResource buffers recent log entries for retrieval via MCP.
-// It implements slog.Handler so it can be slotted into the logging chain.
+// ServerLogResource buffers recent MCP server log entries for retrieval via
+// MCP. It implements slog.Handler so it can be injected into one MCP handler's
+// logging chain without intercepting process-wide application logs.
 type ServerLogResource struct {
 	mu      sync.RWMutex
 	logs    []logEntry
@@ -145,7 +146,7 @@ func NewServerLogResource(maxSize int) *ServerLogResource {
 func (r *ServerLogResource) URI() string  { return "logs://server/recent" }
 func (r *ServerLogResource) Name() string { return "Server Logs" }
 func (r *ServerLogResource) Description() string {
-	return fmt.Sprintf("Recent server logs (last %d entries)", r.maxSize)
+	return fmt.Sprintf("Recent MCP server logs (last %d entries)", r.maxSize)
 }
 func (r *ServerLogResource) MimeType() string { return "application/json" }
 
@@ -218,7 +219,7 @@ type StreamingLogResource struct {
 func (r *StreamingLogResource) URI() string  { return "logs://server/stream" }
 func (r *StreamingLogResource) Name() string { return "Server Log Stream" }
 func (r *StreamingLogResource) Description() string {
-	return "Real-time server log streaming for development"
+	return "Real-time MCP server log streaming for development"
 }
 
 // RouteListResource provides a structured list of registered routes.

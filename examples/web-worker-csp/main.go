@@ -21,7 +21,9 @@ func main() {
 	srv.AddMiddleware("*", serverpkg.HeadersMiddleware(srv.Options))
 
 	// Serve static files (HTML, JS, CSS)
-	srv.HandleStatic("/static/")
+	if err := srv.HandleStaticChecked("/static/"); err != nil {
+		panic(err)
+	}
 
 	// Main page
 	srv.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
