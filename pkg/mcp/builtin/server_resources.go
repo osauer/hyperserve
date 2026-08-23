@@ -39,21 +39,22 @@ func (r *ServerConfigResource) Read() (any, error) {
 	//   MCPFileToolRoot. These could leak internal paths or secrets.
 	opts := r.server.Options
 	return map[string]any{
-		"version":       server.Version,
-		"build_hash":    server.BuildHash,
-		"build_time":    server.BuildTime,
-		"go_version":    runtime.Version(),
-		"addr":          opts.Addr,
-		"health_addr":   opts.HealthAddr,
-		"tls_enabled":   opts.EnableTLS,
-		"rate_limit":    opts.RateLimit,
-		"burst":         opts.Burst,
-		"hardened_mode": opts.HardenedMode,
-		"fips_mode":     opts.FIPSMode,
-		"mcp_enabled":   opts.MCPEnabled,
-		"mcp_endpoint":  opts.MCPEndpoint,
-		"debug_mode":    opts.DebugMode,
-		"log_level":     opts.LogLevel,
+		"version":        server.Version,
+		"build_hash":     server.BuildHash,
+		"build_time":     server.BuildTime,
+		"go_version":     runtime.Version(),
+		"addr":           opts.Addr,
+		"health_addr":    opts.HealthAddr,
+		"tls_enabled":    opts.EnableTLS,
+		"rate_limit":     opts.RateLimit,
+		"burst":          opts.Burst,
+		"server_header":  opts.ServerHeader,
+		"startup_banner": !opts.SuppressBanner,
+		"fips_mode":      opts.FIPSMode,
+		"mcp_enabled":    opts.MCPEnabled,
+		"mcp_endpoint":   opts.MCPEndpoint,
+		"debug_mode":     opts.DebugMode,
+		"log_level":      opts.LogLevel,
 		"timeouts": map[string]string{
 			"read":  opts.ReadTimeout.String(),
 			"write": opts.WriteTimeout.String(),
@@ -282,7 +283,8 @@ func (r *ConfigResource) Read() (any, error) {
 		"templateDir":     r.options.TemplateDir,
 		"runHealthServer": r.options.RunHealthServer,
 		"fipsMode":        r.options.FIPSMode,
-		"hardenedMode":    r.options.HardenedMode,
+		"serverHeader":    r.options.ServerHeader,
+		"startupBanner":   !r.options.SuppressBanner,
 	}
 	jsonBytes, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {

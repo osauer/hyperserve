@@ -161,7 +161,6 @@ func TestDeferredInitLifecycle(t *testing.T) {
 func TestDeferredInitFailureStopsServer(t *testing.T) {
 	srv, err := NewServer(
 		WithAddr(":0"),
-		WithSuppressBanner(true),
 		WithDeferredInit(func(ctx context.Context, app *Server) error {
 			return errors.New("init boom")
 		}),
@@ -320,7 +319,6 @@ func TestRunHonorsDeferredInitHandler(t *testing.T) {
 
 	srv, err := NewServer(
 		WithAddr(":0"),
-		WithSuppressBanner(true),
 		WithDeferredInit(func(ctx context.Context, app *Server) error {
 			select {
 			case <-ctx.Done():

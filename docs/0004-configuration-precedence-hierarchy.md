@@ -1,6 +1,6 @@
 # ADR-0004: Configuration Precedence Hierarchy
 
-**Status:** Accepted  
+**Status:** Superseded by [ADR-0013](./0013-explicit-configuration-binding.md)
 **Date:** 2024-12-01  
 **Deciders:** hyperserve team  
 

@@ -28,10 +28,6 @@ func NewServer(cfg Config) (*server.Server, error) {
 		server.WithRateLimit(rate.Limit(cfg.RateLimit), cfg.RateBurst),
 	)
 
-	if cfg.EnableHardenedMode {
-		opts = append(opts, server.WithHardenedMode())
-	}
-
 	if cfg.EnableMCP {
 		opts = append(opts,
 			server.WithMCPSupport(cfg.ServiceName, version),

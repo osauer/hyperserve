@@ -87,7 +87,7 @@ nmap --script ssl-enum-ciphers -p 8443 localhost
 ## Environment Variables
 
 - `GOFIPS140=1`: Enable FIPS 140-3 runtime mode
-- `HS_LOG_LEVEL=debug`: Enable debug logging
+- `HS_LOG_LEVEL=DEBUG`: Enable debug logging (the example opts in with `WithEnvironment`)
 
 ## Troubleshooting
 

@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	restore := preserveEnvironment("HS_CONFIG_PATH", "HS_PORT", "HS_RATE_LIMIT", "HS_BURST_LIMIT")
+	restore := preserveEnvironment("HS_PORT", "HS_RATE_LIMIT", "HS_BURST_LIMIT")
 	defer restore()
 
 	configFile, err := os.CreateTemp("", "hyperserve-options-*.json")
@@ -32,17 +32,25 @@ func main() {
 		log.Fatal(err)
 	}
 
-	mustSetenv("HS_CONFIG_PATH", configFile.Name())
 	mustSetenv("HS_PORT", "8085") // Environment overrides only the file's address.
 	mustSetenv("HS_RATE_LIMIT", "")
 	mustSetenv("HS_BURST_LIMIT", "")
 
-	loaded := serverpkg.NewServerOptions()
+	loaded, err := serverpkg.NewServer(
+		serverpkg.WithConfigFile(configFile.Name()),
+		serverpkg.WithEnvironment(),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() { _ = loaded.Stop() }()
 	fmt.Println("After defaults, file, and environment:")
-	printOptions(loaded)
+	printOptions(loaded.Options)
 
-	// Functional options run last, so the application can enforce invariants.
+	// Options apply left to right, so the final two calls enforce application invariants.
 	srv, err := serverpkg.NewServer(
+		serverpkg.WithConfigFile(configFile.Name()),
+		serverpkg.WithEnvironment(),
 		serverpkg.WithAddr(":8086"),
 		serverpkg.WithRateLimit(10, 20),
 	)

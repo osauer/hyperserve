@@ -184,7 +184,12 @@ curl -X POST http://localhost:8080/mcp \
 
 HyperServe does not parse command-line flags. If your application owns flags
 (as [`examples/mcp-cli`](../examples/mcp-cli/) does), translate them into
-`WithMCPSupport` options. Environment variables are loaded directly:
+`WithMCPSupport` options. To accept HyperServe environment variables, bind them
+explicitly when constructing the server:
+
+```go
+srv, err := server.NewServer(server.WithEnvironment())
+```
 
 ```bash
 # Using flags
@@ -254,6 +259,8 @@ an internet-facing interface.
 ## Production Observability
 
 ### Setup
+
+The environment form below requires `WithEnvironment()` in the application.
 
 ```bash
 # Using flags

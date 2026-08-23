@@ -5,14 +5,22 @@
 [![Go reference](https://pkg.go.dev/badge/github.com/osauer/hyperserve.svg)](https://pkg.go.dev/github.com/osauer/hyperserve)
 [![License: MIT](https://img.shields.io/github/license/osauer/hyperserve)](LICENSE)
 
-HyperServe is a Go library for the code that accumulates around `net/http`:
-server lifecycle, middleware, typed request binding, rooted static files,
-WebSockets, and an optional Model Context Protocol (MCP) endpoint. Routes still
-use `http.ServeMux` patterns, and handlers remain `http.Handler` values.
+HyperServe began as the Go API server I wanted to own. The name was inspired by
+hyperHTML; the design came from the same preference for a small, understandable
+core.
 
-If routes plus JSON are all your service needs, use `net/http` directly.
-HyperServe is useful when the same timeout, recovery, health, shutdown, input,
-and WebSocket plumbing would otherwise be rebuilt around each service.
+It keeps ordinary `net/http` handlers and collects the operational pieces that
+accumulate around them: lifecycle, typed request binding, security middleware,
+observability, WebSockets, and optional Model Context Protocol (MCP). Routes
+still use `http.ServeMux` patterns, and handlers remain `http.Handler` values.
+
+The runtime module has one external dependency. Its WebSocket, JSON-RPC, and MCP
+implementations live in-tree. That means fewer packages for users to assemble,
+but more protocol code maintained here.
+
+Use HyperServe when you want that integrated server boundary without rebuilding
+it for each API. If routes plus JSON are all your service needs, use `net/http`
+directly.
 
 ## Install
 
@@ -22,9 +30,8 @@ HyperServe requires Go 1.27.
 go get github.com/osauer/hyperserve@latest
 ```
 
-The runtime module has one external dependency, `golang.org/x/time`, for rate
-limiting. Build and conformance tools live in a separate
-[`tools/go.mod`](./tools/go.mod) module.
+`golang.org/x/time` provides rate limiting. Build and conformance tools live in
+a separate [`tools/go.mod`](./tools/go.mod) module.
 
 ## Start a server
 
@@ -76,6 +83,33 @@ normal request to drain and stop.
 Add `WithHealthServer()` for separate liveness and readiness endpoints, or
 `WithDeferredInit(...)` when readiness must wait for startup work. The
 [`deferred-init` example](./examples/deferred-init/) shows both.
+
+## Own the configuration boundary
+
+`NewServer()` uses deterministic defaults; it does not read `options.json` or
+the process environment. Bind only the authorities your application intends to
+accept, in precedence order:
+
+```go
+srv, err := server.NewServer(
+    server.WithConfigFile(configPath), // Required, application-chosen JSON file.
+    server.WithEnvironment(),          // Opt into supported deployment variables.
+    server.WithAddr("127.0.0.1:8080"),  // Later options win; keep this invariant fixed.
+)
+```
+
+`HS_` is simply the HyperServe namespace for its environment variables, such as
+`HS_RATE_LIMIT`; those variables have no effect without `WithEnvironment()`.
+Use `DefaultServerOptions`, modify the returned value, and pass it through
+`WithOptions` when an embedding application wants to bind one complete,
+reviewed snapshot. The [configuration example](./examples/configuration/) shows
+the precedence rules.
+
+HyperServe also avoids process branding by default: the ASCII banner is off and
+`HeadersMiddleware` omits `Server`. Use `WithStartupBanner()` or
+`WithServerHeader("my-service")` to opt in. These identification settings do
+not install security policy; attach `SecureWeb` or `HeadersMiddleware` to the
+routes that need security headers.
 
 ## Bind and validate input
 

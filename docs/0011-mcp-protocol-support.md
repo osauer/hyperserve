@@ -227,7 +227,7 @@ This ADR aligns with existing architectural decisions:
 - **ADR-0001**: No external dependencies beyond `golang.org/x/time`
 - **ADR-0002**: Uses functional options pattern for configuration
 - **ADR-0003**: Integrates with existing middleware system
-- **ADR-0004**: Follows configuration precedence hierarchy
+- **ADR-0013**: Uses explicit, left-to-right configuration binding
 - **ADR-0006**: Leverages Go 1.24 features (os.Root)
 - **ADR-0009**: Maintains single package architecture
 

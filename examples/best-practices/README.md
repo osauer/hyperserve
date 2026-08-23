@@ -13,7 +13,7 @@ This example demonstrates the correct way to use hyperserve's built-in features 
 5. **MCP Support** - Native Model Context Protocol integration
 6. **SSE Support** - Proper Server-Sent Events with helpers
 7. **Security Headers** - Pre-configured middleware stacks
-8. **Configuration** - Environment variables and defaults
+8. **Configuration** - Explicit environment binding plus application invariants
 
 ### ❌ DON'T: Common Anti-Patterns to Avoid
 
@@ -21,7 +21,7 @@ This example demonstrates the correct way to use hyperserve's built-in features 
 2. **Custom logging middleware** - RequestLoggerMiddleware is applied by default
 3. **Manual MCP implementation** - Use WithMCPSupport()
 4. **Manual SSE formatting** - Use NewSSEMessage() helper
-5. **Hardcoded configuration** - Use HS_* environment variables
+5. **Implicit configuration** - Bind deployment variables with `WithEnvironment()`
 
 ## Running the Example
 
@@ -30,7 +30,7 @@ This example demonstrates the correct way to use hyperserve's built-in features 
 go run main.go
 
 # With debug logging
-HS_LOG_LEVEL=debug go run main.go
+HS_LOG_LEVEL=DEBUG go run main.go
 
 # With custom configuration
 HS_PORT=9090 HS_RATE_LIMIT=50 go run main.go
@@ -61,14 +61,14 @@ curl -N http://localhost:8080/api/stream
 
 ## Configuration Options
 
-All configuration can be set via environment variables:
+The example opts into HyperServe's supported environment variables with
+`WithEnvironment()`. A bare `NewServer()` ignores them.
 
 - `HS_PORT` - Server port (default: 8080)
-- `HS_HEALTH_PORT` - Health check port (default: 8081)
+- `HEALTH_ADDR` - Health check address (default: `:9080`)
 - `HS_RATE_LIMIT` - Requests per second (default: 100)
 - `HS_BURST_LIMIT` - Burst capacity (default: 200)
-- `HS_LOG_LEVEL` - Log level: debug, info, warn, error (default: info)
-- `HS_SHUTDOWN_TIMEOUT` - Graceful shutdown timeout (default: 30s)
+- `HS_LOG_LEVEL` - Log level: `DEBUG`, `INFO`, `WARN`, or `ERROR`
 - `HS_MCP_ENABLED` - Enable MCP support (default: false)
 - `HS_MCP_FILE_TOOL_ROOT` - Root directory for MCP file tools
 

@@ -17,7 +17,6 @@ type Config struct {
 	RateLimit          int    `json:"rateLimit"`
 	RateBurst          int    `json:"rateBurst"`
 	EnableMCP          bool   `json:"enableMCP"`
-	EnableHardenedMode bool   `json:"enableHardenedMode"`
 	LogLevel           string `json:"logLevel"`
 }
 
@@ -30,7 +29,6 @@ func DefaultConfig() Config {
 		RateLimit:          {{ .DefaultRateLimit }},
 		RateBurst:          {{ .DefaultRateBurst }},
 		EnableMCP:          {{ .WithMCP }},
-		EnableHardenedMode: true,
 		LogLevel:           "INFO",
 	}
 }
@@ -74,9 +72,6 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if mcp := os.Getenv("HS_MCP_ENABLED"); mcp != "" {
 		cfg.EnableMCP = mcp == "1" || mcp == "true" || mcp == "TRUE"
-	}
-	if hardened := os.Getenv("HS_HARDENED_MODE"); hardened != "" {
-		cfg.EnableHardenedMode = hardened == "1" || hardened == "true" || hardened == "TRUE"
 	}
 	if rl := os.Getenv("HS_RATE_LIMIT"); rl != "" {
 		if v, err := strconv.Atoi(rl); err == nil {

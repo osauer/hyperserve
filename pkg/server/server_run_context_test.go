@@ -14,7 +14,6 @@ func TestRunContextCancellationGracefullyStopsServer(t *testing.T) {
 
 	srv, err := NewServer(
 		WithAddr("127.0.0.1:0"),
-		WithSuppressBanner(true),
 	)
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
@@ -53,7 +52,7 @@ func TestRunContextCancellationGracefullyStopsServer(t *testing.T) {
 func TestRunContextAlreadyCanceledSkipsStartupAndCleansUp(t *testing.T) {
 	t.Parallel()
 
-	srv, err := NewServer(WithSuppressBanner(true))
+	srv, err := NewServer()
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
@@ -75,7 +74,7 @@ func TestRunContextAlreadyCanceledSkipsStartupAndCleansUp(t *testing.T) {
 
 func TestRunContextRejectsNilAndStdio(t *testing.T) {
 	t.Run("nil", func(t *testing.T) {
-		srv, err := NewServer(WithSuppressBanner(true))
+		srv, err := NewServer()
 		if err != nil {
 			t.Fatalf("NewServer: %v", err)
 		}
@@ -88,7 +87,7 @@ func TestRunContextRejectsNilAndStdio(t *testing.T) {
 	})
 
 	t.Run("stdio", func(t *testing.T) {
-		srv, err := NewServer(WithSuppressBanner(true))
+		srv, err := NewServer()
 		if err != nil {
 			t.Fatalf("NewServer: %v", err)
 		}

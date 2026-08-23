@@ -14,6 +14,9 @@ import (
 func main() {
 	// Create server with enterprise security features
 	srv, err := serverpkg.NewServer(
+		// This example accepts supported deployment environment variables.
+		serverpkg.WithEnvironment(),
+
 		// Basic configuration
 		serverpkg.WithAddr(":8443"),
 		serverpkg.WithHealthServer(),

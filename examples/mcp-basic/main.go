@@ -77,6 +77,10 @@ var _ mcp.Resource = (*ServerStatusResource)(nil)
 func main() {
 	srv, err := serverpkg.NewServer(
 		serverpkg.WithAddr(":8080"),
+		serverpkg.WithRateLimit(50, 100),
+		serverpkg.WithEnvironment(), // Deployment may override address, endpoint, and rate.
+
+		// Keep application-owned MCP capabilities explicit and later in the chain.
 		serverpkg.WithMCPSupport("mcp-basic", "1.0.0"),
 		serverpkg.WithMCPBuiltinTools(true),
 		serverpkg.WithMCPBuiltinResources(true),
@@ -84,7 +88,6 @@ func main() {
 		// file tools refuse to construct.
 		serverpkg.WithMCPFileToolRoot("examples/mcp-basic/sandbox"),
 		serverpkg.WithTemplateDir("examples/mcp-basic/templates"),
-		serverpkg.WithRateLimit(50, 100),
 	)
 	if err != nil {
 		log.Fatal(err)

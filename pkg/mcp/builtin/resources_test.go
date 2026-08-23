@@ -91,7 +91,8 @@ func TestConfigResource(t *testing.T) {
 		TemplateDir:     "templates/",
 		RunHealthServer: false,
 		FIPSMode:        false,
-		HardenedMode:    false,
+		ServerHeader:    "test-service",
+		SuppressBanner:  true,
 	}
 
 	resource := NewConfigResource(options)

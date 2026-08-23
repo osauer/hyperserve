@@ -198,8 +198,9 @@ Security postures enforced at construction:
 
 `server.MCPDev()` adds `server_control`, `route_inspector`, and
 `dev_guide` tools that change log level and introspect routes.
-HyperServe prints a startup banner: `⚠️ MCP DEVELOPER MODE ENABLED ⚠️`.
-Wire your production CI to fail the build whenever that line appears.
+HyperServe logs `⚠️ MCP DEVELOPER MODE ENABLED ⚠️` during construction.
+Wire your production CI to fail whenever that line appears. This warning is
+separate from the opt-in ASCII startup banner.
 
 For production observability, use `server.MCPObservability()`. It
 exposes `config://server/current`, `health://server/status`, and

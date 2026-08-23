@@ -1,20 +1,26 @@
 /*
 Package hyperserve provides configuration options for the HTTP server.
 
-Configuration follows a hierarchical priority:
- 1. Function parameters (highest priority)
- 2. Environment variables
- 3. Configuration file (options.json)
- 4. Default values (lowest priority)
+NewServer starts from deterministic defaults. Configuration sources and
+functional options are applied left to right, so later options win:
+
+	srv, err := NewServer(
+		WithConfigFile("options.json"),
+		WithEnvironment(),
+		WithAddr(":3000"),
+	)
+
+Configuration files and environment variables are never read unless their
+option is passed.
 
 Environment Variables:
   - SERVER_ADDR: Main server address (default ":8080")
   - HS_PORT: Main server port shortcut (e.g. "8080" -> ":8080")
-  - HEALTH_ADDR: Health check server address (default ":8081")
+  - HEALTH_ADDR: Health check server address (default ":9080")
   - HS_RATE_LIMIT: Per-client requests per second
   - HS_BURST_LIMIT: Per-client burst size
-  - HS_CONFIG_PATH: JSON config file path (default "options.json")
-  - HS_HARDENED_MODE: Suppress the Server header in HeadersMiddleware (default "false")
+  - HS_SERVER_HEADER: Server identification emitted by HeadersMiddleware (default empty)
+  - HS_HARDENED_MODE: Deprecated compatibility input that clears HS_SERVER_HEADER
   - HS_MCP_ENABLED: Enable Model Context Protocol (default "false")
   - HS_MCP_ENDPOINT: MCP endpoint path (default "/mcp")
   - HS_MCP_DEV: Enable MCP developer tools (default "false")
@@ -24,7 +30,8 @@ Environment Variables:
   - HS_CSP_WEB_WORKER_SUPPORT: Enable Web Worker CSP headers (default "false")
   - HS_LOG_LEVEL: Set log level (DEBUG, INFO, WARN, ERROR) (default "INFO")
   - HS_DEBUG: Enable debug mode and debug logging (default "false")
-  - HS_SUPPRESS_BANNER: Suppress the HyperServe ASCII banner at startup (default "false")
+  - HS_STARTUP_BANNER: Print the HyperServe ASCII banner at startup (default "false")
+  - HS_SUPPRESS_BANNER: Deprecated inverse banner setting
 
 Example configuration file (options.json):
 
@@ -34,7 +41,7 @@ Example configuration file (options.json):
 	  "cert_file": "server.crt",
 	  "key_file": "server.key",
 	  "run_health_server": true,
-	  "hardened_mode": true,
+	  "server_header": "example-service",
 	  "debug_mode": false,
 	  "log_level": "INFO"
 	}
@@ -51,6 +58,7 @@ import (
 	"net/http"
 	"os"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -59,10 +67,12 @@ import (
 )
 
 // ServerOptions contains all configuration settings for the HTTP server.
-// Options can be set via WithXXX functions when creating a new server,
-// environment variables, or a configuration file.
+// Options can be set via WithXXX functions when creating a new server. Bind a
+// configuration file or environment variables explicitly with WithConfigFile
+// or WithEnvironment.
 //
-// Zero values are sensible defaults for most applications.
+// Use DefaultServerOptions to obtain HyperServe's defaults before modifying a
+// complete snapshot; a zero ServerOptions value is not implicitly filled.
 type ServerOptions struct {
 	Addr                   string        `json:"addr,omitempty"`
 	EnableTLS              bool          `json:"tls,omitempty"`
@@ -81,7 +91,11 @@ type ServerOptions struct {
 	RunHealthServer        bool          `json:"run_health_server,omitempty"`
 	AuthTokenValidatorFunc func(token string) (bool, error)
 	FIPSMode               bool `json:"fips_mode,omitempty"`
-	HardenedMode           bool `json:"hardened_mode,omitempty"`
+	// ServerHeader is emitted by HeadersMiddleware when non-empty.
+	ServerHeader string `json:"server_header,omitempty"`
+	// HardenedMode is the legacy representation of an omitted Server header.
+	// Deprecated: leave ServerHeader empty instead.
+	HardenedMode bool `json:"hardened_mode,omitempty"`
 	// MCP (Model Context Protocol) configuration
 	MCPEnabled          bool                                        `json:"mcp_enabled,omitempty"`
 	MCPEndpoint         string                                      `json:"mcp_endpoint,omitempty"`
@@ -161,8 +175,9 @@ var defaultServerOptions = &ServerOptions{
 	// Logging defaults
 	LogLevel:  "INFO",
 	DebugMode: false,
-	// Banner defaults
-	SuppressBanner: false,
+	// Identification and banner output are opt-in for library consumers.
+	ServerHeader:   "",
+	SuppressBanner: true,
 	BannerColor:    false,
 	// Deferred init defaults
 	StopOnDeferredInitFailure: true,
@@ -181,17 +196,49 @@ const (
 	LevelError = slog.LevelError
 )
 
-// NewServerOptions creates a new ServerOptions instance with values loaded in priority order:
-// 1. Environment variables (highest priority)
-// 2. Configuration file (options.json)
-// 3. Default values (lowest priority)
-// Returns a fully initialized ServerOptions struct ready for use.
+// DefaultServerOptions returns an independent copy of HyperServe's deterministic
+// defaults. Nested slices and CORS configuration are cloned so callers may
+// safely modify the result before passing it to [WithOptions].
+func DefaultServerOptions() ServerOptions {
+	return cloneServerOptions(*defaultServerOptions)
+}
+
+// NewServerOptions returns defaults overlaid by the legacy implicit
+// options.json/HS_CONFIG_PATH file and process environment configuration.
+// New code should compose [WithConfigFile] and [WithEnvironment] explicitly.
+//
+// Deprecated: use DefaultServerOptions, WithConfigFile, and WithEnvironment.
 func NewServerOptions() *ServerOptions {
-	// Create a copy of defaultServerOptions to avoid modifying the shared instance
-	config := *defaultServerOptions
-	configPtr := applyEnvVars(applyConfigFile(&config))
-	configPtr.CORS = normalizeCORSOptions(configPtr.CORS)
-	return configPtr
+	config := DefaultServerOptions()
+	applyConfigFile(&config)
+	applyEnvVars(&config)
+	if err := normalizeServerOptions(&config); err != nil {
+		logger.Warn("Ignoring invalid legacy server identification", "error", err)
+		config.ServerHeader = ""
+	}
+	return &config
+}
+
+func cloneServerOptions(options ServerOptions) ServerOptions {
+	clone := options
+	clone.CORS = normalizeCORSOptions(options.CORS)
+	clone.OnShutdownHooks = slices.Clone(options.OnShutdownHooks)
+	clone.OnReadyHooks = slices.Clone(options.OnReadyHooks)
+	return clone
+}
+
+func normalizeServerOptions(options *ServerOptions) error {
+	options.CORS = normalizeCORSOptions(options.CORS)
+	if options.HardenedMode {
+		options.ServerHeader = ""
+	}
+	for i := 0; i < len(options.ServerHeader); i++ {
+		b := options.ServerHeader[i]
+		if b == '\r' || b == '\n' || b == 0x7f || (b < 0x20 && b != '\t') {
+			return fmt.Errorf("server header contains invalid control byte 0x%02x", b)
+		}
+	}
+	return nil
 }
 
 // ServerOptionFunc is a function type used to configure Server instances.
@@ -251,11 +298,16 @@ func defaultEnvBindings() []envBinding {
 		{paramMCPFileToolRoot, func(v string, c *ServerOptions) { c.MCPFileToolRoot = v }},
 		{paramMCPProtocolVersion, func(v string, c *ServerOptions) { c.MCPProtocolVersion = v }},
 		{paramLogLevel, func(v string, c *ServerOptions) { c.LogLevel = v }},
+		{paramServerHeader, func(v string, c *ServerOptions) {
+			c.ServerHeader = v
+			c.HardenedMode = false
+		}},
 
 		// Bool fields — only honour known truthy/falsy spellings.
 		{paramHardenedMode, envBool(func(c *ServerOptions, b bool) {
+			c.HardenedMode = b
 			if b {
-				c.HardenedMode = true
+				c.ServerHeader = ""
 			}
 		})},
 		{paramMCPEnabled, envBool(func(c *ServerOptions, b bool) { c.MCPEnabled = b })},
@@ -265,6 +317,7 @@ func defaultEnvBindings() []envBinding {
 		{paramMCPObservability, envBool(func(c *ServerOptions, b bool) { c.MCPObservability = b })},
 		{paramCSPWebWorkerSupport, envBool(func(c *ServerOptions, b bool) { c.CSPWebWorkerSupport = b })},
 		{paramSuppressBanner, envBool(func(c *ServerOptions, b bool) { c.SuppressBanner = b })},
+		{paramStartupBanner, envBool(func(c *ServerOptions, b bool) { c.SuppressBanner = !b })},
 		{paramBannerColor, envBool(func(c *ServerOptions, b bool) { c.BannerColor = b })},
 
 		// Debug mode is a bool with a side effect (forces LogLevel=DEBUG)
@@ -361,42 +414,34 @@ func ensureCORSOptions(config *ServerOptions) *CORSOptions {
 	return config.CORS
 }
 
-// helper to read an options file and apply it to the options
+// applyConfigFile preserves NewServerOptions' legacy optional-file behavior.
 func applyConfigFile(config *ServerOptions) *ServerOptions {
 	path := configFilePath()
-	file, err := os.Open(path)
-	if err != nil {
+	if err := loadConfigFile(config, path); err != nil {
 		logger.Debug("Failed to open options file.", "error", err)
-		return config
 	}
+	return config
+}
 
-	// make sure file is closed after reading
-	defer func(file *os.File) {
-		err := file.Close()
-		if err != nil {
-			logger.Error("Failed to close file", "error", err, "file-name", file.Name())
-		}
-	}(file)
-
+func loadConfigFile(config *ServerOptions, path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
 	var rawFields map[string]json.RawMessage
-	if err := json.NewDecoder(file).Decode(&rawFields); err != nil {
-		logger.Debug("No options file or loading failed; Using environment and defaults")
-		return config
+	if err := json.Unmarshal(data, &rawFields); err != nil {
+		return fmt.Errorf("decode fields: %w", err)
 	}
-	if _, err := file.Seek(0, 0); err != nil {
-		logger.Debug("Failed to rewind options file; using environment and defaults", "error", err)
-		return config
+	if rawFields == nil {
+		return errors.New("config must be a JSON object")
 	}
-
-	decoder := json.NewDecoder(file)
 	fileConfig := &ServerOptions{}
-	if err := decoder.Decode(fileConfig); err != nil {
-		logger.Debug("No options file or loading failed; Using environment and defaults")
-		return config
+	if err := json.Unmarshal(data, fileConfig); err != nil {
+		return fmt.Errorf("decode options: %w", err)
 	}
 	logger.Debug("Server configuration loaded from file", "file", path)
 	mergeConfig(config, fileConfig, rawFields)
-	return config
+	return nil
 }
 
 func configFilePath() string {
@@ -468,6 +513,41 @@ func (srv *Server) setTimeouts(readTimeout, writeTimeout, idleTimeout time.Durat
 
 // --- ServerOptionFunc constructors ----------------------------------------
 //
+
+// WithOptions replaces the current option snapshot with a defensive copy of
+// options. Options passed later to NewServer override this snapshot.
+func WithOptions(options ServerOptions) ServerOptionFunc {
+	return func(srv *Server) error {
+		clone := cloneServerOptions(options)
+		srv.Options = &clone
+		return nil
+	}
+}
+
+// WithConfigFile overlays fields present in the JSON file at path. An explicit
+// file is required to exist and contain one valid JSON object.
+func WithConfigFile(path string) ServerOptionFunc {
+	return func(srv *Server) error {
+		if strings.TrimSpace(path) == "" {
+			return errors.New("config file path required")
+		}
+		if err := loadConfigFile(srv.Options, path); err != nil {
+			return fmt.Errorf("load server config %q: %w", path, err)
+		}
+		return nil
+	}
+}
+
+// WithEnvironment overlays supported SERVER_ADDR, HEALTH_ADDR, and HS_*
+// variables. It does not consult HS_CONFIG_PATH; use WithConfigFile when the
+// application chooses to read a file.
+func WithEnvironment() ServerOptionFunc {
+	return func(srv *Server) error {
+		applyEnvVars(srv.Options)
+		return nil
+	}
+}
+
 // These are the public `With*` knobs callers pass to `NewServer`. They live
 // alongside `ServerOptions` (the struct they mutate) and the env-binding
 // machinery above, instead of sharing space with the lifecycle code in
@@ -511,14 +591,23 @@ func WithDebugMode() ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.DebugMode = true
 		srv.Options.LogLevel = "DEBUG"
-		slog.SetLogLoggerLevel(slog.LevelDebug)
-		logger.Debug("Debug mode enabled")
 		return nil
 	}
 }
 
-// WithSuppressBanner suppresses the HyperServe ASCII banner at startup.
-// Useful when building white-label products on top of HyperServe.
+// WithStartupBanner opts into HyperServe's ASCII startup banner. Library
+// consumers are silent by default apart from configured structured logs.
+func WithStartupBanner() ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.SuppressBanner = false
+		return nil
+	}
+}
+
+// WithSuppressBanner controls the legacy inverse banner setting.
+//
+// Deprecated: the banner is suppressed by default; use WithStartupBanner to
+// opt in.
 func WithSuppressBanner(suppress bool) ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.SuppressBanner = suppress
@@ -607,7 +696,6 @@ func WithHealthAddr(addr string) ServerOptionFunc {
 func WithLogLevel(level string) ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.LogLevel = level
-		applyConfiguredLogLevel(srv.Options)
 		return nil
 	}
 }
@@ -704,19 +792,25 @@ func WithFIPSMode() ServerOptionFunc {
 	}
 }
 
-// WithHardenedMode tells [HeadersMiddleware] to omit the Server header. It
-// does not enable or register security-header middleware. Add [SecureWeb]
-// globally or add HeadersMiddleware directly for the option to affect
-// responses.
+// WithServerHeader opts into a Server response header when
+// [HeadersMiddleware] is installed. The empty string omits identification.
+// Invalid HTTP control bytes cause NewServer to return an error.
+func WithServerHeader(value string) ServerOptionFunc {
+	return func(srv *Server) error {
+		srv.Options.ServerHeader = value
+		srv.Options.HardenedMode = false
+		return nil
+	}
+}
+
+// WithHardenedMode preserves the former server-identification opt-out. Server
+// identification is now omitted by default.
 //
-//	srv, err := NewServer(WithHardenedMode())
-//	if err == nil {
-//		srv.AddMiddlewareStack(GlobalMiddlewareRoute, SecureWeb(srv.Options))
-//	}
+// Deprecated: leave ServerHeader empty instead.
 func WithHardenedMode() ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.HardenedMode = true
-		logger.Info("Hardened security mode enabled")
+		srv.Options.ServerHeader = ""
 		return nil
 	}
 }

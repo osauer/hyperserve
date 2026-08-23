@@ -13,7 +13,6 @@ import (
 func main() {
 	srv, err := serverpkg.NewServer(
 		serverpkg.WithRateLimit(5, 10),
-		serverpkg.WithHardenedMode(),
 	)
 	if err != nil {
 		log.Fatal(err)

@@ -10,7 +10,7 @@ Each subdirectory is a self-contained `main` package. Run with `go run ./example
 | [static-files](./static-files/) | Serving HTML/CSS/JS with security headers. |
 | [json-api](./json-api/) | Method-aware CRUD API using bounded `BindJSON` input and structured errors. |
 | [middleware-basics](./middleware-basics/) | Default middleware plus global security headers and route-scoped rate limiting. |
-| [configuration](./configuration/) | The exact precedence of defaults, JSON, environment, and functional options. |
+| [configuration](./configuration/) | Explicit JSON/environment binding and left-to-right option precedence. |
 | [binding](./binding/) | `BindJSON`/`BindQuery`/`BindForm` + struct-tag validation, with structured 400 responses. |
 
 ## HTMX / templating

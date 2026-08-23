@@ -266,60 +266,59 @@ func TestWithTemplateDirValidDirectory(t *testing.T) {
 	}
 }
 
-// Hardened Mode Tests
-func TestWithHardenedMode(t *testing.T) {
-	t.Parallel()
-
-	srv, err := NewServer(WithHardenedMode())
+func TestLegacyWithHardenedModeClearsServerHeader(t *testing.T) {
+	srv, err := NewServer(
+		WithServerHeader("example-service"),
+		WithHardenedMode(),
+	)
 	if err != nil {
-		t.Fatalf("failed to create server with hardened mode: %v", err)
+		t.Fatalf("NewServer: %v", err)
 	}
+	t.Cleanup(func() { _ = srv.Stop() })
 
-	if !srv.Options.HardenedMode {
-		t.Error("expected hardened mode to be enabled")
+	if srv.Options.ServerHeader != "" {
+		t.Fatalf("ServerHeader = %q, want legacy option to clear it", srv.Options.ServerHeader)
 	}
 }
 
-// Environment Variable Parsing Tests
-func TestHardenedModeEnvironmentVariable(t *testing.T) {
-	t.Parallel()
+func TestLegacyHardenedEnvironmentClearsServerHeader(t *testing.T) {
+	t.Setenv(paramHardenedMode, "true")
+	srv, err := NewServer(
+		WithServerHeader("example-service"),
+		WithEnvironment(),
+	)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	t.Cleanup(func() { _ = srv.Stop() })
+	if srv.Options.ServerHeader != "" {
+		t.Fatalf("ServerHeader = %q, want legacy environment option to clear it", srv.Options.ServerHeader)
+	}
+}
 
-	// Save original environment
-	originalEnv := os.Getenv("HS_HARDENED_MODE")
-	defer func() {
-		if originalEnv == "" {
-			os.Unsetenv("HS_HARDENED_MODE")
-		} else {
-			os.Setenv("HS_HARDENED_MODE", originalEnv)
-		}
-	}()
+func TestServerHeaderRejectsControlBytes(t *testing.T) {
+	if _, err := NewServer(WithServerHeader("example\r\nInjected: true")); err == nil {
+		t.Fatal("server header containing CRLF succeeded")
+	}
+}
 
-	// Test with "true"
-	os.Setenv("HS_HARDENED_MODE", "true")
-	options := NewServerOptions()
-	if !options.HardenedMode {
-		t.Error("expected hardened mode to be enabled with HS_HARDENED_MODE=true")
+func TestStartupBannerIsOptIn(t *testing.T) {
+	plain, err := NewServer()
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	t.Cleanup(func() { _ = plain.Stop() })
+	if !plain.Options.SuppressBanner {
+		t.Fatal("startup banner enabled by default")
 	}
 
-	// Test with "1"
-	os.Setenv("HS_HARDENED_MODE", "1")
-	options = NewServerOptions()
-	if !options.HardenedMode {
-		t.Error("expected hardened mode to be enabled with HS_HARDENED_MODE=1")
+	optedIn, err := NewServer(WithStartupBanner())
+	if err != nil {
+		t.Fatalf("NewServer with banner: %v", err)
 	}
-
-	// Test with "false"
-	os.Setenv("HS_HARDENED_MODE", "false")
-	options = NewServerOptions()
-	if options.HardenedMode {
-		t.Error("expected hardened mode to be disabled with HS_HARDENED_MODE=false")
-	}
-
-	// Test with empty value
-	os.Setenv("HS_HARDENED_MODE", "")
-	options = NewServerOptions()
-	if options.HardenedMode {
-		t.Error("expected hardened mode to be disabled with empty HS_HARDENED_MODE")
+	t.Cleanup(func() { _ = optedIn.Stop() })
+	if optedIn.Options.SuppressBanner {
+		t.Fatal("WithStartupBanner did not enable banner")
 	}
 }
 

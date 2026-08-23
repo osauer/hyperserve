@@ -55,16 +55,16 @@ var (
 )
 
 func main() {
-	// BEST PRACTICE: Use hyperserve's configuration system
-	// These can be overridden with environment variables:
-	// HS_PORT=9090 HS_RATE_LIMIT=50 HS_LOG_LEVEL=debug ./best-practices
+	// Bind deployment environment explicitly, before application-owned capabilities.
+	// HS_PORT=9090 HS_RATE_LIMIT=50 HS_LOG_LEVEL=DEBUG ./best-practices
 	srv, err := serverpkg.NewServer(
 		// Basic configuration
 		serverpkg.WithAddr(":8080"),
-		serverpkg.WithHealthServer(), // Health checks on :8081
+		serverpkg.WithRateLimit(100, 200), // 100 req/s, burst 200
+		serverpkg.WithEnvironment(),       // Deployment overrides the baseline above.
 
-		// Security configuration
-		serverpkg.WithRateLimit(100, 200),               // 100 req/s, burst 200
+		// Application-owned capabilities and security policy
+		serverpkg.WithHealthServer(),                    // Health checks on :8081
 		serverpkg.WithAuthTokenValidator(validateToken), // Custom auth
 		// Graceful shutdown timeout is configurable via timeouts
 
@@ -153,7 +153,7 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
         <li><a href="/api/data">API endpoint with auth</a> (needs Bearer token)</li>
         <li><a href="/about">Template rendering</a></li>
         <li><code>curl -H "Authorization: Bearer secret-token-123" http://localhost:8080/api/data</code></li>
-        <li><code>HS_LOG_LEVEL=debug ./best-practices</code> (debug logging)</li>
+        <li><code>HS_LOG_LEVEL=DEBUG ./best-practices</code> (debug logging)</li>
     </ul>
 </body>
 </html>

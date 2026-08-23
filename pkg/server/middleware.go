@@ -462,9 +462,10 @@ func generateCSP(options *ServerOptions) string {
 func HeadersMiddleware(options *ServerOptions) MiddlewareFunc {
 	return func(next http.Handler) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			// In hardened mode, suppress server header and apply stricter security policies
-			if !options.HardenedMode {
-				w.Header().Set("Server", "hyperserve")
+			// Library consumers are unidentified by default. Applications that
+			// deliberately opt in control the exact public value.
+			if options.ServerHeader != "" {
+				w.Header().Set("Server", options.ServerHeader)
 			}
 
 			// Set static security headers

@@ -27,32 +27,66 @@ new entry with `make changelog-stub RELEASE_VERSION=vX.Y.Z`.
 ## [1.5.0] - 2026-08-23 18:57 CEST
 
 HyperServe can now fit inside applications that already own process signals,
-without competing shutdown goroutines or giving up graceful cleanup.
+configuration, and public identification without competing shutdown goroutines
+or accepting hidden process-level inputs.
 
 ### What's new
 
 - Network servers can use `RunContext` when the embedding application owns the
   lifecycle; cancellation starts the same graceful shutdown path as `Run`.
-- Standalone `Run` keeps its existing signal-owned behavior, while MCP stdio
-  keeps EOF as its explicit portable shutdown boundary.
+- `NewServer` is deterministic: configuration files and environment variables
+  affect it only through explicit `WithConfigFile` and `WithEnvironment`
+  options.
+- The startup banner and `Server` response header are now opt-in; browser and
+  API security headers remain explicit middleware policy.
 
 ### Added
 
 - Added `(*server.Server).RunContext(context.Context)` for caller-owned
   HTTP/HTTPS lifecycles. A pre-cancelled context skips listener startup and
   still releases server resources.
+- Added `DefaultServerOptions` and `WithOptions` for binding one defensively
+  copied option snapshot, plus explicit `WithConfigFile` and `WithEnvironment`
+  source options. Options apply from left to right.
+- Added `WithServerHeader` and `WithStartupBanner` as positive opt-ins for
+  process identification.
 
 ### Changed
 
 - `Run` now derives its shutdown trigger with `signal.NotifyContext` and shares
   the network startup and cleanup implementation with `RunContext`.
-- Clarified that `WithHardenedMode` makes `HeadersMiddleware` omit the `Server`
-  header; applications still attach `SecureWeb` or `HeadersMiddleware` where
-  security headers should apply.
+- `NewServer` no longer reads `options.json`, `HS_CONFIG_PATH`, or environment
+  variables implicitly. Applications relying on those inputs must add
+  `WithConfigFile(path)` and/or `WithEnvironment()`.
+- `HeadersMiddleware` now omits `Server` by default, and the ASCII startup
+  banner is suppressed by default. Neither setting changes the middleware
+  stack.
+
+### Deprecated
+
+- Deprecated `NewServerOptions`, `WithHardenedMode`, `HS_HARDENED_MODE`,
+  `WithSuppressBanner`, and `HS_SUPPRESS_BANNER`. They remain as migration
+  bridges; empty `ServerHeader` and the default banner setting replace them.
+
+### Security
+
+- Removed implicit configuration authority from `NewServer`, preventing an
+  ambient file or process variable from enabling listeners, MCP, CORS, or
+  related capabilities without an explicit application opt-in.
+
+### Documentation
+
+- Added ADR-0013, configuration migration guidance, updated runnable examples,
+  and scaffold defaults that describe security middleware separately from
+  server identification.
 
 ### Verification
 
-- `go test -race ./pkg/server`
+- `make check`
+- `go test ./...`
+- `make test-race`
+- `make fuzz-smoke`
+- `make release-smoke RELEASE_VERSION=v1.5.0`
 
 ## [1.4.0] - 2026-08-23 17:15 CEST
 

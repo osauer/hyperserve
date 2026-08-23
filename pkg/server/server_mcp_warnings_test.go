@@ -2,11 +2,12 @@ package server
 
 import (
 	"bytes"
-	"github.com/osauer/hyperserve/pkg/mcp"
 	"log"
 	"log/slog"
 	"strings"
 	"testing"
+
+	"github.com/osauer/hyperserve/pkg/mcp"
 )
 
 // TestMCPDevModeWarnings verifies the expected warning behavior when MCP developer mode is enabled
@@ -84,7 +85,7 @@ func TestMCPDevModeWarnings(t *testing.T) {
 				logger = slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 				defer func() { logger = oldLogger }()
 
-				srv, _ := NewServer() // Auto-configured from environment
+				srv, _ := NewServer(WithEnvironment())
 
 				return srv, &buf
 			},

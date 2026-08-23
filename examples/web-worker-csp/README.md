@@ -57,23 +57,6 @@ When Web Worker support is enabled, the CSP header includes:
 
 When disabled (default), Web Workers with blob: URLs will be blocked.
 
-## Environment Configuration
-
-You can also enable this via environment variable:
-
-```bash
-export HS_CSP_WEB_WORKER_SUPPORT=true
-go run main.go
-```
-
-Or via JSON configuration file:
-
-```json
-{
-    "csp_web_worker_support": true
-}
-```
-
 ## Security Note
 
 Web Worker support is **disabled by default** for security reasons. Only enable it when your application specifically needs to use Web Workers with blob: URLs.

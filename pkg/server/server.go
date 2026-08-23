@@ -163,6 +163,7 @@ const (
 	paramHealthAddr           = "HEALTH_ADDR"
 	paramRateLimit            = "HS_RATE_LIMIT"
 	paramBurstLimit           = "HS_BURST_LIMIT"
+	paramServerHeader         = "HS_SERVER_HEADER"
 	paramHardenedMode         = "HS_HARDENED_MODE"
 	paramFileName             = "options.json"
 	paramConfigPath           = "HS_CONFIG_PATH"
@@ -186,6 +187,7 @@ const (
 	paramCORSMaxAge           = "HS_CORS_MAX_AGE"
 	paramLogLevel             = "HS_LOG_LEVEL"
 	paramDebugMode            = "HS_DEBUG"
+	paramStartupBanner        = "HS_STARTUP_BANNER"
 	paramSuppressBanner       = "HS_SUPPRESS_BANNER"
 	paramBannerColor          = "HS_BANNER_COLOR"
 )
@@ -283,8 +285,6 @@ type deferredLifecycle struct {
 func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 	srv := newServerSkeleton()
 
-	applyConfiguredLogLevel(srv.Options)
-
 	srv.middleware = newMiddlewareRegistry(DefaultMiddleware(srv))
 	logger.Debug("Default middleware registered", "middlewares", []string{"MetricsMiddleware", "RequestLoggerMiddleware", "RecoveryMiddleware"})
 
@@ -294,7 +294,12 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 		}
 	}
 
-	if err := autoConfigureMCPFromEnv(srv); err != nil {
+	if err := normalizeServerOptions(srv.Options); err != nil {
+		return nil, err
+	}
+	applyConfiguredLogLevel(srv.Options)
+
+	if err := autoConfigureMCP(srv); err != nil {
 		return nil, err
 	}
 	if err := validateMCPProtocolVersion(srv.Options); err != nil {
@@ -318,9 +323,10 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 // newServerSkeleton allocates the fields the rest of NewServer expects to
 // find non-nil — mux, options, rate-limiter pool, deferred-init bookkeeping.
 func newServerSkeleton() *Server {
+	options := DefaultServerOptions()
 	return &Server{
 		mux:     http.NewServeMux(),
-		Options: NewServerOptions(),
+		Options: &options,
 		rateLimiters: rateLimiterPool{
 			clients:     make(map[string]*rateLimiterEntry),
 			cleanupDone: make(chan bool),
@@ -336,9 +342,9 @@ func newServerSkeleton() *Server {
 	}
 }
 
-// applyConfiguredLogLevel maps the LogLevel string (or DebugMode flag) onto
-// slog's default logger. Done before option apply so option closures can
-// see the chosen level immediately.
+// applyConfiguredLogLevel maps the fully bound LogLevel string (or DebugMode
+// flag) onto slog's default logger. Configuration sources and caller options
+// have all run before this process-global side effect occurs.
 func applyConfiguredLogLevel(opts *ServerOptions) {
 	if opts.LogLevel != "" {
 		switch opts.LogLevel {
@@ -361,10 +367,9 @@ func applyConfiguredLogLevel(opts *ServerOptions) {
 	}
 }
 
-// autoConfigureMCPFromEnv handles the "env/flags asked for MCP but no
-// WithMCPSupport was called" path. Programmatic configuration (via
-// WithMCPSupport with explicit modes) always wins.
-func autoConfigureMCPFromEnv(srv *Server) error {
+// autoConfigureMCP handles the "resolved options asked for MCP but no
+// WithMCPSupport was called" path. WithMCPSupport with explicit modes wins.
+func autoConfigureMCP(srv *Server) error {
 	if !srv.Options.MCPEnabled || srv.Options.MCPServerName == "" || srv.mcpHandler != nil {
 		return nil
 	}
@@ -390,7 +395,7 @@ func autoConfigureMCPFromEnv(srv *Server) error {
 	if err := WithMCPSupport(srv.Options.MCPServerName, srv.Options.MCPServerVersion, mcpConfigs...)(srv); err != nil {
 		return fmt.Errorf("failed to auto-configure MCP: %w", err)
 	}
-	logger.Info("MCP auto-configured from environment/flags",
+	logger.Info("MCP auto-configured from resolved options",
 		"name", srv.Options.MCPServerName,
 		"transport", srv.Options.MCPTransport,
 		"dev", srv.Options.MCPDev,

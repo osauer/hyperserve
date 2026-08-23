@@ -74,7 +74,7 @@ func TestMCPProgrammaticConfigurationNoDoubleWarning(t *testing.T) {
 	}
 }
 
-// TestMCPEnvironmentConfiguration tests that MCP can be configured via environment variables
+// TestMCPEnvironmentConfiguration tests explicit environment binding.
 func TestMCPEnvironmentConfiguration(t *testing.T) {
 	// Set environment variables
 	t.Setenv("HS_MCP_ENABLED", "true")
@@ -89,8 +89,8 @@ func TestMCPEnvironmentConfiguration(t *testing.T) {
 	logger = slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	defer func() { logger = oldLogger }()
 
-	// Create server without programmatic MCP configuration
-	srv, err := NewServer()
+	// The application explicitly opts into process-environment configuration.
+	srv, err := NewServer(WithEnvironment())
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -98,9 +98,9 @@ func TestMCPEnvironmentConfiguration(t *testing.T) {
 	// Check log output
 	logOutput := buf.String()
 
-	// Should see auto-configuration from environment
-	if !strings.Contains(logOutput, "MCP auto-configured from environment/flags") {
-		t.Error("Expected to see MCP auto-configured from environment")
+	// The resolved option snapshot drives MCP initialization.
+	if !strings.Contains(logOutput, "MCP auto-configured from resolved options") {
+		t.Error("Expected to see MCP auto-configured from resolved options")
 	}
 
 	// Should show dev=true
@@ -132,6 +132,7 @@ func TestMCPMixedConfiguration(t *testing.T) {
 
 	// But configure programmatically with observability mode instead
 	srv, err := NewServer(
+		WithEnvironment(),
 		WithMCPSupport("ProgrammaticApp", "3.0.0", MCPObservability()),
 	)
 	if err != nil {
@@ -189,7 +190,7 @@ func TestMCPCurrentProtocolVersionCannotBeConfiguredAsLegacy(t *testing.T) {
 func TestMCPCurrentProtocolVersionRejectedFromEnvironmentAndJSON(t *testing.T) {
 	t.Run("environment", func(t *testing.T) {
 		t.Setenv(paramMCPProtocolVersion, mcp.StreamableHTTPProtocolVersion)
-		if _, err := NewServer(); err == nil {
+		if _, err := NewServer(WithEnvironment()); err == nil {
 			t.Fatal("current protocol version from environment succeeded")
 		}
 	})
@@ -200,8 +201,7 @@ func TestMCPCurrentProtocolVersionRejectedFromEnvironmentAndJSON(t *testing.T) {
 		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		t.Setenv(paramConfigPath, path)
-		if _, err := NewServer(); err == nil {
+		if _, err := NewServer(WithConfigFile(path)); err == nil {
 			t.Fatal("current protocol version from JSON succeeded")
 		}
 	})

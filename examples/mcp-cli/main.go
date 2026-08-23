@@ -29,8 +29,8 @@ func main() {
 		log.Fatalf("unsupported MCP transport %q (want http or stdio)", *mcpTransport)
 	}
 
-	// Leaving a flag unset preserves file and environment configuration.
-	var opts []serverpkg.ServerOptionFunc
+	// Bind environment first; application flags appended below take precedence.
+	opts := []serverpkg.ServerOptionFunc{serverpkg.WithEnvironment()}
 	if *port != "" {
 		opts = append(opts, serverpkg.WithAddr(":"+*port))
 	}

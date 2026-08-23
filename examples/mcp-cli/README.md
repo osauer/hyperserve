@@ -40,7 +40,8 @@ if *mcpDev {
 opts = append(opts, server.WithMCPSupport("MyApp", "1.0.0", configs...))
 ```
 
-Environment configuration remains available when flags do not override it:
+The example explicitly starts with `WithEnvironment()`, so environment
+configuration remains available when flags do not override it:
 
 ```bash
 HS_MCP_ENABLED=true \
