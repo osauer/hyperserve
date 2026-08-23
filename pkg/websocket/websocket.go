@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net"
@@ -24,6 +25,8 @@ const (
 type Conn struct {
 	conn *lowConn
 
+	subprotocol string
+
 	// Handler functions. The wire-side dispatch lives on lowConn — these
 	// fields are kept so that *Handler() getters can return the active
 	// callback without reaching across packages.
@@ -33,6 +36,14 @@ type Conn struct {
 
 	// Handler mutex for thread safety
 	handlerMu sync.Mutex
+}
+
+func newConn(low *lowConn) *Conn {
+	c := &Conn{conn: low}
+	c.SetCloseHandler(nil)
+	c.SetPingHandler(nil)
+	c.SetPongHandler(nil)
+	return c
 }
 
 // Upgrader upgrades HTTP connections to WebSocket connections.
@@ -74,7 +85,7 @@ func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeade
 	// Set defaults
 	maxMessageSize := u.MaxMessageSize
 	if maxMessageSize <= 0 {
-		maxMessageSize = 1024 * 1024 // 1MB default
+		maxMessageSize = defaultMaxMessageSize
 	}
 
 	// Configure origin checking
@@ -124,17 +135,41 @@ func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeade
 
 	// Create WebSocket connection
 	wsConn := newLowConn(netConn, buf, true, maxMessageSize)
+	conn := newConn(wsConn)
+	conn.subprotocol = negotiateSubprotocol(parseSubprotocols(r.Header.Get("Sec-WebSocket-Protocol")), u.Subprotocols)
+	return conn, nil
+}
 
-	c := &Conn{
-		conn: wsConn,
+// Read reads one text or binary message. Canceling ctx interrupts the read.
+// Only one goroutine may call Read or ReadMessage at a time.
+func (c *Conn) Read(ctx context.Context) (messageType int, p []byte, err error) {
+	if ctx == nil {
+		return 0, nil, errors.New("websocket: nil context")
 	}
+	err = withContextDeadline(ctx, c.conn.SetReadDeadline, func() error {
+		messageType, p, err = c.conn.ReadMessage()
+		return err
+	})
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		c.conn.abort()
+	}
+	return messageType, p, err
+}
 
-	// Set default handlers
-	c.SetCloseHandler(nil)
-	c.SetPingHandler(nil)
-	c.SetPongHandler(nil)
-
-	return c, nil
+// Write writes one complete text or binary message. Canceling ctx interrupts
+// the write. Only one goroutine may call Write, WriteMessage, or WriteControl
+// at a time.
+func (c *Conn) Write(ctx context.Context, messageType int, data []byte) error {
+	if ctx == nil {
+		return errors.New("websocket: nil context")
+	}
+	err := withContextDeadline(ctx, c.conn.SetWriteDeadline, func() error {
+		return c.conn.WriteMessage(messageType, data)
+	})
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		c.conn.abort()
+	}
+	return err
 }
 
 // ReadMessage reads a message from the WebSocket connection. Control-frame
@@ -159,6 +194,17 @@ func (c *Conn) WriteControl(messageType int, data []byte, deadline time.Time) er
 // Close closes the WebSocket connection
 func (c *Conn) Close() error {
 	return c.conn.Close()
+}
+
+// CloseWithStatus sends a close frame with code and reason, then closes the
+// network connection. reason must be valid UTF-8 and fit in one control frame.
+func (c *Conn) CloseWithStatus(code int, reason string) error {
+	return c.conn.CloseWithStatus(code, reason)
+}
+
+// Subprotocol returns the subprotocol selected during the opening handshake.
+func (c *Conn) Subprotocol() string {
+	return c.subprotocol
 }
 
 // CloseHandler returns the current close handler
@@ -291,8 +337,7 @@ func IsUnexpectedCloseError(err error, expectedCodes ...int) bool {
 		return false
 	}
 
-	var closeErr *closeError
-	if errors.As(err, &closeErr) {
+	if closeErr, ok := errors.AsType[*closeError](err); ok {
 		return !slices.Contains(expectedCodes, closeErr.Code)
 	}
 
@@ -301,11 +346,35 @@ func IsUnexpectedCloseError(err error, expectedCodes ...int) bool {
 
 // IsCloseError returns true if the error is a close error with one of the specified codes
 func IsCloseError(err error, codes ...int) bool {
-	var closeErr *closeError
-	if errors.As(err, &closeErr) {
+	if closeErr, ok := errors.AsType[*closeError](err); ok {
 		if slices.Contains(codes, closeErr.Code) {
 			return true
 		}
 	}
 	return false
+}
+
+func withContextDeadline(ctx context.Context, setDeadline func(time.Time) error, fn func() error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		if err := setDeadline(deadline); err != nil {
+			return err
+		}
+	}
+	done := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() {
+		_ = setDeadline(time.Now())
+		close(done)
+	})
+	err := fn()
+	if !stop() {
+		<-done
+	}
+	clearErr := setDeadline(time.Time{})
+	if err != nil {
+		return contextOrError(ctx, err)
+	}
+	return clearErr
 }

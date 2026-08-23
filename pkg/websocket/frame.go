@@ -8,6 +8,8 @@ import (
 	"math"
 )
 
+const defaultMaxMessageSize = 1024 * 1024
+
 // Frame opcodes defined in RFC 6455
 const (
 	OpcodeContinuation = 0
@@ -44,6 +46,8 @@ var (
 	ErrUnexpectedContinuation = errors.New("unexpected continuation frame")
 	ErrInvalidCloseCode       = errors.New("invalid close code")
 	ErrInvalidUTF8            = errors.New("invalid UTF-8 in text frame")
+	ErrMaskingViolation       = errors.New("invalid frame masking")
+	ErrNonCanonicalLength     = errors.New("non-canonical payload length")
 )
 
 // Frame represents a WebSocket frame
@@ -67,7 +71,7 @@ type FrameReader struct {
 // NewFrameReader creates a new frame reader
 func NewFrameReader(r *bufio.Reader, maxMessageSize int64) *FrameReader {
 	if maxMessageSize <= 0 {
-		maxMessageSize = 1024 * 1024 // 1MB default
+		maxMessageSize = defaultMaxMessageSize
 	}
 	return &FrameReader{
 		reader:         r,
@@ -106,6 +110,9 @@ func (fr *FrameReader) ReadFrame() (*Frame, error) {
 			return nil, err
 		}
 		payloadLen = int64(len16)
+		if payloadLen < 126 {
+			return nil, ErrNonCanonicalLength
+		}
 	} else if payloadLen == 127 {
 		// Extended 64-bit length
 		var len64 uint64
@@ -117,11 +124,17 @@ func (fr *FrameReader) ReadFrame() (*Frame, error) {
 			return nil, errors.New("payload length exceeds maximum int64 value")
 		}
 		payloadLen = int64(len64)
+		if payloadLen < 65536 {
+			return nil, ErrNonCanonicalLength
+		}
 	}
 
 	// Check message size limit
 	if payloadLen > fr.maxMessageSize {
 		return nil, ErrMessageTooBig
+	}
+	if frame.IsControl() && payloadLen > 125 {
+		return nil, ErrControlFrameTooBig
 	}
 
 	// Read mask key if present
@@ -239,6 +252,9 @@ func (fw *FrameWriter) WriteFrame(frame *Frame) error {
 
 // validate checks if the frame is valid according to RFC 6455
 func (f *Frame) validate() error {
+	if f.RSV1 || f.RSV2 || f.RSV3 {
+		return ErrInvalidFrame
+	}
 	// Check for reserved opcodes
 	if f.Opcode > 10 || (f.Opcode > 2 && f.Opcode < 8) {
 		return ErrInvalidFrame

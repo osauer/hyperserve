@@ -7,7 +7,6 @@ hyperserve/
 ├── .github/workflows/    # CI/CD
 ├── benchmarks/           # Performance benchmarks (wrk-based)
 ├── cmd/
-│   ├── server/           # Feature-complete CLI wrapping the library
 │   └── hyperserve-init/  # Project scaffolding CLI
 ├── docs/                 # ADRs and guides
 ├── examples/             # Self-contained `go run .` examples
@@ -28,7 +27,7 @@ hyperserve/
 - `pkg/server` — HTTP server, middleware registry, deferred-init lifecycle, MCP wiring options.
 - `pkg/mcp` — Standalone MCP protocol surface. No dependency on `pkg/server`.
 - `pkg/mcp/builtin` — Optional built-in MCP tools (Calculator + sandboxed FileRead / ListDirectory when `WithMCPFileToolRoot` is set) and resources (Config, Metrics, System, ServerLog, ServerHealth). Blank-import to wire the `WithMCPBuiltinTools/Resources(true)` and `MCPDev()` / `MCPObservability()` presets. The previously-bundled `HTTPRequest` tool was removed (SSRF surface); `RequestDebuggerTool` was removed (credential capture).
-- `pkg/websocket` — WebSocket upgrader, low-level framing, origin checks.
+- `pkg/websocket` — WebSocket server upgrader, outbound client, framing, and origin checks.
 - `pkg/jsonrpc` — Standalone JSON-RPC 2.0 engine used by `pkg/mcp`.
 
 ## Import paths
@@ -45,7 +44,8 @@ import (
 
 ## Root files
 
-- `go.mod` / `go.sum` — Module + single transitive dependency (`golang.org/x/time`).
+- `go.mod` / `go.sum` — Shipped module + single external dependency (`golang.org/x/time`).
+- `tools/go.mod` / `tools/go.sum` — Developer-only modernize dependency graph.
 - `Makefile` — `build` / `install` / `test` / `check` (runs `vet`, `staticcheck`, `modernize`, `govulncheck`).
 - `README.md` — Overview and Quick Start.
 - `ARCHITECTURE.md` — Design notes for the layered package layout.
@@ -55,7 +55,7 @@ import (
 ## Building & testing
 
 ```bash
-make build         # builds cmd/server with version ldflags
+make build         # builds cmd/hyperserve-init with version ldflags
 make test          # go test -v ./...
 make check         # vet + staticcheck + modernize + govulncheck
 go test -bench=. ./pkg/server   # benchmarks

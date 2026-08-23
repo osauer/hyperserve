@@ -3,6 +3,7 @@ package websocket
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"testing"
 )
 
@@ -189,5 +190,15 @@ func TestExtendedPayloadLength(t *testing.T) {
 				t.Errorf("Payload length = %v, want %v", len(readFrame.Payload), tt.payloadLen)
 			}
 		})
+	}
+}
+
+func TestFrameReaderRejectsOversizedControlLength(t *testing.T) {
+	t.Parallel()
+	// A ping encoded with a 16-bit payload length is invalid even before the
+	// payload arrives: control frames are limited to 125 bytes.
+	reader := NewFrameReader(bufio.NewReader(bytes.NewReader([]byte{0x89, 0x7e, 0x00, 0x7e})), defaultMaxMessageSize)
+	if _, err := reader.ReadFrame(); !errors.Is(err, ErrControlFrameTooBig) {
+		t.Fatalf("ReadFrame() error = %v, want ErrControlFrameTooBig", err)
 	}
 }

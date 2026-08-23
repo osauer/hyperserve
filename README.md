@@ -6,113 +6,157 @@
 [![Go reference](https://pkg.go.dev/badge/github.com/osauer/hyperserve.svg)](https://pkg.go.dev/github.com/osauer/hyperserve)
 [![License: MIT](https://img.shields.io/github/license/osauer/hyperserve)](LICENSE)
 
-A Go HTTP framework with built-in MCP (Model Context Protocol) support. The runtime
-has one transitive dependency: `golang.org/x/time`. (The `go.mod` `tool` directive
-pulls in `golang.org/x/tools` for the modernize check gate; those are build-time
-only and don't ship in your binary.)
+HyperServe is a small, `net/http`-shaped Go server with an in-process Model
+Context Protocol (MCP) control plane and an RFC 6455 WebSocket implementation
+for servers and outbound clients.
 
-The point: a small `net/http`-shaped server that ships an MCP control plane in the
-same binary, so AI assistants can introspect and operate the server without an
-out-of-process bridge.
+The shipped module has one external dependency, `golang.org/x/time`. Developer
+tooling lives in the separate [`tools/go.mod`](./tools/go.mod) graph and does
+not enter applications that import HyperServe.
 
-## Quick Start
+## Install
+
+```sh
+go get github.com/osauer/hyperserve@latest
+```
+
+Public packages:
+
+| Import path | Purpose |
+| --- | --- |
+| `github.com/osauer/hyperserve/pkg/server` | HTTP server, middleware, lifecycle, MCP wiring |
+| `github.com/osauer/hyperserve/pkg/mcp` | MCP handler, transports, discovery, namespaces |
+| `github.com/osauer/hyperserve/pkg/mcp/builtin` | Opt-in demonstration tools and resources |
+| `github.com/osauer/hyperserve/pkg/websocket` | WebSocket server upgrader and outbound client |
+| `github.com/osauer/hyperserve/pkg/jsonrpc` | Standalone JSON-RPC 2.0 engine |
+
+## HTTP quick start
 
 ```go
+package main
+
 import (
     "fmt"
     "net/http"
 
-    server "github.com/osauer/hyperserve/pkg/server"
+    "github.com/osauer/hyperserve/pkg/server"
 )
 
 func main() {
     srv, _ := server.NewServer()
-
-    srv.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+    srv.GET("/", func(w http.ResponseWriter, _ *http.Request) {
         fmt.Fprintln(w, "Hello, World!")
     })
-
     srv.Run()
 }
 ```
 
-## Install
+HyperServe provides method-aware routes, middleware, graceful shutdown,
+sandboxed static files, request binding and validation, and deferred startup.
+It stays close to standard-library handler shapes.
 
-```bash
-go get github.com/osauer/hyperserve/pkg/server
+## Outbound WebSocket client
+
+`websocket.Dial` supports `ws` and `wss`, context cancellation throughout the
+opening handshake, TLS verification, bounded redirects, custom headers,
+subprotocol negotiation, and a 1 MiB default read limit. Client frames are
+masked on the wire as required by RFC 6455.
+
+```go
+package relay
+
+import (
+    "context"
+    "net/http"
+    "time"
+
+    "github.com/osauer/hyperserve/pkg/websocket"
+)
+
+func exchange(ctx context.Context, relayURL, token string) error {
+    dialCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+    defer cancel()
+
+    conn, resp, err := websocket.Dial(dialCtx, relayURL, &websocket.DialOptions{
+        HTTPHeader:  http.Header{"Authorization": {"Bearer " + token}},
+        Subprotocols: []string{"relay.v1"},
+    })
+    if err != nil {
+        _ = resp // non-nil when the peer returned an HTTP response
+        return err
+    }
+    defer conn.Close()
+
+    if err := conn.Write(ctx, websocket.TextMessage, []byte("online")); err != nil {
+        return err
+    }
+    messageType, payload, err := conn.Read(ctx)
+    _ = messageType
+    _ = payload
+    return err
+}
 ```
 
-## What's in the box
+`Read` and `Write` accept contexts and support one concurrent reader plus one
+concurrent writer. Canceling either operation closes a potentially partial
+connection. `ReadMessage`, `WriteMessage`, and deadline setters remain
+available for lower-level use. `CloseWithStatus` sends an explicit close code
+and reason; `Close` sends normal closure. Compression and other WebSocket
+extensions are not negotiated.
 
-- HTTP server built on `net/http`, with grouping, middleware chain, and graceful shutdown.
-- Method-aware route registration (`srv.GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, `OPTIONS`)
-  on top of stdlib 1.22+ pattern syntax — wrong-method requests get an automatic 405.
-- MCP server (HTTP, SSE, stdio transports) with discovery endpoints, namespace support,
-  resource templates, and live resource subscriptions.
-- WebSocket implementation (RFC 6455).
-- JSON-RPC 2.0 engine reused by MCP.
-- Middleware: recovery, request logging, metrics, CORS, security headers, rate limiting, auth.
-- Static file serving sandboxed via `os.Root`.
-- Deferred-init lifecycle: serve `/healthz` immediately while bootstrap work runs in the background.
-- **Request binding + validation** with struct-tag rules
-  (`required,min,max,len,email,url,oneof`) and structured `*ValidationError`
-  for per-field 400 responses. Use `server.JSONHandler[In, Out]` for typed
-  bind + validate + respond in one line, or drop to `server.Bind` /
-  `BindJSON` / `BindQuery` / `BindForm` for finer control. No external
-  dependencies. See [examples/binding](./examples/binding/).
+## WebSocket server
 
-## Scaffold a new service
+```go
+upgrader := websocket.Upgrader{
+    AllowedOrigins: []string{"https://app.example.com"},
+    MaxMessageSize: 512 << 10,
+}
 
-```bash
-go install github.com/osauer/hyperserve/cmd/hyperserve-init@latest
-hyperserve-init --module github.com/acme/payments
-cd payments
-go run ./cmd/server
+srv.GET("/ws", func(w http.ResponseWriter, r *http.Request) {
+    conn, err := upgrader.Upgrade(w, r, nil)
+    if err != nil {
+        return
+    }
+    defer conn.Close()
+
+    messageType, payload, err := conn.ReadMessage()
+    if err == nil {
+        err = conn.WriteMessage(messageType, payload)
+    }
+    _ = err
+})
 ```
 
-Flags: `--name` (display name), `--out` (output directory), `--with-mcp=false` to opt
-out of MCP, `--local-replace` to develop against a local checkout.
+The upgrader defaults to same-origin browser requests. Configure
+`AllowedOrigins` or `CheckOrigin` deliberately for cross-origin clients. See
+the [WebSocket guide](./docs/WEBSOCKET_GUIDE.md) for handshake, limits, and
+deployment details.
 
 ## MCP
 
-```bash
-HS_MCP_ENABLED=true
-HS_MCP_SERVER_NAME=MyServer
-HS_MCP_SERVER_VERSION=1.0.0
-HS_MCP_PROTOCOL_VERSION=2025-11-25
-```
-
-Or programmatically:
+Enable MCP programmatically:
 
 ```go
 srv, _ := server.NewServer(
-    server.WithMCPSupport("MyServer", "1.0.0"),
+    server.WithMCPSupport("payments", "1.0.0"),
     server.WithMCPBuiltinTools(true),
     server.WithMCPBuiltinResources(true),
 )
 ```
 
-Built-in MCP tools and resources are off by default; you opt in per server.
-Custom MCP integrations can register tools, static resources, resource
-templates, and subscribable resource templates for SSE/stdio update
-notifications.
+The unified MCP handler supports HTTP, SSE, and stdio transports, discovery,
+namespaces, resource templates, and live resource subscriptions. Built-in
+tools and resources are off by default. See the [MCP guide](./docs/MCP_GUIDE.md).
 
-## Request binding & validation
+## Binding and validation
 
-Parse a JSON body, query string, or form into a typed struct, then validate
-against struct-tag rules. Zero external dependencies; the rules cover the
-checks that show up in 90% of input-handling code.
-
-The fastest path is `server.JSONHandler`, which wraps bind + validate +
-respond around a typed business function. The handler shrinks to the one
-line of logic that actually changes per endpoint:
+`server.JSONHandler`, `BindJSON`, `BindQuery`, `BindForm`, and `Validate`
+cover typed request input without another dependency. Supported validation
+rules are `required`, `min`, `max`, `len`, `email`, `url`, and `oneof`.
 
 ```go
 type CreateUser struct {
-    Name  string `json:"name"  validate:"required,min=2,max=64"`
     Email string `json:"email" validate:"required,email"`
-    Age   int    `json:"age"   validate:"required,min=13,max=120"`
-    Role  string `json:"role"  validate:"required,oneof=admin user guest"`
 }
 
 srv.POST("/users", server.JSONHandler(
@@ -122,95 +166,40 @@ srv.POST("/users", server.JSONHandler(
 ))
 ```
 
-`JSONHandler` decodes the body, runs `validate:"..."` rules, calls your
-function with `r.Context()`, then JSON-encodes the result with 200. A
-`*server.ValidationError` becomes a per-field 400 envelope; an error
-implementing `HTTPStatus() int` (e.g. `server.NewStatusError(404, "…")`)
-sets its own status; everything else is a 500. Returning `struct{}` or a
-nil pointer writes 204.
+See [`examples/binding`](./examples/binding/) for typed and lower-level forms.
 
-When you need more control — custom headers, streaming, a non-JSON body —
-drop to the lower-level binders:
+## Scaffold a service
 
-```go
-srv.HandleFunc("/users", func(w http.ResponseWriter, r *http.Request) {
-    var u CreateUser
-    if err := server.BindJSON(r, &u); err != nil {
-        var verr *server.ValidationError
-        if errors.As(err, &verr) {
-            // verr.Fields is []*FieldError — render however you want.
-        }
-        http.Error(w, err.Error(), http.StatusBadRequest)
-        return
-    }
-    // u is valid; carry on.
-})
+```sh
+go install github.com/osauer/hyperserve/cmd/hyperserve-init@latest
+hyperserve-init --module github.com/acme/payments
+cd payments
+go run ./cmd/server
 ```
 
-Available rules: `required, min, max, len, email, url, oneof`.
+Use `--with-mcp=false` to omit MCP and `--local-replace` when developing
+against a local HyperServe checkout.
 
-Entry points:
+## Development
 
-- `server.JSONHandler[In, Out](fn)` — typed wrapper: bind + validate + respond.
-- `server.JSONEcho[T]()` — shorthand for validate-and-pass-through (webhook acks, dev stubs).
-- `server.Bind(r, dst)` — picks JSON / form / query by `Content-Type`.
-- `server.BindJSON(r, dst)` — JSON with `DisallowUnknownFields` and a 1 MiB body cap.
-- `server.BindQuery(r, dst)` — URL query parameters (slices via repeated keys).
-- `server.BindForm(r, dst)` — `application/x-www-form-urlencoded` or `multipart/form-data`.
-- `server.Validate(dst)` — run rules without binding.
-
-See [examples/binding](./examples/binding/) for both shapes side-by-side.
-
-## Middleware
-
-`NewServer` wires recovery, request logging, and metrics. Apply security stacks per route:
-
-```go
-srv, _ := server.NewServer()
-srv.AddMiddleware("/api", server.RateLimitMiddleware(srv))
-srv.AddMiddlewareStack("/web", server.SecureWeb(srv.Options))
+```sh
+make check
+make test-race
+make fuzz-smoke
 ```
 
-## Deferred initialization
-
-Serve `/healthz` immediately, return 503 for application routes, flip to ready once
-bootstrap (and any `WithOnReady` hooks) succeed:
-
-```go
-srv, _ := server.NewServer(
-    server.WithDeferredInit(func(ctx context.Context, app *server.Server) error {
-        return warmCaches(ctx)
-    }),
-    server.WithOnReady(func(ctx context.Context, app *server.Server) error {
-        app.HandleFunc("/api/users", usersHandler)
-        return nil
-    }),
-)
-```
-
-Use `WithDeferredInitStopOnFailure(false)` to keep the listener up after a bootstrap
-failure, then call `CompleteDeferredInit(ctx, nil)` once the issue is resolved.
-
-See [examples/deferred-init](./examples/deferred-init/).
-
-## Examples
-
-[examples/](./examples) covers HTTP, WebSocket, MCP (HTTP/SSE/stdio/discovery/extensions),
-auth + RBAC, htmx, and static file serving. Each example is a self-contained
-`go run .` target.
+`make check` runs formatting, vet, Staticcheck, govulncheck, Go 1.27
+modernization, standalone example checks, and canonical example builds. See
+[CONTRIBUTING.md](./CONTRIBUTING.md) for the complete workflow.
 
 ## Documentation
 
-- [Roadmap](./docs/ROADMAP.md) — what's planned and why.
 - [Architecture](./ARCHITECTURE.md)
-- [API reference](https://pkg.go.dev/github.com/osauer/hyperserve)
-- [MCP guide](./docs/MCP_GUIDE.md)
+- [API stability](./docs/API_STABILITY.md)
+- [Production guide](./docs/PRODUCTION.md)
 - [WebSocket guide](./docs/WEBSOCKET_GUIDE.md)
-- [Production guide](./docs/PRODUCTION.md) — TLS, reverse proxy, CDN gotchas, MCP threat model.
-- [Scaffolding guide](./docs/SCAFFOLDING.md)
-- [Contributing](./CONTRIBUTING.md) — local CI gate + code map.
+- [MCP guide](./docs/MCP_GUIDE.md)
+- [Examples](./examples/)
 - [Security policy](./SECURITY.md)
-
-## License
 
 MIT — see [LICENSE](./LICENSE).

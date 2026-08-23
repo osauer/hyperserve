@@ -24,6 +24,64 @@ Entries tier by audience:
 Shape is enforced by `make changelog-lint RELEASE_VERSION=vX.Y.Z`; scaffold a
 new entry with `make changelog-stub RELEASE_VERSION=vX.Y.Z`.
 
+## [1.3.0] - 2026-08-23 09:22 CEST
+
+### What's new
+
+- HyperServe now provides a context-aware outbound WebSocket client with
+  text and binary messages, subprotocols, TLS, redirects, and close status.
+- WebSocket framing now rejects invalid masking, UTF-8, fragmentation, close,
+  and handshake cases on both client and server connections.
+- HyperServe now targets Go 1.27, while developer tools live in a separate Go
+  module so importing applications keep a minimal dependency graph.
+
+### Added
+
+- Added `websocket.Dial`, `websocket.DialOptions`, `(*websocket.Conn).Read`,
+  `(*websocket.Conn).Write`, `(*websocket.Conn).CloseWithStatus`, and
+  `(*websocket.Conn).Subprotocol` for outbound WebSocket connections.
+- Added client protocol coverage for TLS and ALPN, redirects and credential
+  boundaries, masking, cancellation during partial frames, invalid handshake
+  responses, fragmentation, control frames, and close validation.
+
+### Changed
+
+- Raised the minimum Go version to 1.27 and modernized source, CI, examples,
+  and generated projects for the Go 1.27 toolchain.
+- Moved Staticcheck, `modernize`, and vulnerability-scanner dependencies into
+  the nested `tools` module, leaving the shipped module with only its runtime
+  dependency.
+- Updated `golang.org/x/time` to v0.15.0 and the authentication example's JWT
+  dependency to v5.3.1.
+
+### Fixed
+
+- Client frames, including automatic pong and close replies, are always
+  masked, and peers with role-invalid masking are rejected.
+- Canceled reads and writes now close the connection when a partial frame may
+  have been transferred, preventing unsafe reuse of a corrupted stream.
+- Fragmented messages now enforce aggregate size limits and correctly accept
+  empty initial text and binary fragments.
+- Generated projects now pin the release that generated them and use Go 1.27
+  in both `go.mod` and their Docker builder image.
+
+### Documentation
+
+- Reworked the README and WebSocket guide around the supported public API,
+  including outbound-client examples, limits, cancellation semantics, and
+  unsupported proxy tunneling and compression.
+- Updated architecture, contributor, project-structure, and comparison docs
+  to match the current repository and verification workflow.
+
+### Verification
+
+- `make check`
+- `go test ./...`
+- `(cd examples/auth && go test ./...)`
+- `make test-race`
+- `make fuzz-smoke`
+- `make release-smoke RELEASE_VERSION=v1.3.0`
+
 ## [1.2.0] - 2026-05-24 09:19 CEST
 
 ### What's new

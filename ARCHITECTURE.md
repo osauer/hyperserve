@@ -12,7 +12,7 @@ flat.
 ### 1. Single Runtime Dependency
 - `golang.org/x/time` for the rate-limiter token bucket.
 - Everything else uses the Go standard library.
-- The `go.mod` `tool` directive brings `golang.org/x/tools` for the modernize check gate; these are build-time only and don't enter the runtime binary.
+- `tools/go.mod` owns `golang.org/x/tools` for the modernize check gate, keeping developer tooling out of the shipped module graph.
 
 ### 2. Standard Library First
 - `net/http` for the server, `crypto/tls` for TLS, `os.Root` for the static-file sandbox.
@@ -57,6 +57,7 @@ Native MCP implementation providing:
 
 #### WebSocket Support
 RFC 6455 implementation featuring:
+- Outbound `ws` and `wss` client dialing
 - Binary and text message support
 - Automatic ping/pong handling
 - Configurable timeouts
@@ -66,7 +67,7 @@ RFC 6455 implementation featuring:
 - `pkg/server` — HTTP server, middleware registry, deferred-init lifecycle, MCP wiring options.
 - `pkg/mcp` — MCP protocol surface. Standalone — no dependency on `pkg/server`.
 - `pkg/mcp/builtin` — Opt-in built-in MCP tools and resources. Depends on both `pkg/server` (for `*Server` access) and `pkg/mcp`.
-- `pkg/websocket` — WebSocket upgrader, low-level framing, origin checks.
+- `pkg/websocket` — WebSocket server upgrader, outbound client, low-level framing, origin checks.
 - `pkg/jsonrpc` — Standalone JSON-RPC 2.0 engine used by `pkg/mcp`.
 
 Dependency direction is one-way: `pkg/mcp/builtin` → `pkg/server` + `pkg/mcp`; `pkg/server` → `pkg/mcp`; `pkg/mcp` → `pkg/jsonrpc`. No cycles.

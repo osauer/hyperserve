@@ -10,7 +10,7 @@ LDFLAGS := -ldflags "-X github.com/osauer/hyperserve/pkg/server.Version=$(VERSIO
 MAIN_BRANCH ?= main
 RELEASE_TEST_JOBS ?= 2
 
-.PHONY: build install test test-race fuzz-smoke clean version help check check-examples check-canonical-examples vet fmt modernize modernize-check staticcheck govulncheck changelog-lint changelog-stub release-notes release-publish release-smoke release
+.PHONY: build install test test-race fuzz-smoke clean version help check check-examples check-canonical-examples vet fmt modernize modernize-check staticcheck govulncheck govulncheck-tools changelog-lint changelog-stub release-notes release-publish release-smoke release
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets:\n"} \
@@ -108,7 +108,10 @@ release-smoke: ## Run the full local release gate before tagging
 	@tmp=$$(mktemp -d); \
 		trap 'rm -rf "$$tmp"' EXIT; \
 		go run ./cmd/hyperserve-init --module example.com/hyperserve-release-smoke --out "$$tmp/app" --local-replace "$$(pwd)" >/dev/null; \
-		(cd "$$tmp/app" && GOWORK=off go test ./...)
+		grep -Fq 'github.com/osauer/hyperserve $(RELEASE_VERSION)' "$$tmp/app/go.mod" || { echo "release-smoke: scaffold does not require $(RELEASE_VERSION)" >&2; exit 1; }; \
+		grep -Fq 'go 1.27' "$$tmp/app/go.mod" || { echo "release-smoke: scaffold does not use Go 1.27" >&2; exit 1; }; \
+		grep -Fq 'FROM golang:1.27 AS builder' "$$tmp/app/Dockerfile" || { echo "release-smoke: scaffold Dockerfile does not use Go 1.27" >&2; exit 1; }; \
+		(cd "$$tmp/app" && GOWORK=off go test -mod=readonly ./...)
 
 # Tag, push, and publish a new release. RELEASE_VERSION is separate from the
 # build-time VERSION variable so missing or malformed release input fails
@@ -163,9 +166,9 @@ release: ## Tag, push, and publish a release: make release RELEASE_VERSION=vX.Y.
 # Why staticcheck and govulncheck use `command -v` (not lazy install): these
 # are developer-machine tools, expected to be installed once. The Makefile
 # tells you the exact command if missing. Modernize is different — it's
-# pinned via the `tool` directive in go.mod and invoked via `go tool`, so it
+# pinned via the `tool` directive in tools/go.mod and invoked from that module, so it
 # auto-downloads on first use and stays reproducible across machines/CI.
-check: vet staticcheck govulncheck modernize-check check-examples check-canonical-examples ## gofmt + vet + staticcheck + govulncheck + modernize-check + example gates
+check: vet staticcheck govulncheck govulncheck-tools modernize-check check-examples check-canonical-examples ## gofmt + vet + staticcheck + govulncheck + modernize-check + example gates
 	@# gofmt over tracked + untracked-but-not-gitignored .go files. Same
 	@# pattern as ibkr — `git ls-files` respects .gitignore so this skips
 	@# /dist, agent worktrees, etc. The intermediate exists-check filters
@@ -187,12 +190,16 @@ vet:
 	go vet ./...
 
 staticcheck:
-	@command -v staticcheck >/dev/null 2>&1 || { echo "staticcheck not on PATH; install: go install honnef.co/go/tools/cmd/staticcheck@v0.7.0" >&2; exit 1; }
+	@command -v staticcheck >/dev/null 2>&1 || { echo "staticcheck not on PATH; install: go install honnef.co/go/tools/cmd/staticcheck@v0.8.1" >&2; exit 1; }
 	staticcheck ./...
 
 govulncheck:
-	@command -v govulncheck >/dev/null 2>&1 || { echo "govulncheck not on PATH; install: go install golang.org/x/vuln/cmd/govulncheck@v1.3.0" >&2; exit 1; }
+	@command -v govulncheck >/dev/null 2>&1 || { echo "govulncheck not on PATH; install: go install golang.org/x/vuln/cmd/govulncheck@v1.7.0" >&2; exit 1; }
 	govulncheck ./...
+
+govulncheck-tools: ## Scan the separated developer-tool module
+	@command -v govulncheck >/dev/null 2>&1 || { echo "govulncheck not on PATH; install: go install golang.org/x/vuln/cmd/govulncheck@v1.7.0" >&2; exit 1; }
+	govulncheck -C tools -tags=tools -scan=module
 
 # Standalone example modules (own go.mod via `replace`) live outside the
 # main module's `./...`, so vet + govulncheck against the root never sees
@@ -218,15 +225,15 @@ check-canonical-examples: ## Build the release-gated MCP, SSE, and API examples
 	go test ./examples/devops ./examples/mcp-sse ./examples/json-api
 
 # Idiom-drift gate. `go fix -diff` is the toolchain-native fixer (tracks the
-# Go version pinned in go.mod); `go tool modernize` runs the broader gopls
+# Go version pinned in go.mod); tools/go.mod's modernize runs the broader gopls
 # analyzer suite (range N, wg.Go, b.Loop, maps.Copy, SplitSeq, any vs
 # interface{}, etc.). Version of modernize is pinned via the `tool` directive
-# in go.mod, so the gate is reproducible without an `@latest` install step.
+# in tools/go.mod, so the gate is reproducible without an `@latest` install step.
 #
 # Stream discipline + chatter filter:
 #   - `go fix -diff` writes the unified diff to stdout, download chatter to
 #     stderr → capture stdout (no redirect needed; stderr stays visible).
-#   - `go tool modernize` writes diagnostics AND `go: downloading …` lines to
+#   - `go -C tools tool modernize` writes diagnostics AND `go: downloading …` lines to
 #     stderr (the latter when go.mod's tool deps aren't cached — every fresh
 #     CI run hits this). Same stream means we can't separate by redirection;
 #     instead we capture stderr via stream-swap and grep the chatter out.
@@ -236,7 +243,7 @@ modernize-check: ## go fix -diff + modernize gate (Go idiom drift vs go.mod's go
 		echo "go fix found pending changes:"; echo "$$out"; \
 		echo "apply with: make modernize"; exit 1; \
 	fi
-	@out=$$(go tool modernize ./... 2>&1 1>/dev/null | grep -v '^go: downloading'); \
+	@out=$$(go -C tools tool modernize github.com/osauer/hyperserve/... 2>&1 1>/dev/null | grep -v '^go: downloading'); \
 	if [ -n "$$out" ]; then \
 		echo "modernize found pending changes:"; echo "$$out"; \
 		echo "apply with: make modernize"; exit 1; \
@@ -244,7 +251,7 @@ modernize-check: ## go fix -diff + modernize gate (Go idiom drift vs go.mod's go
 
 modernize: ## Apply go fix + modernize rewrites in place
 	go fix ./...
-	go tool modernize -fix ./...
+	go -C tools tool modernize -fix github.com/osauer/hyperserve/...
 
 fmt: ## gofmt -w over tracked / non-gitignored .go files (same scope as `make check`)
 	@git ls-files --cached --others --exclude-standard '*.go' | \

@@ -197,18 +197,18 @@ func TestMCPConcurrentToolExecution(t *testing.T) {
 	}
 
 	// Register a tool that tracks concurrent executions
-	var activeCount int32
-	var maxActive int32
+	var activeCount atomic.Int32
+	var maxActive atomic.Int32
 	concurrentTool := &mockTool{
 		name: "concurrent_tool",
 		executeFunc: func(params map[string]any) (any, error) {
 			// Increment active count
-			current := atomic.AddInt32(&activeCount, 1)
+			current := activeCount.Add(1)
 
 			// Track max concurrent
 			for {
-				max := atomic.LoadInt32(&maxActive)
-				if current <= max || atomic.CompareAndSwapInt32(&maxActive, max, current) {
+				max := maxActive.Load()
+				if current <= max || maxActive.CompareAndSwap(max, current) {
 					break
 				}
 			}
@@ -217,7 +217,7 @@ func TestMCPConcurrentToolExecution(t *testing.T) {
 			time.Sleep(10 * time.Millisecond)
 
 			// Decrement active count
-			atomic.AddInt32(&activeCount, -1)
+			activeCount.Add(-1)
 
 			return map[string]any{"executed": true}, nil
 		},
@@ -264,7 +264,7 @@ func TestMCPConcurrentToolExecution(t *testing.T) {
 	}
 
 	// Check that we had concurrent executions
-	maxConcurrent := atomic.LoadInt32(&maxActive)
+	maxConcurrent := maxActive.Load()
 	if maxConcurrent <= 1 {
 		t.Errorf("Expected concurrent executions, but max was %d", maxConcurrent)
 	}

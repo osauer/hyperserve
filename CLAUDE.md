@@ -15,7 +15,8 @@ support. The library lives under `pkg/`:
 - `pkg/jsonrpc` — JSON-RPC 2.0 engine reused by MCP.
 - `pkg/websocket` — RFC 6455 WebSocket implementation.
 
-Binaries: `cmd/server` (example bundle), `cmd/hyperserve-init` (scaffold).
+Supported binary: `cmd/hyperserve-init` (project scaffold). Generated projects
+contain their own `cmd/server`; the HyperServe repository does not.
 
 Import the library as `github.com/osauer/hyperserve/pkg/server` — there are
 no `.go` files at the repository root.

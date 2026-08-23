@@ -1,7 +1,7 @@
 # ADR-0006: Go Minimum Version Policy
 
-**Status:** Accepted (revised 2026-05-17 for 0.26.0 bump to Go 1.26)
-**Date:** 2024-12-01 (original 1.21 floor); 2026-05-17 (1.25 → 1.26)
+**Status:** Accepted (revised 2026-08-23 for the Go 1.27 bump)
+**Date:** 2024-12-01 (original 1.21 floor); 2026-08-23 (1.26 → 1.27)
 **Deciders:** hyperserve team
 
 ## Context
@@ -11,7 +11,7 @@ source of truth — docs, ADRs, and READMEs do not repeat the version, they
 reference `go.mod`. Bumps land when a new release actually unlocks something
 we use.
 
-Current floor: **Go 1.26** (since 0.26.0).
+Current floor: **Go 1.27**.
 
 Load-bearing features by minor:
 
@@ -23,6 +23,8 @@ Load-bearing features by minor:
   `testing/synctest`, container-aware `GOMAXPROCS`.
 - **1.26** — aligns the project with the current stable toolchain; the
   `encoding/json/v2` graduation will be tracked when it lands.
+- **1.27** — current standard-library and language idioms enforced by the
+  repository's native `go fix` and modernize workflow.
 
 ## Decision
 

@@ -9,16 +9,16 @@ green.
 ```bash
 git clone https://github.com/osauer/hyperserve.git
 cd hyperserve
-go install honnef.co/go/tools/cmd/staticcheck@latest
-go install golang.org/x/vuln/cmd/govulncheck@latest
+go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
+go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
 make check && make test-race && make fuzz-smoke
 ```
 
-If those three commands pass locally, CI will pass. `modernize` is pinned
-via the `tool` directive in `go.mod` and invoked via `go tool`, so it
-auto-downloads on first use — no separate install step.
+If those three commands pass locally, CI will pass. `modernize` is pinned in
+`tools/go.mod` and invoked via `go -C tools tool modernize`, so it downloads
+on first use without entering the shipped module graph.
 
-Go version: see `go.mod` (currently 1.26).
+Go version: see `go.mod` (currently 1.27).
 
 ## The check gate
 
@@ -29,8 +29,8 @@ CI runs `make test`, which invokes `make check` first. The gate is:
 | `gofmt`                                 | unformatted Go — fix with `make fmt`                                  |
 | `go vet`                                | suspicious constructs                                                 |
 | `staticcheck`                           | bugs, simplifications, redundancy                                     |
-| `govulncheck`                           | known CVEs in the dependency tree                                     |
-| `go fix -diff` + `go tool modernize`    | post-Go-1.22 idioms (`any`, `for i := range N`, `wg.Go`, `b.Loop`, …) |
+| `govulncheck`                           | known CVEs in shipped, example, and developer-tool module graphs       |
+| `go fix -diff` + tools-module modernize | current Go idioms (`any`, `for i := range N`, `wg.Go`, `b.Loop`, …)   |
 
 Apply idiom fixes in place with `make modernize`. Race detector and fuzz
 smoke run as separate CI steps — run `make test-race` and `make fuzz-smoke`
@@ -47,7 +47,7 @@ fix it locally rather than relying on CI to surface it.
 | MCP protocol, JSON-RPC dispatch, namespaces       | `pkg/mcp/`                     |
 | SSE transport (binding tokens, connection events) | `pkg/mcp/transport_sse.go`     |
 | Built-in MCP tools and resources (opt-in)         | `pkg/mcp/builtin/`             |
-| WebSocket (RFC 6455)                              | `pkg/websocket/`               |
+| WebSocket server and outbound client (RFC 6455)  | `pkg/websocket/`               |
 | JSON-RPC 2.0 engine                               | `pkg/jsonrpc/`                 |
 | Scaffold generator                                | `internal/scaffold/`, `cmd/hyperserve-init/` |
 | Self-contained `go run .` examples                | `examples/`                    |

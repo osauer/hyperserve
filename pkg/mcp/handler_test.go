@@ -153,7 +153,7 @@ func TestServeHTTPReturnsJSONStatusOnGET(t *testing.T) {
 // blind spot the v0.32.0 coverage report flagged.
 func TestServeHTTPDispatchToolsCall(t *testing.T) {
 	h := newHandlerForTest(t)
-	tool := &recordingTool{stubTool: stubTool{name: "echo"}, result: map[string]any{"out": "ok"}}
+	tool := &recordingTool{name: "echo", result: map[string]any{"out": "ok"}}
 	h.RegisterTool(tool)
 
 	body := []byte(`{

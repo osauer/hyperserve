@@ -127,8 +127,7 @@ type validationPayload struct {
 }
 
 func writeBindError(w http.ResponseWriter, err error) {
-	var verr *ValidationError
-	if errors.As(err, &verr) {
+	if verr, ok := errors.AsType[*ValidationError](err); ok {
 		payload := validationPayload{
 			Error:  "validation failed",
 			Fields: make([]fieldErrorPayload, 0, len(verr.Fields)),
@@ -148,8 +147,10 @@ func writeBindError(w http.ResponseWriter, err error) {
 }
 
 func writeHandlerError(w http.ResponseWriter, err error) {
-	var statusErr interface{ HTTPStatus() int }
-	if errors.As(err, &statusErr) {
+	if statusErr, ok := errors.AsType[interface {
+		error
+		HTTPStatus() int
+	}](err); ok {
 		writeJSON(w, statusErr.HTTPStatus(), map[string]string{"error": err.Error()})
 		return
 	}

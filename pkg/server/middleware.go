@@ -101,21 +101,21 @@ func (mwr *middlewareRegistry) applyToMux(mux *http.ServeMux) http.Handler {
 		// closest to the mux. sortedRoutes is ascending, so we iterate in
 		// reverse; the inner stack also wraps in reverse so handler[0]
 		// is the outermost middleware in its stack.
-		for i := len(mwr.sortedRoutes) - 1; i >= 0; i-- {
-			key := mwr.sortedRoutes[i]
+		for _, key := range slices.Backward(mwr.sortedRoutes) {
+
 			if !pathPrefixMatches(path, key) {
 				continue
 			}
 			stack := mwr.middleware[key]
-			for j := len(stack) - 1; j >= 0; j-- {
-				finalHandler = stack[j](finalHandler)
+			for _, s := range slices.Backward(stack) {
+				finalHandler = s(finalHandler)
 			}
 		}
 
 		// Global stack wraps everything (outermost).
 		global := mwr.middleware[GlobalMiddlewareRoute]
-		for j := len(global) - 1; j >= 0; j-- {
-			finalHandler = global[j](finalHandler)
+		for _, g := range slices.Backward(global) {
+			finalHandler = g(finalHandler)
 		}
 
 		finalHandler.ServeHTTP(w, r)

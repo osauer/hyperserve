@@ -1,314 +1,109 @@
-# WebSocket Implementation Guide
+# WebSocket guide
 
-This guide provides comprehensive documentation for hyperserve's WebSocket implementation, including security considerations, middleware compatibility, and best practices.
+HyperServe's `github.com/osauer/hyperserve/pkg/websocket` package implements
+RFC 6455 without an external WebSocket dependency. It supports HTTP server
+upgrades and direct outbound `ws`/`wss` clients.
 
-## Overview
-
-hyperserve provides a secure, RFC 6455-compliant WebSocket implementation with zero external dependencies. The implementation is split into:
-
-- **Public API** (`websocket.go`): High-level interface for applications
-- **Internal Implementation** (`internal/ws/`): Low-level protocol handling
-
-## Security Features
-
-### Origin Checking
-
-By default, hyperserve enforces same-origin policy for WebSocket connections. You can configure origin checking in three ways:
+## Outbound client
 
 ```go
-// 1. Default: Same-origin only (safest)
-upgrader := server.Upgrader{}
+ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+defer cancel()
 
-// 2. Allow specific origins
-upgrader := server.Upgrader{
-    AllowedOrigins: []string{
-        "https://example.com",
-        "https://app.example.com",
-        "*.trusted-domain.com", // Wildcard subdomains
-    },
-}
-
-// 3. Custom origin check function
-upgrader := server.Upgrader{
-    CheckOrigin: func(r *http.Request) bool {
-        // Your custom logic here
-        origin := r.Header.Get("Origin")
-        return isOriginAllowed(origin)
-    },
-}
-```
-
-### Pre-Upgrade Security Hooks
-
-Use the `BeforeUpgrade` hook for authentication, rate limiting, or other security checks:
-
-```go
-upgrader := server.Upgrader{
-    BeforeUpgrade: func(w http.ResponseWriter, r *http.Request) error {
-        // Example: Require authentication
-        token := r.Header.Get("Authorization")
-        if !isValidToken(token) {
-            return errors.New("unauthorized")
-        }
-        
-        // Example: Rate limiting
-        if isRateLimited(r.RemoteAddr) {
-            return errors.New("rate limit exceeded")
-        }
-        
-        return nil
-    },
-}
-```
-
-### Subprotocol Enforcement
-
-Require clients to negotiate a specific subprotocol:
-
-```go
-upgrader := server.Upgrader{
-    Subprotocols:    []string{"chat.v1", "chat.v2"},
-    RequireProtocol: true, // Reject if no protocol is negotiated
-}
-```
-
-## Middleware Compatibility
-
-### ResponseWriter Interface Preservation
-
-hyperserve's middleware properly preserves WebSocket-required interfaces:
-
-- `http.Hijacker`: Required for WebSocket upgrade
-- `http.Flusher`: For real-time data streaming
-- `io.ReaderFrom`: Optimizes static file serving
-- `http.Pusher`: HTTP/2 server push support
-
-Example middleware that preserves interfaces:
-
-```go
-type customResponseWriter struct {
-    http.ResponseWriter
-    // your fields
-}
-
-// Required for WebSocket support
-func (w *customResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-    hijacker, ok := w.ResponseWriter.(http.Hijacker)
-    if !ok {
-        return nil, nil, fmt.Errorf("hijacking not supported")
-    }
-    return hijacker.Hijack()
-}
-
-// Preserve other interfaces as needed
-func (w *customResponseWriter) Flush() {
-    if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
-        flusher.Flush()
-    }
-}
-```
-
-### Working with Logging Middleware
-
-The built-in `loggingResponseWriter` automatically supports WebSocket upgrades:
-
-```go
-srv.AddMiddleware("*", server.RequestLoggerMiddleware)
-// WebSocket upgrades will work through the logging middleware
-```
-
-## Best Practices
-
-### 1. Message Size Limits
-
-Always set appropriate message size limits:
-
-```go
-upgrader := server.Upgrader{
-    MaxMessageSize: 512 * 1024, // 512KB limit
-}
-```
-
-### 2. Timeouts
-
-Configure appropriate timeouts:
-
-```go
-upgrader := server.Upgrader{
-    HandshakeTimeout: 10 * time.Second,
-}
-
-// In your handler
-conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-conn.SetPongHandler(func(string) error {
-    conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-    return nil
+conn, resp, err := websocket.Dial(ctx, "wss://relay.example.com/ws", &websocket.DialOptions{
+    HTTPHeader:  http.Header{"Authorization": {"Bearer " + token}},
+    Subprotocols: []string{"relay.v1"},
 })
-```
-
-### 3. Error Handling
-
-Provide custom error responses:
-
-```go
-upgrader := server.Upgrader{
-    Error: func(w http.ResponseWriter, r *http.Request, status int, reason error) {
-        // Log the error
-        logger.Error("WebSocket upgrade failed", 
-            "status", status,
-            "error", reason,
-            "remote", r.RemoteAddr,
-        )
-        
-        // Send appropriate response
-        http.Error(w, reason.Error(), status)
-    },
+if err != nil {
+    // resp is non-nil when the peer returned an HTTP response.
+    return err
 }
+defer conn.Close()
+
+if err := conn.Write(ctx, websocket.TextMessage, []byte("online")); err != nil {
+    return err
+}
+messageType, payload, err := conn.Read(ctx)
 ```
 
-### 4. Graceful Shutdown
+`Dial` provides:
 
-Handle connection cleanup properly:
+- context-aware TCP, TLS, request, response, and redirect handling;
+- normal certificate and hostname verification for `wss`;
+- up to ten redirects, with credentials stripped across origins and secure to
+  insecure redirects rejected;
+- validation of the upgrade, accept key, subprotocol, and extension response;
+- correct masking of every client data and control frame.
+
+The client connects directly to the target host; HTTP proxy tunneling is not
+part of the current API. Compression and other extensions are rejected.
+
+`Read` and `Write` accept contexts. Canceling a context interrupts the active
+network operation and closes the connection because a frame may have been
+partially transferred. One reader and one writer may run concurrently. Use
+`MaxMessageSize` to replace the 1 MiB default inbound limit.
+
+`Close()` sends normal closure. Use `CloseWithStatus(code, reason)` when the
+peer needs an application-specific close code and UTF-8 reason.
+
+## Server upgrade
 
 ```go
+upgrader := websocket.Upgrader{
+    AllowedOrigins: []string{"https://app.example.com"},
+    Subprotocols:   []string{"chat.v1"},
+    MaxMessageSize: 512 << 10,
+}
+
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
     conn, err := upgrader.Upgrade(w, r, nil)
     if err != nil {
         return
     }
     defer conn.Close()
-    
-    // Register connection for graceful shutdown
-    srv.RegisterConnection(conn)
-    defer srv.UnregisterConnection(conn)
-    
-    // Your WebSocket logic here
-}
-```
 
-## Frame Parser Details
-
-The internal frame parser (`internal/ws/frame.go`) implements:
-
-- **RFC 6455 Compliance**: Full protocol support
-- **Fragmentation**: Handles fragmented messages
-- **Control Frames**: Ping/Pong/Close handling
-- **Masking**: Client-to-server masking validation
-- **Extensions**: RSV bits for future extensions
-
-## Testing WebSocket Endpoints
-
-Example test for WebSocket functionality:
-
-```go
-func TestWebSocketEndpoint(t *testing.T) {
-    srv, _ := server.NewServer()
-    
-    upgrader := server.Upgrader{
-        CheckOrigin: func(r *http.Request) bool {
-            return true // Allow all origins in tests
-        },
-    }
-    
-    srv.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-        conn, err := upgrader.Upgrade(w, r, nil)
+    for {
+        messageType, payload, err := conn.ReadMessage()
         if err != nil {
-            t.Errorf("Upgrade failed: %v", err)
             return
         }
-        defer conn.Close()
-        
-        // Echo server
-        for {
-            mt, msg, err := conn.ReadMessage()
-            if err != nil {
-                break
-            }
-            if err := conn.WriteMessage(mt, msg); err != nil {
-                break
-            }
+        if err := conn.WriteMessage(messageType, payload); err != nil {
+            return
         }
-    })
-    
-    // Test the upgrade
-    ts := httptest.NewServer(srv.mux)
-    defer ts.Close()
-    
-    // Make WebSocket request
-    req, _ := http.NewRequest("GET", ts.URL+"/ws", nil)
-    req.Header.Set("Upgrade", "websocket")
-    req.Header.Set("Connection", "Upgrade")
-    req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
-    req.Header.Set("Sec-WebSocket-Version", "13")
-    
-    resp, err := http.DefaultClient.Do(req)
-    if err != nil {
-        t.Fatalf("Request failed: %v", err)
-    }
-    defer resp.Body.Close()
-    
-    if resp.StatusCode != 101 {
-        t.Errorf("Expected status 101, got %d", resp.StatusCode)
     }
 }
 ```
 
-## Common Issues and Solutions
+The zero-value upgrader accepts only requests whose `Origin` host matches the
+request host. Non-browser clients commonly omit `Origin`; configure
+`CheckOrigin` when those clients are expected. `AllowedOrigins` supports exact
+origins, `*`, and `*.example.com` host patterns.
 
-### Issue: "response writer does not support hijacking"
+Use `BeforeUpgrade` for authentication or admission control. Set
+`RequireProtocol` when a supported subprotocol is mandatory. A custom `Error`
+callback may render handshake failures.
 
-**Cause**: Custom middleware not preserving the Hijacker interface
+## Deadlines and control frames
 
-**Solution**: Ensure your middleware implements the Hijack method:
+The context-aware methods are the normal outbound-client path. The lower-level
+API also exposes `SetReadDeadline`, `SetWriteDeadline`, `ReadMessage`,
+`WriteMessage`, and `WriteControl`.
 
-```go
-func (w *yourResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-    return w.ResponseWriter.(http.Hijacker).Hijack()
-}
-```
+Ping frames receive automatic pong responses while reads are active. Installing
+a custom ping handler transfers responsibility for the pong to that handler.
+Close frames are echoed before `Read` or `ReadMessage` returns a close error.
 
-### Issue: Origin check failures
+## Protocol and security boundaries
 
-**Cause**: Browser sending Origin header that doesn't match expectations
+- Text messages and close reasons must be valid UTF-8.
+- Control frames must be final and no larger than 125 bytes.
+- Client frames must be masked; server frames must not be masked.
+- Reserved bits, reserved opcodes, non-canonical lengths, invalid close codes,
+  unexpected continuations, and oversized fragmented messages are rejected.
+- The default complete-message read limit is 1 MiB on clients and servers.
+- Use `wss` in production and authenticate before upgrading.
+- Rate-limit connection attempts and validate application payloads after the
+  protocol layer accepts them.
 
-**Solution**: Log origins during development to understand the pattern:
-
-```go
-CheckOrigin: func(r *http.Request) bool {
-    origin := r.Header.Get("Origin")
-    log.Printf("WebSocket origin: %s", origin)
-    // Your check logic
-}
-```
-
-### Issue: Message size errors
-
-**Cause**: Client sending messages larger than MaxMessageSize
-
-**Solution**: Configure appropriate limits on both client and server:
-
-```go
-upgrader := server.Upgrader{
-    MaxMessageSize: 10 * 1024 * 1024, // 10MB
-}
-```
-
-## Performance Considerations
-
-1. **Buffer Sizes**: Configure based on your message patterns
-2. **Concurrent Connections**: Each WebSocket uses one goroutine minimum
-3. **Message Broadcasting**: Use efficient fan-out patterns for multi-client scenarios
-4. **Memory Usage**: Be mindful of message buffering with many connections
-
-## Security Checklist
-
-- [ ] Origin validation configured appropriately
-- [ ] Authentication implemented (if required)
-- [ ] Message size limits set
-- [ ] Timeout handling implemented
-- [ ] Rate limiting considered
-- [ ] Input validation on messages
-- [ ] TLS/WSS used in production
-- [ ] Subprotocol validation (if using)
-- [ ] Error messages don't leak sensitive information
-- [ ] Connection limits implemented
+Middleware around an upgrade route must preserve `http.Hijacker`. HyperServe's
+built-in logging middleware does so.

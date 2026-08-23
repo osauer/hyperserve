@@ -722,8 +722,7 @@ func (h *Handler) handleToolsCall(params any) (any, error) {
 	defer cancel()
 	result, err := ctxTool.ExecuteWithContext(ctx, callParams.Arguments)
 	if err != nil {
-		var toolErr *toolError
-		if errors.As(err, &toolErr) {
+		if toolErr, ok := errors.AsType[*toolError](err); ok {
 			return ToolResult{
 				Content: []map[string]any{{"type": "text", "text": toolErr.Error()}},
 				IsError: true,

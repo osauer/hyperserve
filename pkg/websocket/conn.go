@@ -9,6 +9,7 @@ import (
 	"net"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // lowConn represents a low-level WebSocket connection.
@@ -25,9 +26,11 @@ type lowConn struct {
 	isServer bool
 
 	// Message assembly
-	messageMu     sync.Mutex
-	messageBuffer []byte
-	messageType   int
+	messageMu      sync.Mutex
+	messageBuffer  []byte
+	messageType    int
+	messageActive  bool
+	maxMessageSize int64
 
 	// Wire writes
 	writeMu sync.Mutex
@@ -48,16 +51,24 @@ type lowConn struct {
 // newLowConn creates a new low-level WebSocket connection.
 func newLowConn(netConn net.Conn, buf *bufio.ReadWriter, isServer bool, maxMessageSize int64) *lowConn {
 	return &lowConn{
-		conn:     netConn,
-		reader:   NewFrameReader(buf.Reader, maxMessageSize),
-		writer:   NewFrameWriter(buf.Writer, isServer),
-		isServer: isServer,
+		conn:           netConn,
+		reader:         NewFrameReader(buf.Reader, maxMessageSize),
+		writer:         NewFrameWriter(buf.Writer, isServer),
+		isServer:       isServer,
+		maxMessageSize: maxMessageSize,
 	}
 }
 
 // ReadFrame reads the next frame from the connection
 func (c *lowConn) ReadFrame() (*Frame, error) {
-	return c.reader.ReadFrame()
+	frame, err := c.reader.ReadFrame()
+	if err != nil {
+		return nil, err
+	}
+	if frame.Masked != c.isServer {
+		return nil, ErrMaskingViolation
+	}
+	return frame, nil
 }
 
 // WriteFrame writes a frame to the connection. Holds writeMu so reader-side
@@ -83,13 +94,19 @@ func (c *lowConn) ReadMessage() (messageType int, data []byte, err error) {
 		switch frame.Opcode {
 		case OpcodeText, OpcodeBinary:
 			// Start of new message
-			if c.messageBuffer != nil {
+			if c.messageActive {
 				return 0, nil, errors.New("unexpected data frame")
 			}
 			c.messageType = frame.Opcode
 			c.messageBuffer = frame.Payload
+			c.messageActive = !frame.Fin
 
 			if frame.Fin {
+				if c.messageType == OpcodeText && !utf8.Valid(c.messageBuffer) {
+					c.messageBuffer = nil
+					c.messageActive = false
+					return 0, nil, ErrInvalidUTF8
+				}
 				// Complete message
 				data := c.messageBuffer
 				c.messageBuffer = nil
@@ -98,20 +115,34 @@ func (c *lowConn) ReadMessage() (messageType int, data []byte, err error) {
 
 		case OpcodeContinuation:
 			// Continuation of fragmented message
-			if c.messageBuffer == nil {
+			if !c.messageActive {
 				return 0, nil, ErrUnexpectedContinuation
+			}
+			if int64(len(c.messageBuffer))+int64(len(frame.Payload)) > c.maxMessageSize {
+				c.messageBuffer = nil
+				c.messageActive = false
+				return 0, nil, ErrMessageTooBig
 			}
 			c.messageBuffer = append(c.messageBuffer, frame.Payload...)
 
 			if frame.Fin {
+				if c.messageType == OpcodeText && !utf8.Valid(c.messageBuffer) {
+					c.messageBuffer = nil
+					c.messageActive = false
+					return 0, nil, ErrInvalidUTF8
+				}
 				// Message complete
 				data := c.messageBuffer
 				messageType := c.messageType
 				c.messageBuffer = nil
+				c.messageActive = false
 				return messageType, data, nil
 			}
 
 		case OpcodeClose:
+			if err := validateClosePayload(frame.Payload); err != nil {
+				return 0, nil, err
+			}
 			// Handle close frame
 			closeCode := CloseNoStatusReceived
 			closeText := ""
@@ -126,12 +157,7 @@ func (c *lowConn) ReadMessage() (messageType int, data []byte, err error) {
 			c.closeMu.Lock()
 			if !c.closeSent {
 				c.closeSent = true
-				closeFrame := &Frame{
-					Fin:     true,
-					Opcode:  OpcodeClose,
-					Payload: frame.Payload, // Echo the close code
-				}
-				_ = c.WriteFrame(closeFrame) // Best effort close frame
+				_ = c.WriteControl(OpcodeClose, frame.Payload) // Best effort close frame
 			}
 			c.closeMu.Unlock()
 
@@ -156,12 +182,7 @@ func (c *lowConn) ReadMessage() (messageType int, data []byte, err error) {
 				continue
 			}
 			// Default: respond with pong.
-			pongFrame := &Frame{
-				Fin:     true,
-				Opcode:  OpcodePong,
-				Payload: frame.Payload,
-			}
-			if err := c.WriteFrame(pongFrame); err != nil {
+			if err := c.WriteControl(OpcodePong, frame.Payload); err != nil {
 				return 0, nil, err
 			}
 
@@ -208,6 +229,9 @@ func (c *lowConn) setCloseHandler(h func(code int, text string) error) {
 func (c *lowConn) WriteMessage(messageType int, data []byte) error {
 	if messageType != OpcodeText && messageType != OpcodeBinary {
 		return errors.New("invalid message type")
+	}
+	if messageType == OpcodeText && !utf8.Valid(data) {
+		return ErrInvalidUTF8
 	}
 
 	frame := &Frame{
@@ -256,18 +280,56 @@ func (c *lowConn) WriteControl(opcode int, data []byte) error {
 
 // Close closes the WebSocket connection
 func (c *lowConn) Close() error {
+	return c.CloseWithStatus(CloseNormalClosure, "")
+}
+
+// CloseWithStatus sends a close frame and closes the network connection.
+func (c *lowConn) CloseWithStatus(code int, reason string) error {
+	if !validCloseCode(code) {
+		return ErrInvalidCloseCode
+	}
+	if !utf8.ValidString(reason) {
+		return ErrInvalidUTF8
+	}
+	payload := make([]byte, 2+len(reason))
+	if len(payload) > 125 {
+		return ErrControlFrameTooBig
+	}
+	binary.BigEndian.PutUint16(payload, uint16(code))
+	copy(payload[2:], reason)
+
 	c.closeMu.Lock()
 	defer c.closeMu.Unlock()
 
 	if !c.closeSent {
 		c.closeSent = true
-		// Send close frame with normal closure
-		closePayload := make([]byte, 2)
-		binary.BigEndian.PutUint16(closePayload, uint16(CloseNormalClosure))
-		_ = c.WriteControl(OpcodeClose, closePayload) // Best effort close notification
+		_ = c.WriteControl(OpcodeClose, payload) // Best effort close notification
 	}
 
 	return c.conn.Close()
+}
+
+func validateClosePayload(payload []byte) error {
+	if len(payload) == 1 {
+		return ErrInvalidCloseCode
+	}
+	if len(payload) == 0 {
+		return nil
+	}
+	if code := int(binary.BigEndian.Uint16(payload[:2])); !validCloseCode(code) {
+		return ErrInvalidCloseCode
+	}
+	if !utf8.Valid(payload[2:]) {
+		return ErrInvalidUTF8
+	}
+	return nil
+}
+
+func validCloseCode(code int) bool {
+	return code >= 1000 && code <= 4999 &&
+		code != 1004 && code != CloseNoStatusReceived &&
+		code != CloseAbnormalClosure && code != CloseTLSHandshake &&
+		(code <= 1014 || code >= 3000)
 }
 
 // SetDeadline sets the read and write deadlines
@@ -293,6 +355,10 @@ func (c *lowConn) LocalAddr() net.Addr {
 // RemoteAddr returns the remote network address
 func (c *lowConn) RemoteAddr() net.Addr {
 	return c.conn.RemoteAddr()
+}
+
+func (c *lowConn) abort() {
+	_ = c.conn.Close()
 }
 
 // closeError represents a close frame error.

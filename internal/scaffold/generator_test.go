@@ -32,6 +32,7 @@ func TestGenerateCreatesProject(t *testing.T) {
 	assertExists(t, dest, "cmd/server/main.go")
 	assertExists(t, dest, "internal/app/server.go")
 	assertExists(t, dest, "configs/default.json")
+	assertExists(t, dest, "Dockerfile")
 
 	gomod, err := os.ReadFile(filepath.Join(dest, "go.mod"))
 	if err != nil {
@@ -42,14 +43,25 @@ func TestGenerateCreatesProject(t *testing.T) {
 	if !strings.Contains(content, "module github.com/example/sample-service") {
 		t.Fatalf("go.mod missing module declaration: %s", content)
 	}
-	if !strings.Contains(content, "github.com/osauer/hyperserve v1.1.0") {
+	if !strings.Contains(content, "github.com/osauer/hyperserve v1.3.0") {
 		t.Fatalf("go.mod missing hyperserve requirement: %s", content)
 	}
 	if !strings.Contains(content, "replace github.com/osauer/hyperserve =>") {
 		t.Fatalf("go.mod missing replace directive: %s", content)
 	}
+	if !strings.Contains(content, "go 1.27") {
+		t.Fatalf("go.mod missing Go 1.27 floor: %s", content)
+	}
 
-	cmd := exec.Command("go", "test", "./...")
+	dockerfile, err := os.ReadFile(filepath.Join(dest, "Dockerfile"))
+	if err != nil {
+		t.Fatalf("read Dockerfile: %v", err)
+	}
+	if !strings.Contains(string(dockerfile), "FROM golang:1.27 AS builder") {
+		t.Fatalf("Dockerfile missing Go 1.27 builder: %s", dockerfile)
+	}
+
+	cmd := exec.Command("go", "test", "-mod=readonly", "./...")
 	cmd.Dir = dest
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	if output, err := cmd.CombinedOutput(); err != nil {

@@ -15,6 +15,8 @@ import (
 	"go/format"
 )
 
+const latestStableVersion = "v1.3.0"
+
 // Generate scaffolds a new HyperServe project and returns the absolute output directory.
 func Generate(opts Options) (string, error) {
 	if err := opts.normalize(); err != nil {
@@ -44,7 +46,7 @@ func Generate(opts Options) (string, error) {
 		ServiceSlug:       opts.serviceSlug(),
 		BinaryName:        opts.serviceSlug(),
 		WithMCP:           opts.WithMCP,
-		HyperserveVersion: "v1.1.0",
+		HyperserveVersion: latestStableVersion,
 		LocalReplace:      filepath.ToSlash(opts.LocalReplace),
 		DefaultAddr:       ":8080",
 		DefaultHealthAddr: ":9080",

@@ -223,7 +223,7 @@ func TestMCPHandler_ConcurrentRequests(t *testing.T) {
 			var mu sync.Mutex
 
 			// Track successful responses
-			var successCount int64
+			var successCount atomic.Int64
 
 			for i, request := range tc.requests {
 				wg.Add(1)
@@ -266,7 +266,7 @@ func TestMCPHandler_ConcurrentRequests(t *testing.T) {
 						return
 					}
 
-					atomic.AddInt64(&successCount, 1)
+					successCount.Add(1)
 				}(i, request)
 			}
 
@@ -281,8 +281,8 @@ func TestMCPHandler_ConcurrentRequests(t *testing.T) {
 
 			// Verify all requests completed successfully
 			expectedCount := int64(len(tc.requests))
-			if atomic.LoadInt64(&successCount) != expectedCount {
-				t.Errorf("Expected %d successful responses, got %d", expectedCount, atomic.LoadInt64(&successCount))
+			if successCount.Load() != expectedCount {
+				t.Errorf("Expected %d successful responses, got %d", expectedCount, successCount.Load())
 			}
 		})
 	}
@@ -310,7 +310,7 @@ func TestMCPHandler_HighConcurrency(t *testing.T) {
 	var wg sync.WaitGroup
 	var errors []error
 	var mu sync.Mutex
-	var successCount int64
+	var successCount atomic.Int64
 
 	// Create the request template
 	request := map[string]any{
@@ -360,7 +360,7 @@ func TestMCPHandler_HighConcurrency(t *testing.T) {
 					continue
 				}
 
-				atomic.AddInt64(&successCount, 1)
+				successCount.Add(1)
 			}
 		}(i)
 	}
@@ -370,7 +370,7 @@ func TestMCPHandler_HighConcurrency(t *testing.T) {
 
 	// Report results
 	totalRequests := int64(numGoroutines * requestsPerGoroutine)
-	successfulRequests := atomic.LoadInt64(&successCount)
+	successfulRequests := successCount.Load()
 
 	t.Logf("High concurrency test completed:")
 	t.Logf("  - Duration: %v", duration)
@@ -427,12 +427,12 @@ func TestMCPResources_ThreadSafety(t *testing.T) {
 	var wg sync.WaitGroup
 	var errors []error
 	var mu sync.Mutex
-	var successCount int64
+	var successCount atomic.Int64
 
 	for _, resourceURI := range resources {
 		t.Run("Resource_"+resourceURI, func(t *testing.T) {
 			errors = errors[:0] // Reset errors for each resource
-			atomic.StoreInt64(&successCount, 0)
+			successCount.Store(0)
 
 			for i := range numGoroutines {
 				wg.Add(1)
@@ -509,7 +509,7 @@ func TestMCPResources_ThreadSafety(t *testing.T) {
 							continue
 						}
 
-						atomic.AddInt64(&successCount, 1)
+						successCount.Add(1)
 					}
 				}(i, resourceURI)
 			}
@@ -518,7 +518,7 @@ func TestMCPResources_ThreadSafety(t *testing.T) {
 
 			// Check results for this resource
 			totalAccesses := int64(numGoroutines * accessesPerGoroutine)
-			successful := atomic.LoadInt64(&successCount)
+			successful := successCount.Load()
 
 			if len(errors) > 0 {
 				t.Errorf("Errors occurred during concurrent access to %s:", resourceURI)

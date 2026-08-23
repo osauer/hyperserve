@@ -95,8 +95,7 @@ func main() {
 	srv.POST("/users-manual", func(w http.ResponseWriter, r *http.Request) {
 		var in CreateUser
 		if err := server.BindJSON(r, &in); err != nil {
-			var verr *server.ValidationError
-			if errors.As(err, &verr) {
+			if verr, ok := errors.AsType[*server.ValidationError](err); ok {
 				writeValidationError(w, verr)
 				return
 			}
