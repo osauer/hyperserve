@@ -2,64 +2,31 @@
 
 [![CI](https://github.com/osauer/hyperserve/actions/workflows/ci.yml/badge.svg)](https://github.com/osauer/hyperserve/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/osauer/hyperserve?label=release&sort=semver)](https://github.com/osauer/hyperserve/releases/latest)
-[![Go version](https://img.shields.io/github/go-mod/go-version/osauer/hyperserve)](go.mod)
 [![Go reference](https://pkg.go.dev/badge/github.com/osauer/hyperserve.svg)](https://pkg.go.dev/github.com/osauer/hyperserve)
 [![License: MIT](https://img.shields.io/github/license/osauer/hyperserve)](LICENSE)
 
-HyperServe is a small, `net/http`-shaped service kit for Go: HTTP lifecycle,
-middleware, and typed inputs; an RFC 6455 WebSocket implementation for servers
-and outbound clients; and an optional in-process Model Context Protocol (MCP)
-control plane.
+HyperServe is a Go library for the code that accumulates around `net/http`:
+server lifecycle, middleware, typed request binding, rooted static files,
+WebSockets, and an optional Model Context Protocol (MCP) endpoint. Routes still
+use `http.ServeMux` patterns, and handlers remain `http.Handler` values.
 
-The shipped module has one external dependency, `golang.org/x/time`. Developer
-tooling lives in the separate [`tools/go.mod`](./tools/go.mod) graph and does
-not enter applications that import HyperServe.
+If routes plus JSON are all your service needs, use `net/http` directly.
+HyperServe is useful when the same timeout, recovery, health, shutdown, input,
+and WebSocket plumbing would otherwise be rebuilt around each service.
 
 ## Install
+
+HyperServe requires Go 1.27.
 
 ```sh
 go get github.com/osauer/hyperserve@latest
 ```
 
-Public packages:
+The runtime module has one external dependency, `golang.org/x/time`, for rate
+limiting. Build and conformance tools live in a separate
+[`tools/go.mod`](./tools/go.mod) module.
 
-| Import path | Purpose |
-| --- | --- |
-| `github.com/osauer/hyperserve/pkg/server` | HTTP server, middleware, lifecycle, MCP wiring |
-| `github.com/osauer/hyperserve/pkg/mcp` | MCP handler, transports, discovery, namespaces |
-| `github.com/osauer/hyperserve/pkg/mcp/builtin` | Opt-in demonstration tools and resources |
-| `github.com/osauer/hyperserve/pkg/websocket` | WebSocket server upgrader and outbound client |
-| `github.com/osauer/hyperserve/pkg/jsonrpc` | Standalone JSON-RPC 2.0 engine |
-
-## Why HyperServe?
-
-[Go 1.27](https://go.dev/doc/go1.27) makes an already strong standard library
-better: `net/http` is a capable router and server, and `encoding/json` now runs
-on the v2 implementation, with notably faster unmarshaling. If routes plus JSON
-are all you need, use `net/http` directly. HyperServe earns its place when the
-same service plumbing starts accumulating around every handler:
-
-- **Keep the standard HTTP model.** Routes use `http.ServeMux` patterns,
-  handlers remain `http.Handler` or `http.HandlerFunc`, and middleware follows
-  the familiar handler-wrapper model.
-- **Own less boundary and lifecycle glue.** Typed request binding, validation,
-  safe error responses, default timeouts, panic recovery, logging, metrics,
-  graceful shutdown, readiness, health endpoints, and rooted static-file
-  serving live in one tested server shell.
-- **Use one WebSocket package at both edges.** Server upgrades, outbound dialing,
-  origin and message limits, handshake validation, and context-aware client I/O
-  share one API.
-
-The value is this integration, not a replacement programming model. MCP remains
-optional to the HTTP and WebSocket layer.
-
-## HTTP quick start
-
-This example is intentionally ordinary Go. `GET` registers the standard
-`"GET /"` `ServeMux` pattern, while the callback remains an
-`http.HandlerFunc`. `Run` supplies the part usually repeated around the mux:
-configured timeouts, default logging/metrics/recovery middleware, signal
-handling, and graceful shutdown.
+## Start a server
 
 ```go
 package main
@@ -73,98 +40,81 @@ import (
 )
 
 func main() {
-    // Adds the default logging, metrics, recovery, timeouts, and health server.
-    srv, err := server.NewServer(server.WithHealthServer())
+    srv, err := server.NewServer()
     if err != nil {
         log.Fatal(err)
     }
 
-    // Routes and handlers remain ordinary net/http.
     srv.GET("/", func(w http.ResponseWriter, _ *http.Request) {
         fmt.Fprintln(w, "Hello, World!")
     })
 
-    // Blocks until failure or SIGINT/SIGTERM, then drains active requests.
+    // Run owns process signals and drains active requests during shutdown.
     if err := srv.Run(); err != nil {
         log.Fatal(err)
     }
 }
 ```
 
-Add options only for concerns the service has. See
-[`deferred-init`](./examples/deferred-init/) for readiness-gated startup and
-shutdown hooks.
+Save the example as `main.go` in your module, then start it:
 
-## Binding and validation
+```sh
+go run .
+```
 
-Go 1.27 improves JSON parsing, but endpoint code still has to decode input,
-validate its contract, map errors safely, and encode a response. `JSONHandler`
-collapses that boundary code without adding a dependency:
+From another terminal:
+
+```sh
+curl http://localhost:8080/
+```
+
+`NewServer` listens on `:8080` and installs request logging, metrics, and panic
+recovery. `Run` handles SIGINT, SIGTERM, and SIGQUIT. If the application already
+owns its lifecycle, use `RunContext(appCtx)` instead; context cancellation is a
+normal request to drain and stop.
+
+Add `WithHealthServer()` for separate liveness and readiness endpoints, or
+`WithDeferredInit(...)` when readiness must wait for startup work. The
+[`deferred-init` example](./examples/deferred-init/) shows both.
+
+## Bind and validate input
+
+`JSONHandler` keeps decoding, validation, and safe error responses at the HTTP
+boundary while the callback works with Go values:
 
 ```go
 type CreateUser struct {
-    Email string `json:"email" validate:"required,email"` // request contract
+    Email string `json:"email" validate:"required,email"`
+}
+
+type User struct {
+    Email string `json:"email"`
 }
 
 srv.POST("/users", server.JSONHandler(
-    func(ctx context.Context, in CreateUser) (User, error) {
-        // Binding and validation passed; this is only business logic.
-        return createUser(ctx, in)
+    func(_ context.Context, in CreateUser) (User, error) {
+        return User{Email: strings.ToLower(in.Email)}, nil
     },
 ))
 ```
 
-Malformed or invalid input becomes a structured `400`; unexpected errors become
-a generic `500` without leaking details. Use `BindJSON`, `BindQuery`, `BindForm`,
-and `Validate` directly for custom envelopes, streaming, or multi-step responses.
-See [`examples/binding`](./examples/binding/) for both levels.
+Malformed or invalid input produces a structured `400`; unexpected callback
+errors produce a generic `500` without exposing error details. Use `BindJSON`,
+`BindQuery`, `BindForm`, and `Validate` directly when the response needs custom
+headers, streaming, or a different envelope. See the
+[`binding` example](./examples/binding/) for both levels.
 
-## WebSockets
+## Use WebSockets on either side
 
-`websocket.Dial` supports `ws` and `wss`, context cancellation throughout the
-opening handshake, TLS verification, bounded redirects, custom headers,
-subprotocol negotiation, and a 1 MiB default read limit. Client frames are
-masked on the wire as required by RFC 6455.
+The `websocket` package implements RFC 6455 for servers and outbound clients.
+Server upgrades default to same-origin browser requests and both sides enforce a
+1 MiB message limit unless configured otherwise.
 
-```go
-func exchange(ctx context.Context, relayURL, token string, client *http.Client) ([]byte, error) {
-    // This deadline bounds the handshake, not the upgraded connection.
-    dialCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-    defer cancel()
-
-    conn, resp, err := websocket.Dial(dialCtx, relayURL, &websocket.DialOptions{
-        // Preserve the caller's transport, proxy, cookies, and redirects.
-        HTTPClient:   client,
-        HTTPHeader:   http.Header{"Authorization": {"Bearer " + token}},
-        Subprotocols: []string{"relay.v1"},
-    })
-    if err != nil {
-        if resp != nil {
-            return nil, fmt.Errorf("relay handshake: %s: %w", resp.Status, err)
-        }
-        return nil, err
-    }
-    defer conn.Close()
-
-    if err := conn.Write(ctx, websocket.TextMessage, []byte("online")); err != nil {
-        return nil, err
-    }
-    _, reply, err := conn.Read(ctx)
-    return reply, err
-}
-```
-
-`Read` and `Write` accept contexts and support one concurrent reader plus one
-concurrent writer. Reconnect policy remains with the application. The same
-package handles the server side:
+Use `srv.WebSocketUpgrader()` when the upgrade should appear in server metrics:
 
 ```go
-upgrader := websocket.Upgrader{
-    // Browser upgrades are same-origin by default; name cross-origin peers.
-    AllowedOrigins: []string{"https://app.example.com"},
-    // Bound the aggregate size of fragmented messages.
-    MaxMessageSize: 512 << 10,
-}
+upgrader := srv.WebSocketUpgrader()
+upgrader.MaxMessageSize = 512 << 10
 
 srv.GET("/ws", func(w http.ResponseWriter, r *http.Request) {
     conn, err := upgrader.Upgrade(w, r, nil)
@@ -173,53 +123,61 @@ srv.GET("/ws", func(w http.ResponseWriter, r *http.Request) {
     }
     defer conn.Close()
 
-    for {
-        messageType, payload, err := conn.Read(r.Context())
-        if err != nil {
-            return
-        }
-        if err := conn.Write(r.Context(), messageType, payload); err != nil {
-            return
-        }
+    messageType, payload, err := conn.Read(r.Context())
+    if err != nil {
+        return
+    }
+    if err := conn.Write(r.Context(), messageType, payload); err != nil {
+        return
     }
 })
 ```
 
-See the [WebSocket guide](./docs/WEBSOCKET_GUIDE.md) for close semantics,
-transport ownership, proxy behavior, deadlines, and unsupported extensions.
+For outbound connections, `websocket.Dial` accepts a context plus either a
+caller-owned `http.Client` or explicit dial/TLS settings. It supports headers,
+subprotocols, TLS verification, and bounded redirects; reconnect policy remains
+with the application. See the [WebSocket guide](./docs/WEBSOCKET_GUIDE.md) and
+the [browser echo example](./examples/websocket-demo/).
 
-## MCP
+## Add MCP when the service needs it
 
-Enable MCP programmatically:
+MCP is opt-in and does not change the HTTP or WebSocket APIs:
 
 ```go
 srv, err := server.NewServer(
     server.WithMCPSupport("payments", "1.0.0"),
-    server.WithMCPBuiltinTools(true),
-    server.WithMCPBuiltinResources(true),
 )
-if err != nil {
-    log.Fatal(err)
-}
 ```
 
-The MCP handler supports MCP 2026-07-28 Streamable HTTP: finite requests return
-JSON and `subscriptions/listen` provides request-scoped SSE for live resource
-invalidations. Streams use a bounded, cancellation-aware queue and complete
-gracefully during server shutdown. Discovery advertises only the standard
-transport by default.
+The standard endpoint implements MCP 2026-07-28 Streamable HTTP: finite
+requests return JSON, while `subscriptions/listen` uses request-scoped SSE.
+Initialize-era 2025-11-25 request/response remains available for older clients.
+HyperServe's proprietary routed-SSE transport is deprecated and disabled by
+default.
 
-Initialize-era HTTP/stdio request-response remains available for 2025-11-25
-clients. HyperServe's older routed `X-SSE-*` transport is deprecated and off by
-default; temporarily restore it with
-`server.WithMCPLegacyRoutedSSE(true)`. Built-in tools and resources remain off
-by default. See the [MCP guide](./docs/MCP_GUIDE.md) for the request headers,
-subscription API, limits, and migration notes.
+Applications must put their own authorization middleware in front of `/mcp`.
+Built-in tools and resources are also disabled by default. The
+[MCP guide](./docs/MCP_GUIDE.md) documents transport headers, subscriptions,
+limits, discovery, built-ins, and the legacy migration path.
 
-## Scaffold a service
+## Packages
 
-The initializer generates a module, server entry point, and tests. It is a
-starting boundary, not an application architecture you must keep.
+| Import path | Purpose |
+| --- | --- |
+| `github.com/osauer/hyperserve/pkg/server` | HTTP server, middleware, lifecycle, and MCP wiring |
+| `github.com/osauer/hyperserve/pkg/websocket` | WebSocket upgrader, connection, and outbound dialer |
+| `github.com/osauer/hyperserve/pkg/mcp` | MCP handler, transports, discovery, and namespaces |
+| `github.com/osauer/hyperserve/pkg/mcp/builtin` | Opt-in demonstration tools and resources |
+| `github.com/osauer/hyperserve/pkg/jsonrpc` | Standalone JSON-RPC 2.0 engine |
+
+The four top-level package APIs follow semantic versioning on the v1 module
+line. Generated layouts, examples, and commands are maintained and tested but
+are not stable import surfaces. See [API stability](./docs/API_STABILITY.md) for
+the compatibility and deprecation policy.
+
+## Generate a service
+
+`hyperserve-init` creates a Go module, a server entry point, and tests:
 
 ```sh
 go install github.com/osauer/hyperserve/cmd/hyperserve-init@latest
@@ -228,12 +186,21 @@ cd payments
 go run ./cmd/server
 ```
 
-MCP is omitted by default because the scaffold does not guess an application
-authentication policy. Pass `--with-mcp` only when you will protect `/mcp`
-with your own authorization middleware. Use `--local-replace` when developing
-against a local HyperServe checkout.
+The generated project omits MCP because the initializer cannot choose an
+application's authorization policy. Pass `--with-mcp` only when the service will
+protect `/mcp` itself. `--local-replace` points a generated project at a local
+HyperServe checkout.
 
-## Development
+## Documentation and development
+
+- [Examples](./examples/) — runnable programs grouped by task
+- [Production guide](./docs/PRODUCTION.md) — proxies, TLS, health, shutdown, and security boundaries
+- [Architecture](./ARCHITECTURE.md) — package and lifecycle design
+- [Go reference](https://pkg.go.dev/github.com/osauer/hyperserve) — exported API documentation
+- [Contributing](./CONTRIBUTING.md) — local workflow and pull requests
+- [Security policy](./SECURITY.md) — supported releases and private reporting
+
+Repository checks:
 
 ```sh
 make check
@@ -241,18 +208,8 @@ make test-race
 make fuzz-smoke
 ```
 
-`make check` runs formatting, vet, Staticcheck, govulncheck, Go 1.27
-modernization, standalone example checks, and canonical example builds. See
-[CONTRIBUTING.md](./CONTRIBUTING.md) for the complete workflow.
-
-## Documentation
-
-- [Architecture](./ARCHITECTURE.md)
-- [API stability](./docs/API_STABILITY.md)
-- [Production guide](./docs/PRODUCTION.md)
-- [WebSocket guide](./docs/WEBSOCKET_GUIDE.md)
-- [MCP guide](./docs/MCP_GUIDE.md)
-- [Examples](./examples/)
-- [Security policy](./SECURITY.md)
+`make check` runs vet, Staticcheck, vulnerability scans, Go modernization,
+example builds, and MCP conformance checks. Bugs and usage questions belong in
+[GitHub Issues](https://github.com/osauer/hyperserve/issues).
 
 MIT — see [LICENSE](./LICENSE).

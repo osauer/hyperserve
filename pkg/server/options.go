@@ -14,7 +14,7 @@ Environment Variables:
   - HS_RATE_LIMIT: Per-client requests per second
   - HS_BURST_LIMIT: Per-client burst size
   - HS_CONFIG_PATH: JSON config file path (default "options.json")
-  - HS_HARDENED_MODE: Enable security headers (default "false")
+  - HS_HARDENED_MODE: Suppress the Server header in HeadersMiddleware (default "false")
   - HS_MCP_ENABLED: Enable Model Context Protocol (default "false")
   - HS_MCP_ENDPOINT: MCP endpoint path (default "/mcp")
   - HS_MCP_DEV: Enable MCP developer tools (default "false")
@@ -704,8 +704,15 @@ func WithFIPSMode() ServerOptionFunc {
 	}
 }
 
-// WithHardenedMode enables hardened security mode for enhanced security headers.
-// In hardened mode, the server header is suppressed and additional security measures are applied.
+// WithHardenedMode tells [HeadersMiddleware] to omit the Server header. It
+// does not enable or register security-header middleware. Add [SecureWeb]
+// globally or add HeadersMiddleware directly for the option to affect
+// responses.
+//
+//	srv, err := NewServer(WithHardenedMode())
+//	if err == nil {
+//		srv.AddMiddlewareStack(GlobalMiddlewareRoute, SecureWeb(srv.Options))
+//	}
 func WithHardenedMode() ServerOptionFunc {
 	return func(srv *Server) error {
 		srv.Options.HardenedMode = true

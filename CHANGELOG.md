@@ -24,6 +24,36 @@ Entries tier by audience:
 Shape is enforced by `make changelog-lint RELEASE_VERSION=vX.Y.Z`; scaffold a
 new entry with `make changelog-stub RELEASE_VERSION=vX.Y.Z`.
 
+## [1.5.0] - 2026-08-23 18:57 CEST
+
+HyperServe can now fit inside applications that already own process signals,
+without competing shutdown goroutines or giving up graceful cleanup.
+
+### What's new
+
+- Network servers can use `RunContext` when the embedding application owns the
+  lifecycle; cancellation starts the same graceful shutdown path as `Run`.
+- Standalone `Run` keeps its existing signal-owned behavior, while MCP stdio
+  keeps EOF as its explicit portable shutdown boundary.
+
+### Added
+
+- Added `(*server.Server).RunContext(context.Context)` for caller-owned
+  HTTP/HTTPS lifecycles. A pre-cancelled context skips listener startup and
+  still releases server resources.
+
+### Changed
+
+- `Run` now derives its shutdown trigger with `signal.NotifyContext` and shares
+  the network startup and cleanup implementation with `RunContext`.
+- Clarified that `WithHardenedMode` makes `HeadersMiddleware` omit the `Server`
+  header; applications still attach `SecureWeb` or `HeadersMiddleware` where
+  security headers should apply.
+
+### Verification
+
+- `go test -race ./pkg/server`
+
 ## [1.4.0] - 2026-08-23 17:15 CEST
 
 ### What's new

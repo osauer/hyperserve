@@ -479,6 +479,44 @@ func validateMCPProtocolVersion(options *ServerOptions) error {
 //	    log.Fatal("Server failed:", err)
 //	}
 func (srv *Server) Run() error {
+	// MCP stdio owns its lifecycle through stdin EOF. Registering for signals
+	// here would consume them without giving the blocking read loop a way to
+	// stop, so preserve the transport's existing EOF-only behavior.
+	if srv.Options.MCPEnabled && srv.Options.MCPTransport == mcp.StdioTransport {
+		return srv.run(context.Background())
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	defer stop()
+	return srv.run(ctx)
+}
+
+// RunContext starts the HTTP/HTTPS server and blocks until ctx requests a
+// graceful shutdown, the server exits, or deferred initialization fails. It
+// does not subscribe to process signals; the caller owns the lifecycle.
+// Cancellation is a normal shutdown trigger and returns nil when shutdown
+// succeeds. RunContext returns an error for MCP stdio transport because a
+// context cannot portably interrupt its blocking stdin read; use Run and EOF.
+// A Server must not be run concurrently or reused after RunContext returns.
+func (srv *Server) RunContext(ctx context.Context) error {
+	if ctx == nil {
+		return errors.New("hyperserve: RunContext called with nil context")
+	}
+	if srv.Options.MCPEnabled && srv.Options.MCPTransport == mcp.StdioTransport {
+		return errors.New("hyperserve: RunContext does not support MCP stdio transport; use Run and close stdin")
+	}
+	if ctx.Err() != nil {
+		logger.Info("Server context already done; skipping startup.", "reason", context.Cause(ctx))
+		return srv.shutdownAfter(nil)
+	}
+	return srv.run(ctx)
+}
+
+// run contains the transport startup shared by Run and RunContext. triggerCtx
+// begins shutdown but deliberately does not become the HTTP BaseContext: the
+// server's internal lifecycle context preserves the existing request and
+// deferred-initialization semantics.
+func (srv *Server) run(triggerCtx context.Context) error {
 	// Print ASCII art on startup (skip in stdio mode or if suppressed)
 	if srv.Options.MCPTransport != mcp.StdioTransport && !srv.Options.SuppressBanner {
 		srv.printStartupBanner()
@@ -588,7 +626,7 @@ func (srv *Server) Run() error {
 	}
 
 	// Graceful shutdown handling
-	return srv.handleShutdown(serverErr, deferredErr)
+	return srv.handleShutdown(triggerCtx, serverErr, deferredErr)
 }
 
 func (srv *Server) logServerMetrics() {
@@ -712,17 +750,13 @@ func (srv *Server) initHealthServer() error {
 	return nil
 }
 
-func (srv *Server) handleShutdown(serverErr chan error, deferredErr chan error) error {
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-	defer signal.Stop(quit)
-
+func (srv *Server) handleShutdown(triggerCtx context.Context, serverErr <-chan error, deferredErr <-chan error) error {
 	// deferredErr may legitimately fire nil first (success); only a non-nil
 	// error counts as a shutdown trigger.
 	for {
 		select {
-		case sig := <-quit:
-			logger.Info("Shutting down server.", "reason", sig)
+		case <-triggerCtx.Done():
+			logger.Info("Shutting down server.", "reason", context.Cause(triggerCtx))
 			return srv.shutdownAfter(nil)
 		case err := <-deferredErr:
 			if err == nil {
