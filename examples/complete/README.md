@@ -23,7 +23,7 @@ These are explicitly enabled in this example:
 - **Authentication** - Token validation + `SecureAPI` middleware stack
 - **Rate Limiting** - Applied to /api/* via `SecureAPI` middleware stack
 - **Server-Sent Events** - Custom SSE handler
-- **Static Files** - Via `HandleStatic()`
+- **Static Files** - Fail-closed setup via `HandleStaticChecked()`
 - **Templates** - Dynamic HTML generation
 - **MCP Support** - AI assistant integration
 - **File Upload** - Multipart form handling

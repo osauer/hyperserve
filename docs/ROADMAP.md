@@ -1,18 +1,23 @@
 # HyperServe Roadmap
 
-_Last updated: 2026-05-24 07:43 CEST (v1 line)._
+_Last updated: 2026-08-23 (v1 line)._
 
-HyperServe is a library-first Go HTTP framework with in-process MCP for
-agentic workloads. The near-term roadmap is about making that story sharp:
-production MCP observability, Streamable HTTP correctness, and a small set of
-canonical examples that stay release-gated.
+HyperServe is the Go API server its maintainer wanted to own: standard
+`net/http` shapes, an explicit lifecycle and configuration boundary, and the
+operational pieces that otherwise accumulate around each service. WebSocket,
+JSON-RPC, and optional MCP remain in-tree so adopters can choose an integrated
+server instead of assembling a framework from many packages.
 
 ## Product Thesis
 
-A small `net/http`-shaped server with first-class MCP, JSON-RPC, SSE,
-WebSocket, request binding, and production middleware. AI assistants should be
-able to inspect a live service through the same binary that serves traffic,
-without an out-of-process bridge.
+A service should be able to add lifecycle, request binding, security middleware,
+observability, WebSocket, and MCP without replacing ordinary Go handlers. Each
+integrated capability must remove repeated application work and justify the
+protocol and compatibility surface HyperServe then owns.
+
+MCP is first-class but optional. When enabled, it can expose tools and resources
+from the same process that serves HTTP traffic. The application still owns
+authorization, logging boundaries, and which capabilities are reachable.
 
 ## Canonical Examples
 
@@ -31,11 +36,10 @@ compatibility regression, not as the primary transport story.
 
 | Theme | Description | Why It Matters |
 |---|---|---|
-| Production MCP observability | Keep resources live, route inspection truthful, logs wired, and discovery cache-safe. | This is the project differentiator and must be trustworthy in production. |
-| Scaffold reliability | Generated projects should build outside the monorepo, include the right module requirement, and use current Go/tooling defaults. | A broken first generated app reflects poorly on the framework. |
+| Production MCP observability | Keep resources live, route inspection truthful, logs server-owned, and discovery cache-safe. | An in-process observability surface must not capture unrelated application state or weaken caller authority. |
+| Scaffold reliability | Generated projects should build outside the monorepo, include the right module requirement, and use current Go/tooling defaults. | The generated service is many users' first executable contract with the library. |
 | Protocol conformance | Continue tightening JSON-RPC, SSE, and WebSocket behavior against their specs. | Agent clients are strict; protocol drift becomes integration pain. |
-| Observability exports | Explore lightweight OTLP-compatible metrics/trace export without pulling a full SDK into the runtime. | Connects HyperServe to existing production stacks while keeping the core small. |
-| Runtime safeguards | Design privileged MCP controls with policy hooks, auditing, and narrow scopes. | Makes agent-assisted operations useful without turning MCP into an unsafe control plane. |
+| Benchmark credibility | Repair the concurrent harness and publish only reproducible, environment-qualified results. | Performance claims should follow evidence rather than drive speculative optimization. |
 
 ## Release Discipline
 

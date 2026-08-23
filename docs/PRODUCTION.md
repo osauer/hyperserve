@@ -208,18 +208,20 @@ exposes `config://server/current`, `health://server/status`, and
 
 ## Static files
 
-`HandleStatic(pattern)` sandboxes file serving to `Options.StaticDir`
-via `os.OpenRoot`. If `OpenRoot` fails at startup (directory missing,
-permission denied), it falls back to `http.FileServer(http.Dir(...))`
-and logs:
+`HandleStaticChecked(pattern)` confines file serving to `Options.StaticDir`
+with `os.OpenRoot`. If the root cannot be opened, it returns an error and does
+not register the route:
 
-```
-WARN  Failed to open static root directory, falling back to http.Dir
+```go
+if err := srv.HandleStaticChecked("/static/"); err != nil {
+    return fmt.Errorf("mount static files: %w", err)
+}
 ```
 
-Don't ship if you see that line. The fallback exists for local
-development. An unsandboxed file server is one path-traversal bug away
-from leaking `/etc/passwd`. Fix the directory and start over.
+`HandleStatic(pattern)` remains as a deprecated v1-compatible wrapper. It logs
+the setup error and leaves the route unregistered. New code should use the
+checked method so a missing or inaccessible root stops startup explicitly.
+There is no `http.Dir` fallback.
 
 Static serving is GET/HEAD only. POST returns 405.
 
@@ -328,8 +330,7 @@ empty in every real deployment.
 - [ ] `MCPDev()` not present in any production preset
 - [ ] `WithMCPFileToolRoot` set whenever `WithMCPBuiltinTools(true)` is
       set; otherwise file tools are skipped with a WARN log
-- [ ] Startup log shows "Static file serving using secure os.Root",
-      not "falling back to http.Dir"
+- [ ] Every `HandleStaticChecked` error is handled during startup
 - [ ] JSON logging configured if your aggregator needs it
 - [ ] Request-correlation middleware added if you need one (none ships)
 

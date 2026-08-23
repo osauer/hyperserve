@@ -74,10 +74,14 @@ You'll see security headers like:
 
 ```go
 // Serve static files from the default "static/" directory
-server.HandleStatic("/")
+if err := server.HandleStaticChecked("/"); err != nil {
+    log.Fatal(err)
+}
 ```
 
-HyperServe automatically serves files from the `static/` directory by default.
+HyperServe serves files through an `os.Root` confined to the configured static
+directory. A missing or inaccessible root stops startup instead of selecting a
+weaker file server.
 
 ### 2. Automatic index.html
 

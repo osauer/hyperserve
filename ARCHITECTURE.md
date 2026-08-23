@@ -2,35 +2,52 @@
 
 ## Design Philosophy
 
-HyperServe is a thin layer over `net/http` with one runtime dependency
-(`golang.org/x/time`) and a built-in MCP server in the same binary. Everything
-else — middleware, WebSocket, JSON-RPC — is in-tree to keep the dependency tree
-flat.
+HyperServe is an integrated server boundary built on `net/http`. It preserves
+standard routes and handler shapes while keeping lifecycle, request binding,
+security middleware, observability, WebSocket, JSON-RPC, and optional MCP in one
+module.
+
+The runtime module has one external dependency, `golang.org/x/time`. WebSocket,
+JSON-RPC, and MCP are implemented in-tree. Callers therefore assemble fewer
+packages, while HyperServe takes responsibility for more protocol conformance
+and security work. That trade-off is deliberate and must remain visible.
 
 ## Core Principles
 
-### 1. Single Runtime Dependency
+### 1. Small Runtime Graph
+
 - `golang.org/x/time` for the rate-limiter token bucket.
 - Everything else uses the Go standard library.
 - `tools/go.mod` owns `golang.org/x/tools`, the official MCP SDK conformance
   dependency, and their transitive graphs, keeping developer tooling out of
   the shipped module graph.
 
-### 2. Standard Library First
-- `net/http` for the server, `crypto/tls` for TLS, `os.Root` for the static-file sandbox.
-- WebSocket and JSON-RPC are implemented in-tree against the standard library, not pulled from third parties.
+### 2. Standard Library Shapes
 
-### 3. Secure Defaults
-- Security headers middleware is available out of the box.
+- `net/http` owns routing and handler contracts; `crypto/tls` owns TLS; `os.Root`
+  confines static-file access.
+- WebSocket and JSON-RPC are implemented in-tree against the standard library.
+- Applications can use ordinary `http.Handler` middleware without an adapter.
+
+### 3. Caller-Owned Authority
+
+- `NewServer` is deterministic. File and environment configuration require
+  explicit `WithConfigFile` or `WithEnvironment` options.
+- Security headers middleware is available but remains an application choice.
 - Rate limiting is opt-in per route, with a periodic cleanup ticker.
 - TLS defaults to 1.2+; `WithFIPSMode()` restricts to the FIPS-approved cipher list.
 
-### 4. AI / MCP as a First-Class Surface
-- The MCP server lives in `pkg/mcp` and is the differentiator vs `net/http` + a third-party router.
+### 4. MCP Is First-Class and Optional
+
+- The MCP implementation lives in `pkg/mcp`; HTTP and WebSocket users do not
+  need to enable it.
+- Services that do enable MCP can mount it in the same process without changing
+  their existing `net/http` handlers.
 - Current Streamable HTTP uses finite JSON responses and request-scoped SSE
   for `subscriptions/listen`; stdio shares the same handler. Proprietary routed
   SSE is default-off deprecated compatibility behavior.
-- Built-in tools and resources are opt-in (`WithMCPBuiltinTools(true)`); they are demos, not production wiring.
+- Built-in tools and resources are opt-in (`WithMCPBuiltinTools(true)`); they are
+  demonstrations, not an authorization policy.
 
 ## Architecture Overview
 
@@ -70,11 +87,13 @@ RFC 6455 implementation featuring:
 
 - `pkg/server` — HTTP server, middleware registry, deferred-init lifecycle, MCP wiring options.
 - `pkg/mcp` — MCP protocol surface. Standalone — no dependency on `pkg/server`.
-- `pkg/mcp/builtin` — Opt-in built-in MCP tools and resources. Depends on both `pkg/server` (for `*Server` access) and `pkg/mcp`.
+- `pkg/mcp/builtin` — Opt-in built-in MCP tools and resources. Depends on both
+  `pkg/server` (for `*Server` access) and `pkg/mcp`.
 - `pkg/websocket` — WebSocket server upgrader, outbound client, low-level framing, origin checks.
 - `pkg/jsonrpc` — Standalone JSON-RPC 2.0 engine used by `pkg/mcp`.
 
-Dependency direction is one-way: `pkg/mcp/builtin` → `pkg/server` + `pkg/mcp`; `pkg/server` → `pkg/mcp`; `pkg/mcp` → `pkg/jsonrpc`. No cycles.
+Dependency direction is one-way: `pkg/mcp/builtin` → `pkg/server` + `pkg/mcp`;
+`pkg/server` → `pkg/mcp`; `pkg/mcp` → `pkg/jsonrpc`. No cycles.
 
 ### Directory Structure
 
@@ -90,38 +109,45 @@ Dependency direction is one-way: `pkg/mcp/builtin` → `pkg/server` + `pkg/mcp`;
 │   └── jsonrpc/      # JSON-RPC 2.0 engine
 ├── examples/         # Self-contained `go run .` examples
 ├── docs/             # ADRs and guides
-├── benchmarks/       # Go micro-benchmarks + wrk load script
+├── benchmarks/       # Benchmark methodology and supporting material
 └── go.{mod,sum}
 ```
 
 ## Key Design Decisions
 
-- **Standard library first.** Routing is `net/http.ServeMux`. TLS is `crypto/tls`. The static-file sandbox is `os.Root`. WebSocket and JSON-RPC are in-tree against the standard library, not pulled from third parties.
-- **Interfaces only where they earn it.** `MiddlewareFunc`, `mcp.Tool`, `mcp.Resource`, `mcp.Transport`, `mcp.Extension` exist because they have multiple implementations or are extension points. Single-implementation interfaces are avoided.
-- **Context-aware end-to-end.** Handlers, middleware, deferred-init, shutdown hooks, and MCP tool execution all thread `context.Context`.
-- **Errors returned, not panicked.** The recovery middleware exists to catch caller panics, not as a control-flow mechanism.
+- **Standard library shapes.** Routing is `net/http.ServeMux`, handlers remain
+  `http.Handler` values, TLS uses `crypto/tls`, and static-file access uses
+  `os.Root`. WebSocket and JSON-RPC are maintained in-tree.
+- **Interfaces only where they earn it.** `MiddlewareFunc`, `mcp.Tool`,
+  `mcp.Resource`, `mcp.Transport`, and `mcp.Extension` have multiple
+  implementations or are extension points. Single-implementation interfaces are
+  avoided.
+- **Context-aware end-to-end.** Handlers, middleware, deferred initialization,
+  shutdown hooks, and MCP tool execution all thread `context.Context`.
+- **Errors returned, not panicked.** Recovery middleware catches caller panics;
+  HyperServe does not use panics for control flow.
 
 ## Security
 
 - TLS 1.2+ default; `WithFIPSMode()` restricts to the FIPS-approved cipher list.
 - Security-header middleware (`SecureWeb`, `SecureAPI`) available out of the box; off by default.
 - Rate limiting is per-route and per-client, with a periodic cleanup ticker.
-- Static file serving is sandboxed via `os.Root`.
+- Static-file serving uses `os.Root` and fails closed if the configured root
+  cannot be opened.
 - The MCP discovery filter (`WithMCPDiscoveryFilter`) gates only discovery
   visibility. Authorization middleware must protect the MCP endpoint itself.
 
-## Performance
+## Performance Evidence
 
-- One goroutine per connection (stdlib `net/http`).
-- Atomic counters for request/latency totals.
-- Rate-limiter map uses Swiss Tables.
+Repository microbenchmarks are comparison tools, not universal throughput
+claims. Results must identify the commit, Go version, host, command, and workload
+that produced them. See [Performance and benchmarking](./docs/PERFORMANCE.md).
 
 ## Roadmap
 
-Tracked in the issue tracker and CHANGELOG. The next milestone bumps the minimum Go version once `encoding/json/v2` graduates from experimental.
+See [ROADMAP.md](./docs/ROADMAP.md) and the issue tracker.
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md). Run `make check` (vet + staticcheck + modernize + govulncheck) before opening a PR.
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed guidelines.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the local workflow. Run `make check`
+before opening a pull request.

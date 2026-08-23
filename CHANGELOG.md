@@ -50,6 +50,8 @@ or accepting hidden process-level inputs.
   source options. Options apply from left to right.
 - Added `WithServerHeader` and `WithStartupBanner` as positive opt-ins for
   process identification.
+- Added `HandleStaticChecked` so applications can fail startup explicitly when
+  the configured `os.Root` cannot be opened.
 
 ### Changed
 
@@ -61,24 +63,41 @@ or accepting hidden process-level inputs.
 - `HeadersMiddleware` now omits `Server` by default, and the ASCII startup
   banner is suppressed by default. Neither setting changes the middleware
   stack.
+- MCP observability and developer log resources now wrap only the MCP handler
+  logger, including its JSON-RPC engine, instead of replacing process-wide or
+  server-package loggers.
 
 ### Deprecated
 
 - Deprecated `NewServerOptions`, `WithHardenedMode`, `HS_HARDENED_MODE`,
   `WithSuppressBanner`, and `HS_SUPPRESS_BANNER`. They remain as migration
   bridges; empty `ServerHeader` and the default banner setting replace them.
+- Deprecated `HandleStatic` in favor of the error-returning
+  `HandleStaticChecked`. The compatibility wrapper now logs setup failures and
+  leaves the route unregistered.
+
+### Removed
+
+- Removed the stale `wrk` harness and unqualified benchmark summary. The script
+  targeted a server command that no longer exists; issue #82 tracks a
+  reproducible concurrent replacement.
 
 ### Security
 
 - Removed implicit configuration authority from `NewServer`, preventing an
   ambient file or process variable from enabling listeners, MCP, CORS, or
   related capabilities without an explicit application opt-in.
+- Static-file setup now fails closed: an inaccessible root no longer falls back
+  to `http.Dir`.
+- MCP log resources no longer capture unrelated process or server-package logs
+  through global logger replacement.
 
 ### Documentation
 
 - Added ADR-0013, configuration migration guidance, updated runnable examples,
   and scaffold defaults that describe security middleware separately from
-  server identification.
+  server identification. Architecture, roadmap, production, and performance
+  documentation now state the ownership and evidence boundaries directly.
 
 ### Verification
 

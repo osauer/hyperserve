@@ -13,7 +13,7 @@ AI assistants are becoming increasingly important in software development and op
 1. **Protocol Compliance**: Full JSON-RPC 2.0 and MCP specification compliance
 2. **Security**: Secure tool execution with sandboxed file access
 3. **Extensibility**: Easy addition of custom tools and resources
-4. **Performance**: Minimal overhead for non-MCP requests
+4. **Disabled path**: Do not construct or register the MCP handler unless enabled
 5. **Consistency**: Integration with existing hyperserve patterns
 6. **Optional**: MCP support should be optional and configurable
 
@@ -64,7 +64,7 @@ We will implement native MCP support in hyperserve with the following architectu
 ### 5. Performance Considerations
 
 - **Lazy Initialization**: MCP components only created when enabled
-- **Minimal Overhead**: No performance impact when MCP is disabled
+- **Disabled Path**: No MCP handler or route is registered when MCP is disabled
 - **Efficient Routing**: Direct handler registration, not middleware-based
 - **Memory Management**: Proper cleanup and resource management
 
@@ -150,7 +150,7 @@ srv.Run()
 
 - **Standard Protocol**: Well-established, widely supported
 - **Bi-directional**: Supports both request/response and notifications
-- **Lightweight**: Minimal overhead compared to alternatives
+- **Small Envelope**: Requests and responses use the JSON-RPC message model
 - **Tooling**: Extensive tooling and library support
 
 ### Why Built-in Tools/Resources?
@@ -164,13 +164,12 @@ srv.Run()
 
 - **Modern Security**: Leverages Go 1.24's secure file access
 - **Automatic Sandboxing**: Prevents path traversal attacks
-- **Performance**: Native implementation with minimal overhead
 - **Future-Proof**: Aligns with Go's security roadmap
 
 ### Why Optional by Default?
 
 - **Backward Compatibility**: Doesn't affect existing users
-- **Performance**: Zero overhead when disabled
+- **Isolation**: No MCP handler or route is registered when disabled
 - **Security**: Reduces attack surface when not needed
 - **Simplicity**: Users opt-in to additional complexity
 

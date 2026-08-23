@@ -31,7 +31,7 @@ The health server is minimal with no middleware, ensuring reliable responses.
 ### Positive
 - **Reliability**: Health checks work even when main server is overloaded
 - **Simplicity**: No complex middleware bypass logic
-- **Performance**: Zero impact on main server performance
+- **Isolation**: Health checks use a separate listener and mux from main traffic
 - **Kubernetes-native**: Separate ports for liveness/readiness
 - **Clean separation**: Health checks are operationally distinct
 

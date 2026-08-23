@@ -1,38 +1,16 @@
 # Benchmarks
 
-HyperServe has two benchmark surfaces:
+HyperServe currently supports in-process Go microbenchmarks in
+`pkg/server/benchmark_test.go`:
 
-## 1. Go micro-benchmarks
-
-Live under `pkg/server/benchmark_test.go`. Standard Go benchmarks; measure
-handler/middleware overhead and JSON encoding paths.
-
-```bash
-go test -bench=. -benchmem ./pkg/server
+```sh
+go test -run '^$' -bench . -benchmem ./pkg/server
 ```
 
-For CPU/memory profiling:
+Use them to compare revisions on the same machine. They do not establish
+production throughput or model concurrent network clients.
 
-```bash
-go test -bench=. -cpuprofile=cpu.out ./pkg/server
-go test -bench=. -memprofile=mem.out ./pkg/server
-go tool pprof cpu.out
-```
-
-## 2. End-to-end load tests
-
-`./run_benchmarks.sh` runs an HTTP load test against a built `cmd/server`
-binary using `wrk`. Requires `wrk` on PATH.
-
-```bash
-./benchmarks/run_benchmarks.sh
-```
-
-The script reports requests/sec, latency percentiles, and transfer rates.
-
-## What you get
-
-There are no aspirational performance targets in this repo: actual numbers
-are workload-dependent (handler complexity, middleware stack, hardware).
-Use these benchmarks as a relative comparison tool — before/after a change —
-not as absolute claims.
+The previous `wrk` harness was removed because it built a server command that no
+longer exists. [Issue #82](https://github.com/osauer/hyperserve/issues/82) tracks
+its replacement. See the [performance guide](../docs/PERFORMANCE.md) for scope,
+comparison procedure, and the metadata required with reported results.

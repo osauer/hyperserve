@@ -23,7 +23,7 @@ The challenge is supporting templates without forcing them on users who don't ne
 Provide optional template integration using Go's `html/template`:
 - Templates are discovered automatically from a configured directory
 - No templates are loaded if directory isn't specified
-- Zero overhead when templates aren't used
+- No template parsing or directory access when templates aren't configured
 - Use standard Go template syntax
 
 Templates are configured via:
@@ -34,7 +34,7 @@ server.WithTemplateDir("./templates")
 ## Consequences
 
 ### Positive
-- **Zero overhead**: No performance impact when not used
+- **Inactive when unused**: No templates are opened or parsed without a directory
 - **Familiar syntax**: Standard Go templates
 - **Auto-discovery**: Templates found automatically
 - **Security**: html/template provides XSS protection
