@@ -6,9 +6,10 @@
 [![Go reference](https://pkg.go.dev/badge/github.com/osauer/hyperserve.svg)](https://pkg.go.dev/github.com/osauer/hyperserve)
 [![License: MIT](https://img.shields.io/github/license/osauer/hyperserve)](LICENSE)
 
-HyperServe is a small, `net/http`-shaped Go server with an in-process Model
-Context Protocol (MCP) control plane and an RFC 6455 WebSocket implementation
-for servers and outbound clients.
+HyperServe is a small, `net/http`-shaped service kit for Go: HTTP lifecycle,
+middleware, and typed inputs; an RFC 6455 WebSocket implementation for servers
+and outbound clients; and an optional in-process Model Context Protocol (MCP)
+control plane.
 
 The shipped module has one external dependency, `golang.org/x/time`. Developer
 tooling lives in the separate [`tools/go.mod`](./tools/go.mod) graph and does
@@ -30,7 +31,40 @@ Public packages:
 | `github.com/osauer/hyperserve/pkg/websocket` | WebSocket server upgrader and outbound client |
 | `github.com/osauer/hyperserve/pkg/jsonrpc` | Standalone JSON-RPC 2.0 engine |
 
+## Why HyperServe?
+
+[Go 1.27](https://go.dev/doc/go1.27) makes an already strong standard library
+better: `net/http` is a capable router and server, and `encoding/json` now runs
+on the v2 implementation, with notably faster unmarshaling. HyperServe is
+useful when the problem is no longer one handler, but the same service plumbing
+accumulating around every handler:
+
+- **Stay in the standard HTTP model.** Routes use `http.ServeMux` patterns,
+  handlers remain `http.Handler` or `http.HandlerFunc`, and middleware keeps
+  the usual `func(http.Handler) http.Handler` shape. Existing Go code does not
+  need a framework-specific context or adapter layer.
+- **Own less boundary and lifecycle glue.** Typed request binding, validation,
+  safe error responses, default timeouts, panic recovery, logging, metrics,
+  graceful shutdown, readiness, health endpoints, and rooted static-file
+  serving live in one tested server shell.
+- **Use one WebSocket API at both edges.** The server upgrader and outbound
+  client put origin checking, message-size limits, handshake validation, and
+  context-aware client I/O in one small package instead of requiring a separate
+  networking stack.
+
+If routes plus JSON are all you need, use `net/http` directly. Adopt HyperServe
+when you would otherwise maintain this same service shell in each binary. Its
+value is the integration between these concerns, not replacing Go's standard
+library. MCP remains optional; it is not the reason to choose the HTTP and
+WebSocket layer.
+
 ## HTTP quick start
+
+This example is intentionally ordinary Go. `GET` registers the standard
+`"GET /"` `ServeMux` pattern, while the callback remains an
+`http.HandlerFunc`. `Run` supplies the part usually repeated around the mux:
+configured timeouts, default logging/metrics/recovery middleware, signal
+handling, and graceful shutdown.
 
 ```go
 package main
@@ -51,9 +85,10 @@ func main() {
 }
 ```
 
-HyperServe provides method-aware routes, middleware, graceful shutdown,
-sandboxed static files, request binding and validation, and deferred startup.
-It stays close to standard-library handler shapes.
+The result is a small production-shaped server without hiding the underlying
+HTTP model. Add options only for concerns the service actually has, such as a
+separate health listener, rate limiting, hardened headers, rooted static-file
+serving, or deferred startup.
 
 ## Outbound WebSocket client
 
@@ -61,6 +96,11 @@ It stays close to standard-library handler shapes.
 opening handshake, TLS verification, bounded redirects, custom headers,
 subprotocol negotiation, and a 1 MiB default read limit. Client frames are
 masked on the wire as required by RFC 6455.
+
+The snippet below opens one authenticated, time-bounded handshake, sends one
+message, and reads one reply. It shows how a relay, event feed, or worker can
+reuse an application's existing HTTP client and cancellation tree. Reconnect
+and retry policy deliberately remain with the application.
 
 ```go
 package relay
@@ -115,6 +155,11 @@ does. `HTTPClient` is mutually exclusive with `NetDialer` and `TLSConfig`.
 
 ## WebSocket server
 
+The server counterpart solves the browser upgrade boundary: accept only known
+origins, cap message memory, and then work with complete messages. This minimal
+echo handler is the protocol skeleton; application code can keep the same
+connection API while replacing the echo with its own loop or dispatcher.
+
 ```go
 upgrader := websocket.Upgrader{
     AllowedOrigins: []string{"https://app.example.com"},
@@ -163,6 +208,11 @@ tools and resources are off by default. See the [MCP guide](./docs/MCP_GUIDE.md)
 cover typed request input without another dependency. Supported validation
 rules are `required`, `min`, `max`, `len`, `email`, `url`, and `oneof`.
 
+Go 1.27 improves JSON parsing, but endpoint code still has to decode input,
+validate its contract, choose safe status codes, and encode a response. This
+snippet collapses that repeated boundary code so the function contains only
+the operation being performed:
+
 ```go
 type CreateUser struct {
     Email string `json:"email" validate:"required,email"`
@@ -175,9 +225,19 @@ srv.POST("/users", server.JSONHandler(
 ))
 ```
 
+Malformed or invalid input becomes a structured `400` response. Successful
+output is encoded as JSON; expected application errors can provide an HTTP
+status, while unexpected errors become a generic `500` without leaking their
+details. Use the lower-level bind helpers when an endpoint needs custom
+envelopes, streaming, or multi-step responses.
+
 See [`examples/binding`](./examples/binding/) for typed and lower-level forms.
 
 ## Scaffold a service
+
+The initializer is for the point where copying a working `main.go` starts to
+create drift. It generates the module, server entry point, and tests as a
+starting boundary—not an application architecture you must keep.
 
 ```sh
 go install github.com/osauer/hyperserve/cmd/hyperserve-init@latest
