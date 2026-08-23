@@ -1,127 +1,71 @@
-# MCP Configuration Examples
+# Application-owned MCP flags
 
-This example demonstrates different ways to configure MCP support in HyperServe without hardcoding development settings in your source code.
+Despite the historical directory name, this is an MCP **server**, not a client.
+It shows how an application can translate its own command-line flags into
+HyperServe options. HyperServe itself does not parse flags.
 
-**Important**: HyperServe does not parse command-line flags. Your application must handle flag parsing and use the parsed values to configure HyperServe.
+Run the HTTP server without MCP:
 
-## Running the Examples
-
-### Basic Usage (No MCP)
 ```bash
-go run main.go
+go run ./examples/mcp-cli
 ```
 
-### Enable MCP with Developer Tools (Claude Code)
+Enable the local-development preset over Streamable HTTP:
+
 ```bash
-# Using flags
-go run main.go --mcp --mcp-dev
-
-# Using environment variables
-HS_MCP_ENABLED=true HS_MCP_DEV=true go run main.go
-
-# Or build and run
-go build -o myapp
-./myapp --mcp --mcp-dev
+go run ./examples/mcp-cli --mcp-dev
 ```
 
-### Enable MCP with Observability (Production Monitoring)
+Or expose the same server over stdio for a process-supervised MCP host:
+
 ```bash
-./myapp --mcp --mcp-observability
+go run ./examples/mcp-cli --mcp-dev --mcp-transport=stdio
 ```
 
-### Claude Desktop Integration (STDIO)
-```bash
-# Build the binary first
-go build -o myapp
+The application accepts:
 
-# Test STDIO mode
-./myapp --mcp --mcp-dev --mcp-transport=stdio
+| Flag | Purpose |
+|---|---|
+| `--mcp-dev` | Local route inspection, status, and log-level tools |
+| `--mcp-observability` | Read-only server health and telemetry resources |
+| `--mcp-transport=http\|stdio` | Transport used when a preset is enabled |
+| `--port=8080` | Optional programmatic override for the listen port |
+
+The important boundary is visible in the code:
+
+```go
+if *mcpDev {
+    configs = append(configs, server.MCPDev())
+}
+opts = append(opts, server.WithMCPSupport("MyApp", "1.0.0", configs...))
 ```
 
-Then configure Claude Desktop:
+Environment configuration remains available when flags do not override it:
+
+```bash
+HS_MCP_ENABLED=true \
+HS_MCP_DEV=true \
+HS_MCP_SERVER_NAME=MyApp \
+go run ./examples/mcp-cli
+```
+
+For stdio, build a stable executable path for the host configuration:
+
+```bash
+go build -o mcp-flags ./examples/mcp-cli
+```
+
 ```json
 {
   "mcpServers": {
     "myapp": {
-      "command": "/path/to/myapp",
-      "args": ["--mcp", "--mcp-dev", "--mcp-transport=stdio"]
+      "command": "/absolute/path/to/mcp-flags",
+      "args": ["--mcp-dev", "--mcp-transport=stdio"]
     }
   }
 }
 ```
 
-### Claude Code Integration (HTTP)
-
-1. Start your server with MCP dev tools:
-```bash
-./myapp --mcp --mcp-dev
-```
-
-2. Configure Claude Code to connect to your server:
-```json
-{
-  "mcpServers": {
-    "myapp-local": {
-      "type": "http",
-      "url": "http://localhost:8080/mcp"
-    }
-  }
-}
-```
-
-## Configuration Methods
-
-### 1. Command-Line Flags
-```bash
-./myapp \
-  --mcp \
-  --mcp-name="MyApp" \
-  --mcp-version="2.0.0" \
-  --mcp-dev \
-  --mcp-transport=stdio
-```
-
-### 2. Environment Variables
-```bash
-export HS_MCP_ENABLED=true
-export HS_MCP_SERVER_NAME="MyApp"
-export HS_MCP_SERVER_VERSION="2.0.0"
-export HS_MCP_DEV=true
-export HS_MCP_TRANSPORT=stdio
-./myapp
-```
-
-### 3. Configuration File (options.json)
-```json
-{
-  "mcp_enabled": true,
-  "mcp_server_name": "MyApp",
-  "mcp_server_version": "2.0.0",
-  "mcp_dev": true,
-  "mcp_transport": "http"
-}
-```
-
-### 4. In Code (Use Sparingly)
-```go
-srv, _ := server.NewServer(
-    server.WithMCPSupport("MyApp", "1.0.0",
-        server.MCPDev(),  // Only in dev builds!
-    ),
-)
-```
-
-## Best Practices
-
-1. **Never hardcode MCPDev() in production code** - Use flags or environment variables
-2. **Use build tags for different environments** if you must configure in code
-3. **Default to HTTP transport** - It's more flexible for remote access
-4. **Use STDIO only for Claude Desktop** - It's designed for that use case
-5. **Enable observability for production** - Safe, read-only monitoring
-
-## Security Considerations
-
-- `MCPDev()` enables dangerous operations (restart, reload, debug)
-- Only enable in development environments
-- Use `MCPObservability()` for production monitoring
-- Consider network restrictions for MCP endpoints
+Do not expose the development preset on an untrusted network. It permits route
+inspection and runtime log-level changes. Prefer the observability preset when
+an operator only needs read-only status.

@@ -67,6 +67,9 @@ func TestMCPProgrammaticConfigurationNoDoubleWarning(t *testing.T) {
 	if !srv.Options.mcpTransportOpts.DeveloperMode {
 		t.Error("Developer mode should be enabled in transport options")
 	}
+	if !srv.Options.MCPDev {
+		t.Error("Developer mode should be visible in exported server options")
+	}
 }
 
 // TestMCPEnvironmentConfiguration tests that MCP can be configured via environment variables
@@ -152,6 +155,9 @@ func TestMCPMixedConfiguration(t *testing.T) {
 	}
 	if !srv.Options.mcpTransportOpts.ObservabilityMode {
 		t.Error("Should have observability mode")
+	}
+	if srv.Options.MCPDev || !srv.Options.MCPObservability {
+		t.Errorf("exported preset flags = dev %v, observability %v", srv.Options.MCPDev, srv.Options.MCPObservability)
 	}
 }
 

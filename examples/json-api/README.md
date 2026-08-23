@@ -109,19 +109,23 @@ func sendError(w http.ResponseWriter, status int, message string) {
 
 Errors are returned as JSON with appropriate HTTP status codes.
 
-### 3. Request Body Parsing
+### 3. Bounded request binding
 
 ```go
-var input struct {
-    Title string `json:"title"`
-}
-if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-    sendError(w, http.StatusBadRequest, "Invalid JSON")
+var input todoInput
+if err := server.BindJSON(r, &input); err != nil {
+    sendError(w, http.StatusBadRequest, err.Error())
     return
+}
+
+type todoInput struct {
+    Title string `json:"title" validate:"required,min=1,max=200"`
 }
 ```
 
-Using `json.Decoder` for efficient streaming JSON parsing.
+`BindJSON` caps the body at 1 MiB, rejects unknown fields, and runs the struct's
+validation tags. The example keeps its own response envelope while reusing the
+same safe input boundary as `server.JSONHandler`.
 
 ### 4. Thread-Safe Storage
 

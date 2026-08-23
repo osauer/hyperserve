@@ -45,3 +45,41 @@ func TestEnvironmentPortAndRateLimitAliases(t *testing.T) {
 		t.Fatalf("Burst = %d, want 50", opts.Burst)
 	}
 }
+
+func TestFunctionalOptionsOverrideEnvironmentAndConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.json")
+	if err := os.WriteFile(path, []byte(`{
+		"addr": ":9091",
+		"rate_limit": 10,
+		"burst": 20
+	}`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv(paramConfigPath, path)
+	t.Setenv(paramServerPort, "9092")
+	t.Setenv(paramRateLimit, "30")
+	t.Setenv(paramBurstLimit, "40")
+
+	srv, err := NewServer(
+		WithAddr(":9093"),
+		WithRateLimit(50, 60),
+	)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := srv.Stop(); err != nil {
+			t.Errorf("Stop: %v", err)
+		}
+	})
+
+	if srv.Options.Addr != ":9093" {
+		t.Fatalf("Addr = %q, want functional option :9093", srv.Options.Addr)
+	}
+	if srv.Options.RateLimit != 50 {
+		t.Fatalf("RateLimit = %v, want functional option 50", srv.Options.RateLimit)
+	}
+	if srv.Options.Burst != 60 {
+		t.Fatalf("Burst = %d, want functional option 60", srv.Options.Burst)
+	}
+}

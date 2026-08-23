@@ -243,4 +243,4 @@ This ADR aligns with existing architectural decisions:
 - [Model Context Protocol Specification](https://modelcontextprotocol.io/)
 - [JSON-RPC 2.0 Specification](https://www.jsonrpc.org/specification)
 - [Go 1.24 os.Root Documentation](https://pkg.go.dev/os#Root)
-- [MCP Example Implementation](../../examples/mcp/)
+- [MCP Example Implementation](../examples/mcp-basic/)

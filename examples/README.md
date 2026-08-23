@@ -8,9 +8,9 @@ Each subdirectory is a self-contained `main` package. Run with `go run ./example
 |---|---|
 | [hello-world](./hello-world/) | The smallest possible server — one route, default options. |
 | [static-files](./static-files/) | Serving HTML/CSS/JS with security headers. |
-| [json-api](./json-api/) | REST API: CRUD over an in-memory TODO list with request parsing and error handling. |
-| [middleware-basics](./middleware-basics/) | Building a middleware stack (logging, rate limiting, CORS) step by step. |
-| [configuration](./configuration/) | Env vars, JSON config files, programmatic `With*` options, and their precedence. |
+| [json-api](./json-api/) | Method-aware CRUD API using bounded `BindJSON` input and structured errors. |
+| [middleware-basics](./middleware-basics/) | Default middleware plus global security headers and route-scoped rate limiting. |
+| [configuration](./configuration/) | The exact precedence of defaults, JSON, environment, and functional options. |
 | [binding](./binding/) | `BindJSON`/`BindQuery`/`BindForm` + struct-tag validation, with structured 400 responses. |
 
 ## HTMX / templating
@@ -32,8 +32,8 @@ Each subdirectory is a self-contained `main` package. Run with `go run ./example
 | Example | What it shows |
 |---|---|
 | [mcp-basic](./mcp-basic/) | Smallest MCP server: enable, expose built-in tools/resources. |
-| [mcp-cli](./mcp-cli/) | Command-line MCP client hitting an MCP server over HTTP. |
-| [mcp-sse](./mcp-sse/) | The unified `/mcp` endpoint serving both regular HTTP and SSE. |
+| [mcp-cli](./mcp-cli/) | An MCP server configured by application-owned flags for HTTP or stdio. |
+| [mcp-sse](./mcp-sse/) | Current Streamable HTTP plus isolated legacy routed-SSE compatibility on `/mcp`. |
 | [mcp-stdio](./mcp-stdio/) | MCP over stdio for embedding in editors / process-supervised hosts. |
 | [mcp-discovery](./mcp-discovery/) | `/.well-known/mcp.json` discovery with policy filtering. |
 | [mcp-extensions](./mcp-extensions/) | Custom MCP tools and resources beyond the built-ins. |
@@ -51,7 +51,7 @@ Each subdirectory is a self-contained `main` package. Run with `go run ./example
 
 | Example | What it shows |
 |---|---|
-| [websocket-demo](./websocket-demo/) | RFC 6455 upgrade + echo handler + minimal browser client. |
+| [websocket-demo](./websocket-demo/) | Server-tracked RFC 6455 upgrade, bounded echo loop, and embedded browser client. |
 | [web-worker-csp](./web-worker-csp/) | `WithCSPWebWorkerSupport()` for blob:-URL Web Workers (Tone.js, PDF.js, etc.). |
 
 ## Running

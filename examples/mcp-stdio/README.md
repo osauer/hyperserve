@@ -10,13 +10,13 @@ This example demonstrates a standalone MCP server that communicates via stdio, a
   - `calculator`: Basic math operations
   - `read_file`: Read files from sandbox
   - `list_directory`: List directory contents
-- **Resources**: Sandbox information resource
+- **Resources**: Server configuration, metrics, runtime information, and recent logs
 
 ## Building
 
 ```bash
-# Build the executable
-go build -o hyperserve-mcp-stdio
+# From the repository root
+go build -o hyperserve-mcp-stdio ./examples/mcp-stdio
 
 # Or install globally
 go install github.com/osauer/hyperserve/examples/mcp-stdio@latest
@@ -90,8 +90,6 @@ When you run it directly, it will appear to "hang" because it's waiting for inpu
 # Single command test
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | ./hyperserve-mcp-stdio | jq
 
-# Run the included test script
-./test.sh
 ```
 
 ### Interactive Testing
@@ -102,7 +100,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | ./hyperserve-mcp-stdio |
 # Type or paste JSON-RPC requests:
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}
 {"jsonrpc":"2.0","id":2,"method":"tools/list"}
-{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"calculator","arguments":{"operation":"multiply","a":15,"b":4}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"mcp__hyperserve__calculator","arguments":{"operation":"multiply","a":15,"b":4}}}
 
 # Press Ctrl+D to exit
 ```

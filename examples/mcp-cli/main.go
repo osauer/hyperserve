@@ -21,14 +21,18 @@ func main() {
 		mcpDev           = flag.Bool("mcp-dev", false, "Enable MCP developer tools")
 		mcpObservability = flag.Bool("mcp-observability", false, "Enable MCP observability")
 		mcpTransport     = flag.String("mcp-transport", "http", "MCP transport (http|stdio)")
-		port             = flag.String("port", "8080", "Server port")
+		port             = flag.String("port", "", "Override server port")
 	)
 
 	flag.Parse()
+	if *mcpTransport != "http" && *mcpTransport != "stdio" {
+		log.Fatalf("unsupported MCP transport %q (want http or stdio)", *mcpTransport)
+	}
 
-	// Build server options programmatically based on parsed flags
-	opts := []serverpkg.ServerOptionFunc{
-		serverpkg.WithAddr(":" + *port),
+	// Leaving a flag unset preserves file and environment configuration.
+	var opts []serverpkg.ServerOptionFunc
+	if *port != "" {
+		opts = append(opts, serverpkg.WithAddr(":"+*port))
 	}
 
 	// Configure MCP based on flags
@@ -62,9 +66,9 @@ func main() {
 		fmt.Fprintln(w, "")
 		if srv.MCPEnabled() {
 			fmt.Fprintln(w, "MCP is enabled:")
-			fmt.Fprintf(w, "- Transport: %s\n", *mcpTransport)
-			fmt.Fprintf(w, "- Developer Mode: %v\n", *mcpDev)
-			fmt.Fprintf(w, "- Observability: %v\n", *mcpObservability)
+			fmt.Fprintf(w, "- Transport: %s\n", transportName(srv.Options.MCPTransport))
+			fmt.Fprintf(w, "- Developer Mode: %v\n", srv.Options.MCPDev)
+			fmt.Fprintf(w, "- Observability: %v\n", srv.Options.MCPObservability)
 		} else {
 			fmt.Fprintln(w, "MCP is not enabled. Use --mcp-dev or --mcp-observability to enable.")
 		}
@@ -76,16 +80,25 @@ func main() {
 	})
 
 	// Print usage information
-	printUsage(*mcpDev, *mcpObservability, *mcpTransport, *port)
+	printUsage(srv)
 
 	// Run the server
-	srv.Run()
+	if err := srv.Run(); err != nil {
+		log.Fatal(err)
+	}
 }
 
-func printUsage(mcpDev, mcpObservability bool, transport, port string) {
-	log.Println("Server starting on port", port)
+func transportName(transport mcp.TransportType) string {
+	if transport == mcp.StdioTransport {
+		return "stdio"
+	}
+	return "http"
+}
 
-	if !mcpDev && !mcpObservability {
+func printUsage(srv *serverpkg.Server) {
+	log.Println("Server starting on", srv.Options.Addr)
+
+	if !srv.MCPEnabled() {
 		log.Println("MCP is disabled. To enable, use:")
 		log.Println("  ./mcp-flags --mcp-dev                  # For development")
 		log.Println("  ./mcp-flags --mcp-observability        # For production monitoring")
@@ -94,26 +107,25 @@ func printUsage(mcpDev, mcpObservability bool, transport, port string) {
 	}
 
 	log.Println("MCP is enabled")
-	if transport == "stdio" {
+	if srv.Options.MCPTransport == mcp.StdioTransport {
 		log.Println("Running in STDIO mode for Claude Desktop")
 		log.Println("Configure Claude Desktop with:")
 		log.Println(`{
   "mcpServers": {
     "myapp": {
       "command": "/path/to/mcp-flags",
-      "args": ["--mcp", "--mcp-dev", "--mcp-transport=stdio"]
+      "args": ["--mcp-dev", "--mcp-transport=stdio"]
     }
   }
 }`)
 	} else {
-		log.Println("MCP endpoint available at: http://localhost:" + port + "/mcp")
-		if mcpDev {
+		log.Printf("MCP endpoint %s on %s", srv.Options.MCPEndpoint, srv.Options.Addr)
+		if srv.Options.MCPDev {
 			log.Println("Developer tools enabled - use Claude Code to:")
 			log.Println("  - Set log levels dynamically")
 			log.Println("  - Inspect routes and middleware")
-			log.Println("  - Capture and replay requests")
 		}
-		if mcpObservability {
+		if srv.Options.MCPObservability {
 			log.Println("Observability resources enabled:")
 			log.Println("  - Server configuration (sanitized)")
 			log.Println("  - Health metrics")

@@ -24,19 +24,26 @@ func main() {
 
 	// Set up sandbox directory
 	if sandboxDir == "" {
-		homeDir, _ := os.UserHomeDir()
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			log.Fatalf("Resolve home directory: %v", err)
+		}
 		sandboxDir = filepath.Join(homeDir, ".hyperserve-mcp", "sandbox")
 	}
-	if err := os.MkdirAll(sandboxDir, 0755); err != nil {
+	if err := os.MkdirAll(sandboxDir, 0o755); err != nil {
 		log.Fatalf("Failed to create sandbox directory: %v", err)
 	}
 
 	// Create sample files
-	createSampleFiles(sandboxDir)
+	if err := createSampleFiles(sandboxDir); err != nil {
+		log.Fatalf("Create sample files: %v", err)
+	}
 
 	// Create server with MCP stdio support
 	opts := []serverpkg.ServerOptionFunc{
 		serverpkg.WithMCPSupport("hyperserve-mcp-stdio", "1.0.0", mcp.OverStdio()),
+		serverpkg.WithMCPBuiltinTools(true),
+		serverpkg.WithMCPBuiltinResources(true),
 		serverpkg.WithMCPFileToolRoot(sandboxDir),
 	}
 
@@ -56,7 +63,7 @@ func main() {
 	}
 }
 
-func createSampleFiles(dir string) {
+func createSampleFiles(dir string) error {
 	files := map[string]string{
 		"hello.txt": "Hello from Hyperserve MCP stdio server!",
 		"test.json": `{"message": "This is a test file", "server": "hyperserve"}`,
@@ -64,6 +71,9 @@ func createSampleFiles(dir string) {
 
 	for name, content := range files {
 		path := filepath.Join(dir, name)
-		os.WriteFile(path, []byte(content), 0644)
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			return err
+		}
 	}
+	return nil
 }

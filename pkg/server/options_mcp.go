@@ -35,6 +35,11 @@ func WithMCPSupport(name, version string, configs ...mcp.TransportConfig) Server
 				srv.Options.MCPEndpoint = srv.Options.mcpTransportOpts.Endpoint
 			}
 		}
+		// Keep exported options truthful for status pages and consumers. The
+		// transport options are internal implementation detail; callers should
+		// not need them to learn which preset is active.
+		srv.Options.MCPDev = srv.Options.mcpTransportOpts.DeveloperMode
+		srv.Options.MCPObservability = srv.Options.mcpTransportOpts.ObservabilityMode
 
 		// Presets gate the built-in registration hooks.
 		switch {

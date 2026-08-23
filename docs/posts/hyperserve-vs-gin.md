@@ -85,7 +85,7 @@ srv.POST("/users", server.JSONHandler(createUser))
 
 `srv.POST` and its siblings (`GET`, `PUT`, `PATCH`, `DELETE`, `HEAD`, `OPTIONS`) are thin wrappers over the Go 1.22+ ServeMux. Wrong-method requests get a 405 with the right `Allow` header automatically, so the handler never has to switch on `r.Method`.
 
-The verb set on the `validate:` tag is deliberately small: `required, min, max, len, email, url, oneof`. The implementation is in [pkg/server/binding.go](pkg/server/binding.go) plus [pkg/server/typed_handler.go](pkg/server/typed_handler.go): around 600 lines of reflection, no codegen, no `validator/v10`. The lower-level `BindJSON` / `BindQuery` / `BindForm` / `Validate` entry points are still there for handlers that need to set custom headers, stream a response, or use a non-JSON envelope. `JSONHandler` and `JSONEcho` are shortcuts, not replacements.
+The verb set on the `validate:` tag is deliberately small: `required, min, max, len, email, url, oneof`. The implementation is in [pkg/server/binding.go](../../pkg/server/binding.go) plus [pkg/server/typed_handler.go](../../pkg/server/typed_handler.go): reflection without codegen or `validator/v10`. The lower-level `BindJSON` / `BindQuery` / `BindForm` / `Validate` entry points are still there for handlers that need to set custom headers, stream a response, or use a non-JSON envelope. `JSONHandler` and `JSONEcho` are shortcuts, not replacements.
 
 That's most of what you need to write an endpoint.
 
@@ -122,7 +122,7 @@ srv.RegisterMCPTool(mcp.NewTypedTool("search", "Search the corpus.", search))
 
 `mcp.NewTypedTool[In, Out]` derives the `inputSchema` and `outputSchema` (the latter added by the 2025-06-18 MCP spec revision) from struct tags via reflection, runs the same `validate:` rules `BindJSON` uses, then calls your function with a fully-typed args struct. No `map[string]any`, no `params["x"].(string)` assertions, no schema-and-implementation drift.
 
-If you have ever tried to bolt MCP onto an existing Go service, you know the alternative: a separate process, routing between them, two sets of lifecycle hooks. HyperServe collapses that into one binary. The protocol code is in [pkg/mcp/handler.go](pkg/mcp/handler.go) (673 lines) plus a handful of transport files. You can read the whole thing in an hour. This is the bet the library is making. Everything else is here so you don't have to glue four small libraries together to use it.
+If you have ever tried to bolt MCP onto an existing Go service, you know the alternative: a separate process, routing between them, two sets of lifecycle hooks. HyperServe collapses that into one binary. The protocol core is in [pkg/mcp/handler.go](../../pkg/mcp/handler.go) plus focused transport files. This is the bet the library is making. Everything else is here so you don't have to glue four small libraries together to use it.
 
 **Native WebSocket and SSE.** RFC 6455 WebSocket lives in `pkg/websocket`, and MCP Server-Sent Events are served by the unified `/mcp` endpoint. No `gorilla/websocket`, no `r3labs/sse`. The SSE work is what unlocks long-lived MCP sessions without a separate bridge.
 

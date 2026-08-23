@@ -128,11 +128,13 @@ curl -X POST http://localhost:8080/mcp \
 
 ### Quick Start (Recommended)
 
-Use flags or environment variables to avoid hardcoding development settings:
+HyperServe does not parse command-line flags. If your application owns flags
+(as [`examples/mcp-cli`](../examples/mcp-cli/) does), translate them into
+`WithMCPSupport` options. Environment variables are loaded directly:
 
 ```bash
 # Using flags
-./myapp --mcp --mcp-dev
+./myapp --mcp-dev
 
 # Using environment variables
 HS_MCP_ENABLED=true HS_MCP_DEV=true ./myapp
@@ -164,7 +166,7 @@ go build -o myapp
   "mcpServers": {
     "myapp": {
       "command": "/path/to/myapp",
-      "args": ["--mcp", "--mcp-dev", "--mcp-transport=stdio"],
+      "args": ["--mcp-dev", "--mcp-transport=stdio"],
       "cwd": "/path/to/project"
     }
   }
@@ -174,8 +176,6 @@ go build -o myapp
 3. Start developing with Claude:
 - "Set log level to DEBUG"
 - "Show me all routes"
-- "Restart the server"
-- "Capture the next POST request"
 
 ### Available Tools
 
@@ -203,7 +203,7 @@ an internet-facing interface.
 
 ```bash
 # Using flags
-./myapp --mcp --mcp-observability
+./myapp --mcp-observability
 
 # Using environment variables
 HS_MCP_ENABLED=true HS_MCP_OBSERVABILITY=true ./myapp

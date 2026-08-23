@@ -1,12 +1,15 @@
 package main
 
 import (
+	_ "embed"
 	"log"
 	"net/http"
 
 	serverpkg "github.com/osauer/hyperserve/pkg/server"
-	"github.com/osauer/hyperserve/pkg/websocket"
 )
+
+//go:embed demo.html
+var demoHTML []byte
 
 func main() {
 	srv, err := serverpkg.NewServer(
@@ -16,14 +19,13 @@ func main() {
 		log.Fatal(err)
 	}
 
-	upgrader := websocket.Upgrader{
-		CheckOrigin: func(r *http.Request) bool {
-			return true // Allow all origins for demo
-		},
-	}
+	// The server-owned upgrader keeps the package's same-origin default and
+	// records successful upgrades in HyperServe's WebSocket telemetry.
+	upgrader := srv.WebSocketUpgrader()
+	upgrader.MaxMessageSize = 512 << 10
 
 	// WebSocket echo handler
-	srv.HandleFunc("/ws/echo", func(w http.ResponseWriter, r *http.Request) {
+	srv.GET("/ws/echo", func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			log.Printf("WebSocket upgrade error: %v", err)
@@ -33,30 +35,29 @@ func main() {
 
 		log.Println("WebSocket connection established")
 
-		// Echo loop
+		// Context-aware I/O stops promptly when the request is cancelled.
 		for {
-			messageType, p, err := conn.ReadMessage()
+			messageType, payload, err := conn.Read(r.Context())
 			if err != nil {
 				log.Printf("Read error: %v", err)
-				break
+				return
 			}
 
-			log.Printf("Received: %s", string(p))
+			log.Printf("Received: %s", string(payload))
 
-			if err := conn.WriteMessage(messageType, p); err != nil {
+			if err := conn.Write(r.Context(), messageType, payload); err != nil {
 				log.Printf("Write error: %v", err)
-				break
+				return
 			}
 		}
 	})
 
-	// Serve static demo page
-	srv.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
-			http.NotFound(w, r)
-			return
+	// Embedding the page keeps the example runnable from any working directory.
+	srv.GET("/", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if _, err := w.Write(demoHTML); err != nil {
+			log.Printf("Write demo page: %v", err)
 		}
-		http.ServeFile(w, r, "demo.html")
 	})
 
 	log.Printf("Starting WebSocket echo server on :8080")

@@ -1,260 +1,97 @@
-# Configuration Example
+# Configuration precedence
 
-This example demonstrates HyperServe's flexible configuration system and how different configuration sources interact through precedence rules.
+HyperServe can load defaults, a JSON file, environment variables, and
+functional options. This example answers the important question: when the same
+field appears in several places, which value wins?
 
-## What This Example Shows
+From highest to lowest priority:
 
-- Three configuration methods: programmatic, JSON file, and environment variables
-- Configuration precedence hierarchy
-- How to override specific settings
-- Best practices for production configuration
+1. Functional options passed to `server.NewServer`
+2. Environment variables
+3. A JSON configuration file
+4. HyperServe defaults
 
-## Configuration Methods
+Functional options run last. Use them for application invariants; use files and
+environment variables for deployment-owned values that the application leaves
+open.
 
-### 1. Programmatic Configuration (Lowest Priority)
+## The demonstrated conflict
+
+The example intentionally gives the address three values:
+
+| Source | Address | Rate | Burst |
+|---|---:|---:|---:|
+| JSON file | `:8084` | 75 | 150 |
+| Environment | `:8085` | — | — |
+| Functional options | `:8086` | 10 | 20 |
+
+First, `NewServerOptions` loads the file and environment. Then `NewServer`
+applies the functional options:
 
 ```go
-server, err := server.NewServer(
-    server.WithAddr(":8080"),
-    server.WithRateLimit(100, 200),
+loaded := server.NewServerOptions()
+// loaded.Addr == ":8085"; environment overrides the file.
+
+srv, err := server.NewServer(
+    server.WithAddr(":8086"),
+    server.WithRateLimit(10, 20),
 )
+// srv.Options.Addr == ":8086"; functional options run last.
 ```
 
-Use when:
-- You have static configuration needs
-- Configuration is computed at runtime
-- Setting defaults in your application
-
-### 2. JSON Configuration File (Medium Priority)
-
-```json
-{
-  "addr": ":8080",
-  "rate_limit": 100,
-  "burst": 200
-}
-```
-
-Use when:
-- You want file-based configuration
-- Different configs for different environments
-- Configuration managed by ops teams
-
-### 3. Environment Variables (Highest Priority)
+Run it from the repository root:
 
 ```bash
-export HS_PORT=8080
-export HS_RATE_LIMIT=100
-export HS_BURST_LIMIT=200
+go run ./examples/configuration
 ```
 
-Use when:
-- Running in containers (Docker, Kubernetes)
-- Need to override settings without rebuilding
-- Following 12-factor app principles
+Expected values:
 
-## Running the Example
+```text
+After defaults, file, and environment:
+  address: :8085
+  rate:    75 requests/second
+  burst:   150
 
-```bash
-go run main.go
+After programmatic options:
+  address: :8086
+  rate:    10 requests/second
+  burst:   20
 ```
 
-The example runs through all configuration methods interactively, showing:
-1. Programmatic configuration only
-2. JSON file configuration
-3. Environment variable configuration
-4. Combined configuration demonstrating precedence
+## Configuration forms
 
-## Configuration Precedence
-
-The precedence order is:
-1. **Environment Variables** (highest)
-2. **JSON Configuration File**
-3. **Programmatic Options** (lowest)
-
-This means:
-- Environment variables always win
-- JSON config overrides programmatic options
-- Programmatic options provide defaults
-
-## Available Configuration Options
-
-| Option | Environment Variable | JSON Field | Programmatic Option |
-|--------|---------------------|------------|-------------------|
-| Server Address | `SERVER_ADDR` or `HS_PORT` | `addr` | `WithAddr()` |
-| Health Address | `HEALTH_ADDR` | `health_addr` | `WithHealthAddr()` |
-| Rate Limit | `HS_RATE_LIMIT` | `rate_limit` | `WithRateLimit()` |
-| Burst Limit | `HS_BURST_LIMIT` | `burst` | `WithRateLimit()` |
-| Hardened Mode | `HS_HARDENED_MODE` | `hardened_mode` | `WithHardenedMode()` |
-| Log Level | `HS_LOG_LEVEL` | `log_level` | `WithLogLevel()` |
-| Static Directory | `HS_STATIC_DIR` | `static_dir` | `WithStaticDir()` |
-| Template Directory | `HS_TEMPLATE_DIR` | `template_dir` | `WithTemplateDir()` |
-
-## JSON Configuration Example
-
-Create a file `config.json`:
+Set `HS_CONFIG_PATH` to load a named JSON file; otherwise HyperServe checks
+`options.json`:
 
 ```json
 {
   "addr": ":8080",
   "rate_limit": 100,
   "burst": 200,
-  "static_dir": "./static",
-  "template_dir": "./templates"
+  "read_timeout": 30000000000
 }
 ```
 
-Then either:
-```bash
-# Set via environment variable
-export HS_CONFIG_PATH=config.json
-go run myapp.go
-```
-
-## Environment Variables Example
+Durations in JSON are nanoseconds because they map to Go `time.Duration`.
+Environment duration values use Go syntax such as `30s`:
 
 ```bash
-# Basic configuration
 export HS_PORT=8080
-
-# Rate limiting
-export HS_RATE_LIMIT=50
-export HS_BURST_LIMIT=100
-
-# Timeouts (use Go duration format)
+export HS_RATE_LIMIT=100
+export HS_BURST_LIMIT=200
 export HS_READ_TIMEOUT=30s
-export HS_WRITE_TIMEOUT=30s
-
-# TLS
-export HS_TLS_CERT_FILE=/path/to/cert.pem
-export HS_TLS_KEY_FILE=/path/to/key.pem
-
-# Directories
-export HS_STATIC_DIR=/var/www/static
-export HS_TEMPLATE_DIR=/var/www/templates
 ```
 
-## Production Best Practices
+Prefer functional options when a value must not be changed by ambient process
+configuration:
 
-### 1. Use Environment Variables for Secrets
-```bash
-# Never put secrets in JSON files
-export HS_AUTH_TOKEN_SECRET=your-secret-key
-export HS_TLS_KEY_FILE=/secure/path/key.pem
-```
-
-### 2. Layer Your Configuration
 ```go
-// Base configuration in code
-server, err := server.NewServer(
-    server.WithRateLimit(100, 200),  // Defaults
+srv, err := server.NewServer(
+    server.WithAddr(":8080"),
+    server.WithTimeouts(30*time.Second, 30*time.Second, 2*time.Minute),
 )
-
-// Override with environment-specific JSON
-// config/production.json, config/staging.json, etc.
-
-// Final overrides with environment variables
-// HS_PORT, HS_LOG_LEVEL, etc.
 ```
 
-### 3. Validate Configuration
-```go
-if server.Options.RateLimit < 10 {
-    log.Fatal("Rate limit too low for production")
-}
-```
-
-### 4. Document Your Configuration
-Create a `.env.example` file:
-```bash
-# Server Configuration
-HS_PORT=8080
-
-# Rate Limiting
-HS_RATE_LIMIT=100
-HS_BURST_LIMIT=200
-
-# Timeouts
-HS_READ_TIMEOUT=30s
-HS_WRITE_TIMEOUT=30s
-```
-
-## Docker Example
-
-```dockerfile
-FROM golang:1.25 AS builder
-WORKDIR /app
-COPY . .
-RUN go build -o server .
-
-FROM alpine:latest
-COPY --from=builder /app/server /server
-
-# Default configuration
-ENV HS_PORT=8080
-
-EXPOSE 8080
-CMD ["/server"]
-```
-
-Then override at runtime:
-```bash
-docker run -e HS_PORT=9090 -e HS_RATE_LIMIT=200 myapp
-```
-
-## Kubernetes Example
-
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: hyperserve-config
-data:
-  server-config.json: |
-    {
-      "rate_limit": 100,
-      "burst": 200
-    }
----
-apiVersion: apps/v1
-kind: Deployment
-spec:
-  template:
-    spec:
-      containers:
-      - name: app
-        env:
-        - name: HS_CONFIG_PATH
-          value: /config/server-config.json
-        - name: HS_PORT
-          value: "8080"
-        volumeMounts:
-        - name: config
-          mountPath: /config
-      volumes:
-      - name: config
-        configMap:
-          name: hyperserve-config
-```
-
-## Debugging Configuration
-
-Check the loaded configuration:
-```go
-fmt.Printf("Loaded config: %+v\n", server.Options)
-```
-
-Or create a debug endpoint:
-```go
-server.HandleFunc("/debug/config", func(w http.ResponseWriter, r *http.Request) {
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(server.Options)
-})
-```
-
-## What's Next?
-
-You've now learned the fundamentals of HyperServe! Consider exploring:
-- The [enterprise example](../enterprise/) for advanced security features
-- The [HTMX examples](../htmx-dynamic/) for modern web apps
-- The main [documentation](../../docs/) for deeper topics
+See [`pkg/server/options.go`](../../pkg/server/options.go) for the complete JSON
+fields, environment variables, and functional options.
