@@ -1,5 +1,7 @@
+package server
+
 /*
-Package hyperserve provides configuration options for the HTTP server.
+Configuration options for the HTTP server.
 
 NewServer starts from deterministic defaults. Configuration sources and
 functional options are applied left to right, so later options win:
@@ -46,7 +48,6 @@ Example configuration file (options.json):
 	  "log_level": "INFO"
 	}
 */
-package server
 
 import (
 	"context"

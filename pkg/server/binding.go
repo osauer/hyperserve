@@ -1,3 +1,5 @@
+package server
+
 // Request binding + struct-tag validation.
 //
 // This is the one feature Gin gives you that net/http doesn't: parse JSON
@@ -30,7 +32,6 @@
 //
 // Tags compose left-to-right; the first failure wins for a given field.
 // Apply multiple tags with commas: `validate:"required,min=3,max=64"`.
-package server
 
 import (
 	"encoding/json"

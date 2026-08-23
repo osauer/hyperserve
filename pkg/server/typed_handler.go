@@ -1,3 +1,5 @@
+package server
+
 // Typed JSON handler.
 //
 // JSONHandler absorbs the bind + validate + respond boilerplate that every
@@ -19,7 +21,6 @@
 //
 // 204 No Content is written when Out is `struct{}` or when the returned
 // value is a nil pointer / nil interface (i.e. there's nothing to send).
-package server
 
 import (
 	"context"

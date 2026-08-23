@@ -1,5 +1,7 @@
+package server
+
 /*
-Package server provides built-in middleware for common HTTP server functionality.
+Built-in middleware for common HTTP server functionality.
 
 The middleware package includes:
   - Request logging with structured output
@@ -24,7 +26,6 @@ Middleware can be applied globally or to specific routes:
 		server.RateLimitMiddleware(srv),
 	)
 */
-package server
 
 import (
 	"bufio"

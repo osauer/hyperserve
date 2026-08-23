@@ -1,10 +1,11 @@
-// Package server: MCP (Model Context Protocol) glue.
+package server
+
+// MCP (Model Context Protocol) glue.
 //
 // The MCP protocol itself lives in github.com/osauer/hyperserve/pkg/mcp. This
 // file wires *Server up to *mcp.Handler: server options that flip MCP modes,
 // the discovery endpoint registration, and the thin Register* helpers that
 // delegate into the handler.
-package server
 
 import (
 	"encoding/json"

@@ -5,14 +5,14 @@
 [![Go reference](https://pkg.go.dev/badge/github.com/osauer/hyperserve.svg)](https://pkg.go.dev/github.com/osauer/hyperserve)
 [![License: MIT](https://img.shields.io/github/license/osauer/hyperserve)](LICENSE)
 
-HyperServe began as the Go API server I wanted to own. The name was inspired by
+HyperServe is a `net/http`-shaped Go server library for services that need
+lifecycle, typed request binding, security middleware, observability,
+WebSockets, and optional Model Context Protocol (MCP). Routes still use
+`http.ServeMux` patterns, and handlers remain `http.Handler` values.
+
+It began as the Go API server I wanted to own. The name was inspired by
 hyperHTML; the design came from the same preference for a small, understandable
 core.
-
-It keeps ordinary `net/http` handlers and collects the operational pieces that
-accumulate around them: lifecycle, typed request binding, security middleware,
-observability, WebSockets, and optional Model Context Protocol (MCP). Routes
-still use `http.ServeMux` patterns, and handlers remain `http.Handler` values.
 
 The runtime module has one external dependency. Its WebSocket, JSON-RPC, and MCP
 implementations live in-tree. That means fewer packages for users to assemble,
@@ -175,7 +175,8 @@ the [browser echo example](./examples/websocket-demo/).
 
 ## Add MCP when the service needs it
 
-MCP is opt-in and does not change the HTTP or WebSocket APIs:
+When enabled, HyperServe embeds an MCP server endpoint without changing the
+HTTP or WebSocket APIs:
 
 ```go
 srv, err := server.NewServer(
@@ -228,6 +229,7 @@ HyperServe checkout.
 ## Documentation and development
 
 - [Examples](./examples/) — runnable programs grouped by task
+- [Project website](https://osauer.dev/hyperserve/) — concise overview and installation
 - [Production guide](./docs/PRODUCTION.md) — proxies, TLS, health, shutdown, and security boundaries
 - [Architecture](./ARCHITECTURE.md) — package and lifecycle design
 - [Go reference](https://pkg.go.dev/github.com/osauer/hyperserve) — exported API documentation
