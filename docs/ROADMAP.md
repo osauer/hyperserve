@@ -39,7 +39,7 @@ compatibility regression, not as the primary transport story.
 | Production MCP observability | Keep resources live, route inspection truthful, logs server-owned, and discovery cache-safe. | An in-process observability surface must not capture unrelated application state or weaken caller authority. |
 | Scaffold reliability | Generated projects should build outside the monorepo, include the right module requirement, and use current Go/tooling defaults. | The generated service is many users' first executable contract with the library. |
 | Protocol conformance | Continue tightening JSON-RPC, SSE, and WebSocket behavior against their specs. | Agent clients are strict; protocol drift becomes integration pain. |
-| Benchmark credibility | Repair the concurrent harness and publish only reproducible, environment-qualified results. | Performance claims should follow evidence rather than drive speculative optimization. |
+| Benchmark discipline | Keep concurrent workloads reproducible and publish only environment-qualified results. | Performance claims should follow evidence rather than drive speculative optimization. |
 
 ## Release Discipline
 

@@ -9,7 +9,7 @@ evidence.
 
 The maintained benchmark surface is `pkg/server/benchmark_test.go`. It exercises:
 
-- a minimal handler;
+- serial and concurrent minimal handlers;
 - individual and combined middleware;
 - static-file and JSON responses; and
 - MCP request, tool, resource, handshake, middleware, and payload paths.
@@ -50,14 +50,35 @@ profiles only after a stable comparison identifies a regression or bottleneck.
 
 ## End-to-end load testing
 
-The previous `wrk` script targeted a removed `cmd/server` binary and could not run
-from a current checkout, so it was removed together with its unqualified result
-summary. [Issue #82](https://github.com/osauer/hyperserve/issues/82) tracks a
-replacement concurrent harness with explicit workloads, reliable cleanup, and
-reproducible result metadata.
+Run the maintained loopback harness from the repository root:
 
-Until that work lands, package microbenchmarks are the only supported performance
-measurement in this repository. Do not infer production throughput from them.
+```sh
+make benchmark-load
+```
+
+The command builds temporary server and load-tool binaries, waits for the server
+to become ready, runs a minimal profile and an authenticated security-middleware
+profile, then stops the server on success, failure, or interruption. Its load
+tool uses only the Go standard library. `go`, `git`, and `curl` are the explicit
+prerequisites.
+
+Each timestamped directory beneath `benchmarks/results/` contains:
+
+- `metadata.txt` with the exact commit, clean/dirty state, Go version, platform,
+  duration, execution parallelism, worker count, endpoints, and middleware;
+- one result file per profile, including status counts, request rate, response
+  bytes, and bounded latency percentiles; and
+- `server.log` for startup or runtime diagnostics.
+
+Tune a workload through `BENCH_DURATION`, `BENCH_THREADS`,
+`BENCH_CONNECTIONS`, and `BENCH_PORT`. Keep those inputs identical for before
+and after runs. The short defaults check that the harness works; longer repeated
+runs are more useful when investigating a measured change.
+
+Loopback load removes network variability but still shares one machine between
+client and server. It does not model a reverse proxy, TLS termination, remote
+clients, noisy neighbors, or application work. Treat it as regression evidence,
+not production sizing advice.
 
 ## Optimization policy
 

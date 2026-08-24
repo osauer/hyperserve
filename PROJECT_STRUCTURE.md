@@ -5,7 +5,7 @@
 ```
 hyperserve/
 ├── .github/workflows/    # CI/CD
-├── benchmarks/           # Performance benchmarks (wrk-based)
+├── benchmarks/           # Go benchmarks and the standard-library loopback load harness
 ├── cmd/
 │   └── hyperserve-init/  # Project scaffolding CLI
 ├── docs/                 # ADRs and guides
@@ -58,6 +58,7 @@ import (
 ```bash
 make build         # builds cmd/hyperserve-init with version ldflags
 make test          # go test -v ./...
-make check         # vet + staticcheck + modernize + govulncheck
-go test -bench=. ./pkg/server   # benchmarks
+make check          # vet + staticcheck + modernize + govulncheck
+go test -bench=. ./pkg/server   # in-process benchmarks
+make benchmark-load # reproducible loopback load profiles
 ```

@@ -271,9 +271,9 @@ semantic versioning on the v1 module line. Examples, generated layouts,
 commands, and builtin demonstrations are maintained and tested but are not
 stable import surfaces. See [API stability](./docs/API_STABILITY.md).
 
-HyperServe does not publish a general throughput number. Its microbenchmarks are
-useful for comparing revisions on the same machine, not for predicting an
-application's production performance. See the
+HyperServe does not publish a general throughput number. Its microbenchmarks and
+reproducible loopback load profiles are useful for comparing revisions on the
+same machine, not for predicting an application's production performance. See the
 [performance guide](./docs/PERFORMANCE.md).
 
 ## Scaffold a service
