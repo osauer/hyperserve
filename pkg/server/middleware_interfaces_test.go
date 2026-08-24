@@ -218,14 +218,11 @@ func TestLoggingResponseWriterReadFrom(t *testing.T) {
 }
 
 func TestMiddlewareWithWebSocket(t *testing.T) {
-	// Create server with logging middleware
+	// NewServer includes request logging in its default middleware stack.
 	srv, err := NewServer()
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
-
-	// Add logging middleware
-	srv.AddMiddleware("*", RequestLoggerMiddleware)
 
 	// Add WebSocket handler
 	upgrader := websocket.Upgrader{
@@ -257,7 +254,12 @@ func TestMiddlewareWithWebSocket(t *testing.T) {
 		return
 	}
 
-	server := &http.Server{Handler: srv.mux}
+	middlewareDone := make(chan struct{})
+	handler := srv.Handler()
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handler.ServeHTTP(w, r)
+		close(middlewareDone)
+	})}
 	done := make(chan struct{})
 	go func() {
 		_ = server.Serve(listener)
@@ -276,11 +278,18 @@ func TestMiddlewareWithWebSocket(t *testing.T) {
 	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
 	req.Header.Set("Sec-WebSocket-Version", "13")
 
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{Timeout: time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("Request failed: %v", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusSwitchingProtocols)
+	}
+	if got := resp.Header.Get("Upgrade"); got != "websocket" {
+		t.Errorf("Upgrade header = %q, want websocket", got)
+	}
 
 	// The handler stores the atomic after writing the response, so a short
 	// wait avoids racing the test assertion against the server goroutine.
@@ -290,5 +299,13 @@ func TestMiddlewareWithWebSocket(t *testing.T) {
 	}
 	if !wsHandlerCalled.Load() {
 		t.Error("WebSocket handler was not called")
+	}
+	select {
+	case <-middlewareDone:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("middleware did not finish after WebSocket upgrade")
+	}
+	if got := srv.totalRequests.Load(); got != 1 {
+		t.Errorf("middleware request count = %d, want 1", got)
 	}
 }
