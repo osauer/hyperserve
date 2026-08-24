@@ -1,6 +1,9 @@
 package server
 
 import (
+	"context"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,16 +15,71 @@ import (
 
 // TestSlowlorisProtection tests the ReadHeaderTimeout protection against Slowloris attacks
 func TestSlowlorisProtection(t *testing.T) {
-	t.Skip("Skipping Slowloris test - requires proper server startup with dynamic port detection")
+	probe, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("skipping: unable to reserve a loopback address (%v)", err)
+	}
+	addr := probe.Addr().String()
+	if err := probe.Close(); err != nil {
+		t.Fatalf("release loopback address: %v", err)
+	}
 
-	// Note: This test demonstrates the Slowloris protection concept
-	// In production, ReadHeaderTimeout prevents slow header attacks by closing
-	// connections that take too long to send complete headers.
+	srv, err := NewServer(WithAddr(addr))
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	const headerTimeout = 50 * time.Millisecond
+	srv.Options.ReadHeaderTimeout = headerTimeout
 
-	// Example configuration for Slowloris protection:
-	// srv, _ := server.NewServer(
-	//     server.WithTimeouts(5*time.Second, 30*time.Second, 120*time.Second),
-	// )
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runErr := make(chan error, 1)
+	go func() {
+		runErr <- srv.RunContext(ctx)
+	}()
+
+	startupDeadline := time.After(time.Second)
+	for !srv.isRunning.Load() {
+		select {
+		case err := <-runErr:
+			t.Fatalf("server exited during startup: %v", err)
+		case <-startupDeadline:
+			t.Fatal("server did not start")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	defer func() {
+		cancel()
+		select {
+		case err := <-runErr:
+			if err != nil {
+				t.Errorf("RunContext shutdown: %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Error("server did not stop")
+		}
+	}()
+
+	conn, err := net.DialTimeout("tcp", addr, time.Second)
+	if err != nil {
+		t.Fatalf("connect to server: %v", err)
+	}
+	defer conn.Close()
+	if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	if _, err := conn.Write([]byte("GET / HTTP/1.1\r\nHost: " + addr + "\r\nX-Slow: unfinished")); err != nil {
+		t.Fatalf("write partial request: %v", err)
+	}
+
+	started := time.Now()
+	_, readErr := io.ReadAll(conn)
+	if timeoutErr, ok := readErr.(net.Error); ok && timeoutErr.Timeout() {
+		t.Fatalf("connection remained open past the test deadline: %v", readErr)
+	}
+	if elapsed := time.Since(started); elapsed < headerTimeout/2 {
+		t.Fatalf("connection closed after %v, before header timeout %v", elapsed, headerTimeout)
+	}
 }
 
 // TestHealthServerTimeoutConfiguration tests that health server has proper timeout configuration
