@@ -5,9 +5,15 @@ JSON file, process environment, or a complete `ServerOptions` value explicitly.
 This example answers the important question: when the same field appears in
 several places, which value wins?
 
-Options apply from left to right; later options win. Put deployment-owned
-sources first and application invariants last. A bare `NewServer()` never reads
-`options.json`, `HS_CONFIG_PATH`, or `HS_*`.
+Options apply from left to right; later options win:
+
+1. `NewServer` begins with deterministic defaults.
+2. `WithConfigFile` overlays the fields present in the chosen JSON file.
+3. `WithEnvironment` overlays its supported environment variables.
+4. Functional options placed last establish application-owned values.
+
+Put deployment-owned sources first and application invariants last. A bare
+`NewServer()` never reads `options.json`, `HS_CONFIG_PATH`, or `HS_*`.
 
 ## The demonstrated conflict
 
@@ -25,8 +31,8 @@ The application names both external sources, then applies its fixed values:
 srv, err := server.NewServer(
 	server.WithConfigFile("options.json"), // Baseline chosen by the application.
 	server.WithEnvironment(),              // Deployment may override the baseline.
-    server.WithAddr(":8086"),
-    server.WithRateLimit(10, 20),
+	server.WithAddr(":8086"),
+	server.WithRateLimit(10, 20),
 )
 // Address is :8086 because the application invariant runs last.
 ```
@@ -83,8 +89,8 @@ changed by deployment configuration:
 srv, err := server.NewServer(
 	server.WithConfigFile(configPath),
 	server.WithEnvironment(),
-    server.WithAddr(":8080"),
-    server.WithTimeouts(30*time.Second, 30*time.Second, 2*time.Minute),
+	server.WithAddr(":8080"),
+	server.WithTimeouts(30*time.Second, 30*time.Second, 2*time.Minute),
 )
 ```
 

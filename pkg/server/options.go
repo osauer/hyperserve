@@ -15,25 +15,31 @@ functional options are applied left to right, so later options win:
 Configuration files and environment variables are never read unless their
 option is passed.
 
-Environment Variables:
-  - SERVER_ADDR: Main server address (default ":8080")
-  - HS_PORT: Main server port shortcut (e.g. "8080" -> ":8080")
-  - HEALTH_ADDR: Health check server address (default ":9080")
-  - HS_RATE_LIMIT: Per-client requests per second
-  - HS_BURST_LIMIT: Per-client burst size
-  - HS_SERVER_HEADER: Server identification emitted by HeadersMiddleware (default empty)
+WithEnvironment reads these variables:
+  - SERVER_ADDR, HS_PORT: Main server address, or a port shortcut such as "8080"
+  - HEALTH_ADDR: Health-check server address
+  - HS_RATE_LIMIT, HS_BURST_LIMIT: Per-client rate and burst limits
+  - HS_SERVER_HEADER: Identification emitted by HeadersMiddleware
   - HS_HARDENED_MODE: Deprecated compatibility input that clears HS_SERVER_HEADER
-  - HS_MCP_ENABLED: Enable Model Context Protocol (default "false")
-  - HS_MCP_ENDPOINT: MCP endpoint path (default "/mcp")
-  - HS_MCP_DEV: Enable MCP developer tools (default "false")
-  - HS_MCP_OBSERVABILITY: Enable MCP observability resources (default "false")
-  - HS_MCP_TRANSPORT: MCP transport type: "http" or "stdio" (default "http")
-  - HS_MCP_PROTOCOL_VERSION: MCP protocol version to advertise (default "2025-11-25")
-  - HS_CSP_WEB_WORKER_SUPPORT: Enable Web Worker CSP headers (default "false")
-  - HS_LOG_LEVEL: Set log level (DEBUG, INFO, WARN, ERROR) (default "INFO")
-  - HS_DEBUG: Enable debug mode and debug logging (default "false")
-  - HS_STARTUP_BANNER: Print the HyperServe ASCII banner at startup (default "false")
+  - HS_MCP_ENABLED, HS_MCP_ENDPOINT: MCP enablement and HTTP endpoint
+  - HS_MCP_SERVER_NAME, HS_MCP_SERVER_VERSION: MCP server identity
+  - HS_MCP_TOOLS_ENABLED, HS_MCP_RESOURCES_ENABLED: Built-in MCP capabilities
+  - HS_MCP_FILE_TOOL_ROOT: Root available to built-in MCP file tools
+  - HS_MCP_DEV, HS_MCP_OBSERVABILITY: Built-in development and observability features
+  - HS_MCP_TRANSPORT: "http" or "stdio"
+  - HS_MCP_PROTOCOL_VERSION: MCP protocol version to advertise
+  - HS_CSP_WEB_WORKER_SUPPORT: Web Worker CSP allowance
+  - HS_CORS_ALLOWED_ORIGINS, HS_CORS_ALLOW_CREDENTIALS: CORS origins and credentials
+  - HS_CORS_ALLOWED_METHODS, HS_CORS_ALLOWED_HEADERS: CORS request policy
+  - HS_CORS_EXPOSE_HEADERS, HS_CORS_MAX_AGE: CORS response policy and cache duration
+  - HS_LOG_LEVEL, HS_DEBUG: Log verbosity and debug mode
+  - HS_STARTUP_BANNER, HS_BANNER_COLOR: Startup banner visibility and color
   - HS_SUPPRESS_BANNER: Deprecated inverse banner setting
+
+HS_CONFIG_PATH belongs only to the deprecated NewServerOptions compatibility
+path. WithEnvironment does not read it. Explicit composition passes the chosen
+path to WithConfigFile instead. Static and template roots have no environment
+bindings; applications must grant those filesystem capabilities explicitly.
 
 Example configuration file (options.json):
 
