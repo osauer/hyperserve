@@ -202,3 +202,18 @@ func TestFrameReaderRejectsOversizedControlLength(t *testing.T) {
 		t.Fatalf("ReadFrame() error = %v, want ErrControlFrameTooBig", err)
 	}
 }
+
+func TestFrameReaderRejectsPayloadLengthOverflow(t *testing.T) {
+	t.Parallel()
+	// RFC 6455 reserves the high bit of a 64-bit payload length. Treating this
+	// value as int64 without checking would wrap it negative before allocation.
+	encoded := []byte{0x82, 0x7f, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+	reader := NewFrameReader(bufio.NewReader(bytes.NewReader(encoded)), defaultMaxMessageSize)
+	_, err := reader.ReadFrame()
+	if err == nil {
+		t.Fatal("ReadFrame() error = nil, want payload-length overflow rejection")
+	}
+	if got, want := err.Error(), "payload length exceeds maximum int64 value"; got != want {
+		t.Fatalf("ReadFrame() error = %q, want %q", got, want)
+	}
+}

@@ -12,14 +12,11 @@ import (
 	"math/big"
 	"net"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/osauer/hyperserve/pkg/websocket"
 )
 
 // TestSlowlorisProtection tests the ReadHeaderTimeout protection against Slowloris attacks
@@ -183,60 +180,6 @@ waiting:
 	case <-time.After(2 * time.Second):
 		t.Error("timeout waiting for server shutdown")
 	}
-}
-
-// TestIntegerOverflowProtection tests protection against integer overflow in WebSocket frames
-func TestIntegerOverflowProtection(t *testing.T) {
-	// This test is more of a unit test for the frame parsing logic
-	// The actual protection is in pkg/websocket/frame.go
-	// We'll test it through the WebSocket interface
-
-	srv, err := NewServer(WithAddr(":0"))
-	if err != nil {
-		t.Fatalf("failed to create server: %v", err)
-	}
-	srv.Options.RunHealthServer = false
-
-	upgrader := websocket.Upgrader{
-		CheckOrigin: func(r *http.Request) bool {
-			return true
-		},
-	}
-
-	srv.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-
-		// Try to read a message - should handle overflow gracefully
-		_, _, err = conn.ReadMessage()
-		if err == nil {
-			t.Error("expected error reading malformed frame")
-		}
-	})
-
-	// Use httptest server for easier testing
-	ts := httptest.NewServer(srv.mux)
-	defer ts.Close()
-
-	// Connect to WebSocket endpoint
-	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws"
-
-	// For actual overflow testing, we would need to craft malformed WebSocket frames
-	// This would require low-level connection manipulation
-	// The important part is that the overflow protection is in place in frame.go
-
-	// Here we just verify the endpoint works normally
-	req, _ := http.NewRequest("GET", wsURL, nil)
-	req.Header.Set("Upgrade", "websocket")
-	req.Header.Set("Connection", "Upgrade")
-	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
-	req.Header.Set("Sec-WebSocket-Version", "13")
-
-	// This is a basic connectivity test
-	// The actual integer overflow protection is tested in pkg/websocket/frame_test.go
 }
 
 // mockCloser is a test implementation of io.Closer
