@@ -2,10 +2,19 @@ package server
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"io"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -258,16 +267,114 @@ func TestCloseWithLogErrorHandling(t *testing.T) {
 
 // TestTLSConfiguration tests that TLS is properly configured with secure defaults
 func TestTLSConfiguration(t *testing.T) {
-	t.Skip("Skipping TLS configuration test - requires actual certificate files")
+	certFile, keyFile, certificate := writeTestCertificate(t)
+	probe, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("skipping: unable to reserve a loopback address (%v)", err)
+	}
+	addr := probe.Addr().String()
+	if err := probe.Close(); err != nil {
+		t.Fatalf("release loopback address: %v", err)
+	}
 
-	// Example of proper TLS configuration:
-	// srv, _ := server.NewServer(
-	//     server.WithTLS("cert.pem", "key.pem"),
-	//     server.WithFIPSMode(), // For enhanced security
-	// )
-	//
-	// The server will automatically:
-	// - Configure TLS 1.2+ only
-	// - Use secure cipher suites
-	// - Apply security headers when TLS is enabled
+	srv, err := NewServer(WithTLS(certFile, keyFile))
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	srv.Options.TLSAddr = addr
+	srv.HandleFunc("/secure", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runErr := make(chan error, 1)
+	go func() {
+		runErr <- srv.RunContext(ctx)
+	}()
+
+	startupDeadline := time.After(time.Second)
+	for !srv.isRunning.Load() {
+		select {
+		case err := <-runErr:
+			t.Fatalf("TLS server exited during startup: %v", err)
+		case <-startupDeadline:
+			t.Fatal("TLS server did not start")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	defer func() {
+		cancel()
+		select {
+		case err := <-runErr:
+			if err != nil {
+				t.Errorf("RunContext shutdown: %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Error("TLS server did not stop")
+		}
+	}()
+
+	roots := x509.NewCertPool()
+	roots.AddCert(certificate)
+	client := &http.Client{
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			RootCAs:    roots,
+		}},
+		Timeout: time.Second,
+	}
+	resp, err := client.Get("https://" + addr + "/secure")
+	if err != nil {
+		t.Fatalf("HTTPS request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusNoContent)
+	}
+	if resp.TLS == nil || resp.TLS.Version < tls.VersionTLS12 {
+		t.Fatalf("TLS state = %#v, want TLS 1.2 or newer", resp.TLS)
+	}
+}
+
+func writeTestCertificate(t *testing.T) (certFile, keyFile string, certificate *x509.Certificate) {
+	t.Helper()
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate private key: %v", err)
+	}
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "HyperServe test"},
+		NotBefore:             time.Now().Add(-time.Minute),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1")},
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, publicKey, privateKey)
+	if err != nil {
+		t.Fatalf("create certificate: %v", err)
+	}
+	certificate, err = x509.ParseCertificate(certDER)
+	if err != nil {
+		t.Fatalf("parse certificate: %v", err)
+	}
+	keyDER, err := x509.MarshalPKCS8PrivateKey(privateKey)
+	if err != nil {
+		t.Fatalf("marshal private key: %v", err)
+	}
+
+	tempDir := t.TempDir()
+	certFile = filepath.Join(tempDir, "server.crt")
+	keyFile = filepath.Join(tempDir, "server.key")
+	if err := os.WriteFile(certFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER}), 0o600); err != nil {
+		t.Fatalf("write certificate: %v", err)
+	}
+	if err := os.WriteFile(keyFile, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}), 0o600); err != nil {
+		t.Fatalf("write private key: %v", err)
+	}
+	return certFile, keyFile, certificate
 }

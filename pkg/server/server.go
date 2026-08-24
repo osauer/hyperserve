@@ -497,6 +497,19 @@ func (srv *Server) run(triggerCtx context.Context) error {
 		srv.httpServer.ReadHeaderTimeout = srv.httpServer.ReadTimeout
 	}
 	srv.httpServer.RegisterOnShutdown(srv.logServerMetrics)
+	if srv.Options.EnableTLS {
+		if srv.Options.CertFile == "" || srv.Options.KeyFile == "" {
+			configErr := fmt.Errorf("TLS enabled but no key or cert file provided")
+			logger.Error(configErr.Error(), "key", srv.Options.KeyFile, "cert", srv.Options.CertFile)
+			return srv.shutdownAfter(configErr)
+		}
+		certificate, err := tls.LoadX509KeyPair(srv.Options.CertFile, srv.Options.KeyFile)
+		if err != nil {
+			return srv.shutdownAfter(fmt.Errorf("load TLS certificate: %w", err))
+		}
+		srv.httpServer.TLSConfig = srv.tlsConfig()
+		srv.httpServer.TLSConfig.Certificates = []tls.Certificate{certificate}
+	}
 
 	if srv.Options.RunHealthServer {
 		err := srv.initHealthServer()
@@ -518,15 +531,6 @@ func (srv *Server) run(triggerCtx context.Context) error {
 	var listenErr error
 
 	if srv.Options.EnableTLS {
-		if srv.Options.CertFile == "" || srv.Options.KeyFile == "" {
-			listenErr = fmt.Errorf("TLS enabled but no key or cert file provided")
-			logger.Error(listenErr.Error(), "key", srv.Options.KeyFile, "cert", srv.Options.CertFile)
-			// Run and RunContext promise to release ownership on every return,
-			// including configuration errors discovered immediately before bind.
-			return srv.shutdownAfter(listenErr)
-		}
-		// Configure TLS settings
-		srv.httpServer.TLSConfig = srv.tlsConfig()
 		srv.httpServer.Addr = srv.Options.TLSAddr
 		listener, listenErr = net.Listen("tcp", srv.Options.TLSAddr)
 		if listenErr != nil {
