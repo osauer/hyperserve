@@ -63,7 +63,7 @@ func TestEnvironmentPortAndRateLimitAliases(t *testing.T) {
 	}
 }
 
-func TestFunctionalOptionsOverrideEnvironmentAndConfig(t *testing.T) {
+func TestConfigurationPrecedence(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "server.json")
 	if err := os.WriteFile(path, []byte(`{
 		"addr": ":9091",
@@ -72,33 +72,100 @@ func TestFunctionalOptionsOverrideEnvironmentAndConfig(t *testing.T) {
 	}`), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-	t.Setenv(paramServerPort, "9092")
-	t.Setenv(paramRateLimit, "30")
-	t.Setenv(paramBurstLimit, "40")
 
-	srv, err := NewServer(
-		WithConfigFile(path),
-		WithEnvironment(),
-		WithAddr(":9093"),
-		WithRateLimit(50, 60),
-	)
-	if err != nil {
-		t.Fatalf("NewServer: %v", err)
+	tests := []struct {
+		name      string
+		envPort   string
+		envRate   string
+		envBurst  string
+		options   []ServerOptionFunc
+		wantAddr  string
+		wantRate  RateLimit
+		wantBurst int
+	}{
+		{
+			name:      "defaults",
+			wantAddr:  ":8080",
+			wantRate:  1,
+			wantBurst: 10,
+		},
+		{
+			name:      "file overrides defaults",
+			options:   []ServerOptionFunc{WithConfigFile(path)},
+			wantAddr:  ":9091",
+			wantRate:  10,
+			wantBurst: 20,
+		},
+		{
+			name:      "unset environment preserves file",
+			options:   []ServerOptionFunc{WithConfigFile(path), WithEnvironment()},
+			wantAddr:  ":9091",
+			wantRate:  10,
+			wantBurst: 20,
+		},
+		{
+			name:      "environment overrides file",
+			envPort:   "9092",
+			envRate:   "30",
+			envBurst:  "40",
+			options:   []ServerOptionFunc{WithConfigFile(path), WithEnvironment()},
+			wantAddr:  ":9092",
+			wantRate:  30,
+			wantBurst: 40,
+		},
+		{
+			name:      "explicit environment zero overrides file",
+			envPort:   "9092",
+			envRate:   "0",
+			envBurst:  "0",
+			options:   []ServerOptionFunc{WithConfigFile(path), WithEnvironment()},
+			wantAddr:  ":9092",
+			wantRate:  0,
+			wantBurst: 0,
+		},
+		{
+			name:     "functional options override environment and file",
+			envPort:  "9092",
+			envRate:  "30",
+			envBurst: "40",
+			options: []ServerOptionFunc{
+				WithConfigFile(path),
+				WithEnvironment(),
+				WithAddr(":9093"),
+				WithRateLimit(50, 60),
+			},
+			wantAddr:  ":9093",
+			wantRate:  50,
+			wantBurst: 60,
+		},
 	}
-	t.Cleanup(func() {
-		if err := srv.Stop(); err != nil {
-			t.Errorf("Stop: %v", err)
-		}
-	})
 
-	if srv.Options.Addr != ":9093" {
-		t.Fatalf("Addr = %q, want functional option :9093", srv.Options.Addr)
-	}
-	if srv.Options.RateLimit != 50 {
-		t.Fatalf("RateLimit = %v, want functional option 50", srv.Options.RateLimit)
-	}
-	if srv.Options.Burst != 60 {
-		t.Fatalf("Burst = %d, want functional option 60", srv.Options.Burst)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(paramServerPort, tt.envPort)
+			t.Setenv(paramRateLimit, tt.envRate)
+			t.Setenv(paramBurstLimit, tt.envBurst)
+
+			srv, err := NewServer(tt.options...)
+			if err != nil {
+				t.Fatalf("NewServer: %v", err)
+			}
+			t.Cleanup(func() {
+				if err := srv.Stop(); err != nil {
+					t.Errorf("Stop: %v", err)
+				}
+			})
+
+			if srv.Options.Addr != tt.wantAddr {
+				t.Errorf("Addr = %q, want %q", srv.Options.Addr, tt.wantAddr)
+			}
+			if srv.Options.RateLimit != tt.wantRate {
+				t.Errorf("RateLimit = %v, want %v", srv.Options.RateLimit, tt.wantRate)
+			}
+			if srv.Options.Burst != tt.wantBurst {
+				t.Errorf("Burst = %d, want %d", srv.Options.Burst, tt.wantBurst)
+			}
+		})
 	}
 }
 
