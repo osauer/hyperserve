@@ -24,6 +24,59 @@ Entries tier by audience:
 Shape is enforced by `make changelog-lint RELEASE_VERSION=vX.Y.Z`; scaffold a
 new entry with `make changelog-stub RELEASE_VERSION=vX.Y.Z`.
 
+## [1.6.1] - 2026-08-24 11:38 CEST
+
+Direct TLS now uses the configured certificate correctly and rejects invalid
+key pairs before accepting traffic. The repository also restores a
+reproducible, standard-library load harness for comparing revisions.
+
+### What's new
+
+- Direct TLS servers now load and validate the configured certificate/key pair
+  before opening their listener.
+- Maintainers can run `make benchmark-load` to capture comparable loopback
+  request-rate, status, byte, and latency evidence with exact run metadata.
+- Quick-start, configuration, benchmarking, and production guidance now state
+  the relevant defaults and deployment boundaries directly.
+
+### Added
+
+- Added a standard-library loopback load tool, maintained server fixture, and
+  `make benchmark-load` profiles for the minimal and security-middleware paths.
+- Added serial and concurrent request baselines plus focused regression
+  coverage for configuration precedence, MCP cancellation, slow headers,
+  WebSocket middleware, and oversized WebSocket frames.
+
+### Changed
+
+- Benchmark runs now record the exact commit, tree state, Go and platform
+  versions, workload inputs, and profile details so comparisons can be
+  reproduced instead of treated as universal capacity claims.
+- Configuration documentation now lists the complete explicit environment
+  surface and its left-to-right precedence contract.
+
+### Fixed
+
+- `WithTLS` servers now install the configured certificate into their TLS
+  configuration; missing, unreadable, or mismatched key pairs stop startup
+  before any listener is exposed.
+
+### Documentation
+
+- Simplified the README first-run example, added its expected response, and
+  moved API-stability and deployment routes closer to installation.
+- Separated reverse-proxy TLS termination from direct HyperServe TLS, including
+  the private-listener, `:8443`, certificate-validation, and HSTS boundaries.
+
+### Verification
+
+- `make check`
+- `go test ./...`
+- `(cd examples/auth && go test ./...)`
+- `make test-race`
+- `make fuzz-smoke`
+- `make release-smoke RELEASE_VERSION=v1.6.1`
+
 ## [1.6.0] - 2026-08-23 21:21 CEST
 
 HyperServe now keeps filesystem roots and application shutdown under the
