@@ -11,14 +11,17 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
 	"time"
 
-	"github.com/osauer/hyperserve/pkg/mcp"
-	_ "github.com/osauer/hyperserve/pkg/mcp/builtin" // wire built-in tool/resource hooks
-	serverpkg "github.com/osauer/hyperserve/pkg/server"
+	"github.com/osauer/hyperserve/v2/pkg/mcp"
+	_ "github.com/osauer/hyperserve/v2/pkg/mcp/builtin" // wire built-in tool/resource hooks
+	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
 )
 
 // TimestampTool returns the current time in a caller-selected format.
@@ -75,6 +78,9 @@ var _ mcp.Tool = TimestampTool{}
 var _ mcp.Resource = (*ServerStatusResource)(nil)
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
 	srv, err := serverpkg.NewServer(
 		serverpkg.WithAddr(":8080"),
 		serverpkg.WithRateLimit(50, 100),
@@ -104,8 +110,8 @@ func main() {
 	start := time.Now()
 	if err := srv.HandleFuncDynamic("/", "index.html", func(r *http.Request) any {
 		return map[string]any{
-			"MCPEndpoint": srv.Options.MCPEndpoint,
-			"SandboxDir":  srv.Options.MCPFileToolRoot,
+			"MCPEndpoint": srv.Options().MCPEndpoint,
+			"SandboxDir":  srv.Options().MCPFileToolRoot,
 			"Uptime":      time.Since(start).Round(time.Second).String(),
 		}
 	}); err != nil {
@@ -115,7 +121,7 @@ func main() {
 	log.Println("mcp-basic listening on http://localhost:8080")
 	log.Println("MCP endpoint: http://localhost:8080/mcp (POST JSON-RPC)")
 	log.Println("Dashboard:    http://localhost:8080/")
-	if err := srv.Run(); err != nil {
+	if err := srv.Run(ctx); err != nil {
 		log.Fatal(err)
 	}
 }

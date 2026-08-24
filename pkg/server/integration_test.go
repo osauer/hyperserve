@@ -20,14 +20,14 @@ func TestServerStartStopIntegration(t *testing.T) {
 	}
 
 	// Disable health server for this test to avoid port conflicts
-	srv.Options.RunHealthServer = false
+	srv.options.RunHealthServer = false
 
 	// Channel to receive server run result
 	serverResult := make(chan error, 1)
 
 	// Test server startup and shutdown
 	go func() {
-		err := srv.Run()
+		err := srv.Run(context.Background())
 		// The server should exit with ErrServerClosed when stopped gracefully
 		if err != nil && err != http.ErrServerClosed {
 			serverResult <- fmt.Errorf("server run failed: %v", err)
@@ -42,7 +42,7 @@ func TestServerStartStopIntegration(t *testing.T) {
 	}
 
 	// Stop the server
-	if err := srv.Stop(); err != nil {
+	if err := srv.Shutdown(context.Background()); err != nil {
 		t.Errorf("failed to stop server: %v", err)
 	}
 
@@ -92,8 +92,8 @@ func TestHealthEndpointsIntegration(t *testing.T) {
 	}
 
 	// Disable automatic health server and set unique port
-	srv.Options.RunHealthServer = false
-	srv.Options.HealthAddr = ":0" // Let OS assign port
+	srv.options.RunHealthServer = false
+	srv.options.HealthAddr = ":0" // Let OS assign port
 
 	// Initialize the health server manually to set up the endpoints
 	if err := srv.initHealthServer(); err != nil {
@@ -231,7 +231,7 @@ func TestSecurityHeadersIntegration(t *testing.T) {
 	}
 
 	// Add security middleware to test endpoint
-	srv.middleware.Add("/secure-test", SecureWeb(srv.Options))
+	srv.middleware.Add("/secure-test", MiddlewareStack{SecureWeb(srv.options)})
 	srv.HandleFunc("/secure-test", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("secure"))
@@ -242,7 +242,7 @@ func TestSecurityHeadersIntegration(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	// Apply middleware manually for testing
-	handler := HeadersMiddleware(srv.Options)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := HeadersMiddleware(srv.options)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("secure"))
 	}))
@@ -280,7 +280,7 @@ func TestCleanupOnServerStopIntegration(t *testing.T) {
 	}
 
 	// Stop the server and verify cleanup
-	err = srv.Stop()
+	err = srv.Shutdown(context.Background())
 	if err != nil {
 		t.Fatalf("failed to stop server: %v", err)
 	}

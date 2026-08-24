@@ -1,6 +1,6 @@
 # HyperServe Roadmap
 
-_Last updated: 2026-08-23 (v1 line)._
+_Last updated: 2026-08-24 (v2 line)._
 
 HyperServe is the Go API server its maintainer wanted to own: standard
 `net/http` shapes, an explicit lifecycle and configuration boundary, and the
@@ -40,11 +40,12 @@ compatibility regression, not as the primary transport story.
 | Scaffold reliability | Generated projects should build outside the monorepo, include the right module requirement, and use current Go/tooling defaults. | The generated service is many users' first executable contract with the library. |
 | Protocol conformance | Continue tightening JSON-RPC, SSE, and WebSocket behavior against their specs. | Agent clients are strict; protocol drift becomes integration pain. |
 | Benchmark discipline | Keep concurrent workloads reproducible and publish only environment-qualified results. | Performance claims should follow evidence rather than drive speculative optimization. |
+| Authentication adapters | Keep `pkg/auth` provider-neutral while maintaining one real OIDC example and clear authorization boundaries. | Identity-provider choice should not inflate the core module or blur application policy. |
 
 ## Release Discipline
 
 - Keep `cmd/hyperserve-init` as the supported command; avoid checked-in demo binaries.
-- Keep v1 semver clean. Breaking exported APIs require a future `/v2` module path.
+- Keep v2 semver clean. Breaking exported APIs require a future `/v3` module path.
 - Use `make release RELEASE_VERSION=vX.Y.Z`; it checks the changelog, local
   gates, scaffold smoke, clean tree, synced `origin/main`, tag uniqueness, and
   then publishes GitHub release notes derived from `CHANGELOG.md`.

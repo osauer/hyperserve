@@ -15,7 +15,7 @@ func TestSecureWebMiddleware(t *testing.T) {
 	}
 
 	// Apply SecureWeb middleware
-	srv.AddMiddlewareStack("/secure", SecureWeb(srv.Options))
+	srv.UsePrefix("/secure", SecureWeb(srv.options))
 
 	// Create a test handler
 	srv.HandleFunc("/secure/test", func(w http.ResponseWriter, r *http.Request) {
@@ -60,7 +60,7 @@ func TestSecureWebWithoutRateLimit(t *testing.T) {
 	}
 
 	// Apply regular SecureWeb middleware (no rate limiting)
-	srv.AddMiddlewareStack("/secure", SecureWeb(srv.Options))
+	srv.UsePrefix("/secure", SecureWeb(srv.options))
 
 	// Create a test handler
 	srv.HandleFunc("/secure/test", func(w http.ResponseWriter, r *http.Request) {
@@ -103,7 +103,7 @@ func TestRateLimitingUnderLoad(t *testing.T) {
 	}
 
 	// Apply rate limiting middleware directly
-	srv.AddMiddleware("/api", RateLimitMiddleware(srv))
+	srv.UsePrefix("/api", RateLimitMiddleware(srv))
 	srv.HandleFunc("/api/test", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})

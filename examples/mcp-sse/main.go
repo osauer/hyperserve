@@ -9,16 +9,19 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
 	"strings"
 	"time"
 
-	serverpkg "github.com/osauer/hyperserve/pkg/server"
+	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
 )
 
 func main() {
@@ -63,6 +66,9 @@ func (echoTool) Execute(params map[string]any) (any, error) {
 }
 
 func runServer(addr string) {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
 	srv, err := serverpkg.NewServer(
 		serverpkg.WithAddr(addr),
 		serverpkg.WithMCPSupport("sse-example", "1.0.0"),
@@ -82,7 +88,7 @@ func runServer(addr string) {
 	})
 	log.Printf("Server starting on %s", addr)
 	log.Printf("MCP endpoint: http://localhost%s/mcp", addr)
-	if err := srv.Run(); err != nil {
+	if err := srv.Run(ctx); err != nil {
 		log.Fatal(err)
 	}
 }

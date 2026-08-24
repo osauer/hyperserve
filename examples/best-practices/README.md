@@ -1,129 +1,31 @@
-# Hyperserve Best Practices Example
+# HyperServe composition example
 
-This example demonstrates the correct way to use hyperserve's built-in features without reimplementing functionality.
+This example combines the major server features in one application: explicit
+configuration precedence, health checks, middleware, bearer authentication,
+templates, static files, SSE, and MCP.
 
-## What This Example Shows
+The useful patterns are about ownership:
 
-### ✅ DO: Use Built-in Features
+- the application turns Ctrl+C into context cancellation;
+- HyperServe drains and closes the server resources it starts;
+- deployment configuration is read only through `WithEnvironment`;
+- authentication is composed from named pieces, and application handlers keep
+  authorization;
+- long-lived SSE handlers stop when the request context is cancelled;
+- the MCP endpoint is protected by the same identity middleware as the API.
 
-1. **Graceful Shutdown** - No custom signal handling needed
-2. **Request Logging** - Automatic structured logging with slog
-3. **Rate Limiting** - Built-in token bucket rate limiting
-4. **Health Checks** - Separate health server on :8081
-5. **MCP Support** - Native Model Context Protocol integration
-6. **SSE Support** - Proper Server-Sent Events with helpers
-7. **Security Headers** - Pre-configured middleware stacks
-8. **Configuration** - Explicit environment binding plus application invariants
+Run from this directory, which contains the example templates and static root:
 
-### ❌ DON'T: Common Anti-Patterns to Avoid
-
-1. **Custom shutdown handling** - hyperserve handles SIGINT/SIGTERM
-2. **Custom logging middleware** - RequestLoggerMiddleware is applied by default
-3. **Manual MCP implementation** - Use WithMCPSupport()
-4. **Manual SSE formatting** - Use NewSSEMessage() helper
-5. **Implicit configuration** - Bind deployment variables with `WithEnvironment()`
-
-## Running the Example
-
-```bash
-# Basic usage
-go run main.go
-
-# With debug logging
-HS_LOG_LEVEL=DEBUG go run main.go
-
-# With custom configuration
-HS_PORT=9090 HS_RATE_LIMIT=50 go run main.go
-
-# Test protected endpoint
-curl -H "Authorization: Bearer secret-token-123" http://localhost:8080/api/data
-
-# Test MCP endpoint
-curl -X POST http://localhost:8080/mcp \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "method": "tools/list",
-    "id": 1
-  }'
-
-# Watch SSE stream
-curl -N http://localhost:8080/api/stream
+```sh
+go run .
 ```
 
-## Key Takeaways
+Try a protected request:
 
-1. **Hyperserve is batteries-included** - Most common server needs are built-in
-2. **Use functional options** - Configure with WithX() functions
-3. **Leverage middleware stacks** - SecureAPI() and SecureWeb() for common patterns
-4. **Trust the defaults** - Sensible defaults that work for most applications
-5. **Progressive complexity** - Start simple, add features as needed
-
-## Configuration Options
-
-The example opts into HyperServe's supported environment variables with
-`WithEnvironment()`. A bare `NewServer()` ignores them.
-
-- `HS_PORT` - Server port (default: 8080)
-- `HEALTH_ADDR` - Health check address (default: `:9080`)
-- `HS_RATE_LIMIT` - Requests per second (default: 100)
-- `HS_BURST_LIMIT` - Burst capacity (default: 200)
-- `HS_LOG_LEVEL` - Log level: `DEBUG`, `INFO`, `WARN`, or `ERROR`
-- `HS_MCP_ENABLED` - Enable MCP support (default: false)
-- `HS_MCP_FILE_TOOL_ROOT` - Root directory for MCP file tools
-
-## Comparison: Wrong Way vs Right Way
-
-### Logging
-```go
-// ❌ WRONG: Custom logging middleware
-func loggingMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        start := time.Now()
-        // ... custom logging implementation
-    })
-}
-
-// ✅ RIGHT: Use built-in logging (applied automatically)
-srv, _ := server.NewServer() // RequestLoggerMiddleware included by default
+```sh
+curl -H "Authorization: Bearer secret-token-123" \
+  http://localhost:8080/api/data
 ```
 
-### Shutdown
-```go
-// ❌ WRONG: Custom signal handling
-sigChan := make(chan os.Signal, 1)
-signal.Notify(sigChan, os.Interrupt)
-go func() {
-    <-sigChan
-    os.Exit(0)
-}()
-
-// ✅ RIGHT: Let hyperserve handle it
-srv.Run() // Handles SIGINT/SIGTERM automatically
-```
-
-### MCP
-```go
-// ❌ WRONG: Custom MCP handler
-type MCPHandler struct{}
-func (h *MCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-    // ... manual JSON-RPC implementation
-}
-
-// ✅ RIGHT: Use built-in MCP
-srv, _ := server.NewServer(
-    server.WithMCPSupport("best-practices", "1.0.0"),
-)
-```
-
-### SSE
-```go
-// ❌ WRONG: Manual SSE formatting
-fmt.Fprintf(w, "event: %s\n", event)
-fmt.Fprintf(w, "data: %s\n\n", data)
-
-// ✅ RIGHT: Use SSE helper
-msg := server.NewSSEMessage(data)
-msg.Event = event
-fmt.Fprint(w, msg)
-```
+The example token verifier is deliberately local and tiny. For a federated
+provider, use the [OpenID Connect example](../auth/) instead.

@@ -35,13 +35,13 @@ func TestSlowlorisProtection(t *testing.T) {
 		t.Fatalf("NewServer: %v", err)
 	}
 	const headerTimeout = 50 * time.Millisecond
-	srv.Options.ReadHeaderTimeout = headerTimeout
+	srv.options.ReadHeaderTimeout = headerTimeout
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	runErr := make(chan error, 1)
 	go func() {
-		runErr <- srv.RunContext(ctx)
+		runErr <- srv.Run(ctx)
 	}()
 
 	startupDeadline := time.After(time.Second)
@@ -59,7 +59,7 @@ func TestSlowlorisProtection(t *testing.T) {
 		select {
 		case err := <-runErr:
 			if err != nil {
-				t.Errorf("RunContext shutdown: %v", err)
+				t.Errorf("Run shutdown: %v", err)
 			}
 		case <-time.After(time.Second):
 			t.Error("server did not stop")
@@ -100,12 +100,12 @@ func TestHealthServerTimeoutConfiguration(t *testing.T) {
 	}
 
 	// Bind health server to an ephemeral loopback port to avoid sandbox restrictions
-	srv.Options.HealthAddr = "127.0.0.1:0"
+	srv.options.HealthAddr = "127.0.0.1:0"
 
 	// Start the server
 	serverErr := make(chan error, 1)
 	go func() {
-		serverErr <- srv.Run()
+		serverErr <- srv.Run(context.Background())
 	}()
 
 	// Wait for server initialization or failure
@@ -132,7 +132,7 @@ waiting:
 
 	// If server isn't running at this point, skip (likely sandbox restrictions)
 	if !srv.isRunning.Load() {
-		if err := srv.Stop(); err != nil && err != http.ErrServerClosed {
+		if err := srv.Shutdown(context.Background()); err != nil && err != http.ErrServerClosed {
 			t.Logf("cleanup stop error: %v", err)
 		}
 		t.Skip("server could not start in this environment")
@@ -168,7 +168,7 @@ waiting:
 		}
 	}
 
-	if err := srv.Stop(); err != nil && err != http.ErrServerClosed {
+	if err := srv.Shutdown(context.Background()); err != nil && err != http.ErrServerClosed {
 		t.Errorf("failed to stop server: %v", err)
 	}
 
@@ -179,32 +179,6 @@ waiting:
 		}
 	case <-time.After(2 * time.Second):
 		t.Error("timeout waiting for server shutdown")
-	}
-}
-
-// mockCloser is a test implementation of io.Closer
-type mockCloser struct {
-	closeError error
-	closed     bool
-}
-
-// Close implements io.Closer
-func (mc *mockCloser) Close() error {
-	mc.closed = true
-	return mc.closeError
-}
-
-// TestCloseWithLogErrorHandling tests that closeWithLog properly handles close errors
-func TestCloseWithLogErrorHandling(t *testing.T) {
-	// Create a mock closer that returns an error
-	mc := &mockCloser{closeError: http.ErrServerClosed}
-
-	// Test closeWithLog with error
-	closeWithLog(mc, "test resource")
-
-	// Verify it was called (this would normally log the error)
-	if !mc.closed {
-		t.Error("closeWithLog should have attempted to close the resource")
 	}
 }
 
@@ -224,7 +198,7 @@ func TestTLSConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
-	srv.Options.TLSAddr = addr
+	srv.options.TLSAddr = addr
 	srv.HandleFunc("/secure", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -233,7 +207,7 @@ func TestTLSConfiguration(t *testing.T) {
 	defer cancel()
 	runErr := make(chan error, 1)
 	go func() {
-		runErr <- srv.RunContext(ctx)
+		runErr <- srv.Run(ctx)
 	}()
 
 	startupDeadline := time.After(time.Second)
@@ -251,7 +225,7 @@ func TestTLSConfiguration(t *testing.T) {
 		select {
 		case err := <-runErr:
 			if err != nil {
-				t.Errorf("RunContext shutdown: %v", err)
+				t.Errorf("Run shutdown: %v", err)
 			}
 		case <-time.After(time.Second):
 			t.Error("TLS server did not stop")

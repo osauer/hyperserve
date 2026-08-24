@@ -15,7 +15,7 @@ func TestHeadersMiddlewareCORSAllowedOrigin(t *testing.T) {
 		t.Fatalf("failed to create server: %v", err)
 	}
 
-	srv.AddMiddlewareStack("/cors", SecureWeb(srv.Options))
+	srv.UsePrefix("/cors", SecureWeb(srv.options))
 	srv.HandleFunc("/cors", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -46,7 +46,7 @@ func TestHeadersMiddlewareCORSPreflight(t *testing.T) {
 		t.Fatalf("failed to create server: %v", err)
 	}
 
-	srv.AddMiddlewareStack("/cors", SecureWeb(srv.Options))
+	srv.UsePrefix("/cors", SecureWeb(srv.options))
 	srv.HandleFunc("/cors", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -75,7 +75,7 @@ func TestHeadersMiddlewareCORSDisallowedOrigin(t *testing.T) {
 		t.Fatalf("failed to create server: %v", err)
 	}
 
-	srv.AddMiddlewareStack("/cors", SecureWeb(srv.Options))
+	srv.UsePrefix("/cors", SecureWeb(srv.options))
 	srv.HandleFunc("/cors", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -101,7 +101,7 @@ func TestHeadersMiddlewareCORSSimpleWildcard(t *testing.T) {
 		t.Fatalf("failed to create server: %v", err)
 	}
 
-	srv.AddMiddlewareStack("/cors", SecureWeb(srv.Options))
+	srv.UsePrefix("/cors", SecureWeb(srv.options))
 	srv.HandleFunc("/cors", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -127,7 +127,7 @@ func TestHeadersMiddlewareCORSNoOriginPreflight(t *testing.T) {
 		t.Fatalf("failed to create server: %v", err)
 	}
 
-	srv.AddMiddlewareStack("/cors", SecureWeb(srv.Options))
+	srv.UsePrefix("/cors", SecureWeb(srv.options))
 	srv.HandleFunc("/cors", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})

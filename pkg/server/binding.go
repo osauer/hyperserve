@@ -43,7 +43,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/osauer/hyperserve/internal/validate"
+	"github.com/osauer/hyperserve/v2/internal/validate"
 )
 
 // FieldError describes one failed validation rule. Aliased to the

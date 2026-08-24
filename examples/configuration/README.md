@@ -1,7 +1,7 @@
 # Configuration precedence
 
 HyperServe starts from deterministic defaults. An application may then bind a
-JSON file, process environment, or a complete `ServerOptions` value explicitly.
+JSON file, process environment, or a complete `Options` value explicitly.
 This example answers the important question: when the same field appears in
 several places, which value wins?
 

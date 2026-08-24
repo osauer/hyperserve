@@ -1,14 +1,15 @@
 package builtin
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
 	"slices"
 	"testing"
 
-	"github.com/osauer/hyperserve/pkg/mcp"
-	"github.com/osauer/hyperserve/pkg/server"
+	"github.com/osauer/hyperserve/v2/pkg/mcp"
+	"github.com/osauer/hyperserve/v2/pkg/server"
 )
 
 func TestObservabilityPresetDoesNotReplaceGlobalLoggers(t *testing.T) {
@@ -17,31 +18,26 @@ func TestObservabilityPresetDoesNotReplaceGlobalLoggers(t *testing.T) {
 	builtinLogger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	previousProcessLogger := slog.Default()
-	previousServerLogger := server.DefaultLogger()
 	previousBuiltinLogger := logger
 	t.Cleanup(func() {
 		logger = previousBuiltinLogger
-		server.SetDefaultLogger(previousServerLogger)
 		slog.SetDefault(previousProcessLogger)
 	})
 
 	slog.SetDefault(processLogger)
-	server.SetDefaultLogger(serverLogger)
 	logger = builtinLogger
 
 	srv, err := server.NewServer(
+		server.WithLogger(serverLogger),
 		server.WithMCPSupport("logger-isolation", "test", server.MCPObservability()),
 	)
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
-	t.Cleanup(func() { _ = srv.Stop() })
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
 
 	if slog.Default() != processLogger {
 		t.Fatal("observability preset replaced slog.Default")
-	}
-	if server.DefaultLogger() != serverLogger {
-		t.Fatal("observability preset replaced the server package logger")
 	}
 	if logger != builtinLogger {
 		t.Fatal("observability preset replaced the builtin package logger")
@@ -58,16 +54,13 @@ func TestWireLogResourceCapturesOnlyHandlerLogs(t *testing.T) {
 	handlerLogger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	previousProcessLogger := slog.Default()
-	previousServerLogger := server.DefaultLogger()
 	previousBuiltinLogger := logger
 	t.Cleanup(func() {
 		logger = previousBuiltinLogger
-		server.SetDefaultLogger(previousServerLogger)
 		slog.SetDefault(previousProcessLogger)
 	})
 
 	slog.SetDefault(processLogger)
-	server.SetDefaultLogger(serverLogger)
 	logger = builtinLogger
 
 	handler := mcp.NewHandler(mcp.ServerInfo{Name: "logger-isolation", Version: "test"})
@@ -78,7 +71,7 @@ func TestWireLogResourceCapturesOnlyHandlerLogs(t *testing.T) {
 	handler.Logger().Info("owned MCP log")
 	_ = handler.ProcessRequest([]byte("{")) // JSON-RPC engine must use the injected logger too.
 	slog.Info("unrelated process log")
-	server.DefaultLogger().Info("unrelated server package log")
+	serverLogger.Info("unrelated server package log")
 	logger.Info("unrelated builtin package log")
 
 	result, err := resource.Read()

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/hyperserve/pkg/mcp"
+	"github.com/osauer/hyperserve/v2/pkg/mcp"
 )
 
 // TestMCPDevModeWarnings verifies the expected warning behavior when MCP developer mode is enabled
@@ -24,10 +24,7 @@ func TestMCPDevModeWarnings(t *testing.T) {
 			setup: func() (*Server, *bytes.Buffer) {
 				var buf bytes.Buffer
 
-				// Capture hyperserve's slog output
-				oldLogger := logger
-				logger = slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-				defer func() { logger = oldLogger }()
+				testLogger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 				// Also capture standard log output (what HF_DAW uses)
 				oldLogOutput := log.Writer()
@@ -39,6 +36,7 @@ func TestMCPDevModeWarnings(t *testing.T) {
 				log.Println("⚠️  MCP Developer Mode enabled - use for development only!") // HF_DAW's warning
 
 				srv, _ := NewServer(
+					WithLogger(testLogger),
 					WithMCPSupport("Test App", "1.0.0", mcpConfigs...),
 				)
 
@@ -53,13 +51,11 @@ func TestMCPDevModeWarnings(t *testing.T) {
 			setup: func() (*Server, *bytes.Buffer) {
 				var buf bytes.Buffer
 
-				// Capture hyperserve's slog output
-				oldLogger := logger
-				logger = slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-				defer func() { logger = oldLogger }()
+				testLogger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 				// No application warning here
 				srv, _ := NewServer(
+					WithLogger(testLogger),
 					WithMCPSupport("Test App", "1.0.0", MCPDev()),
 				)
 
@@ -80,12 +76,9 @@ func TestMCPDevModeWarnings(t *testing.T) {
 				t.Setenv("HS_MCP_SERVER_VERSION", "1.0.0")
 				t.Setenv("HS_MCP_DEV", "true")
 
-				// Capture hyperserve's slog output
-				oldLogger := logger
-				logger = slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-				defer func() { logger = oldLogger }()
+				testLogger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
-				srv, _ := NewServer(WithEnvironment())
+				srv, _ := NewServer(WithEnvironment(), WithLogger(testLogger))
 
 				return srv, &buf
 			},

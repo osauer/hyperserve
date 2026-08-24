@@ -24,6 +24,69 @@ Entries tier by audience:
 Shape is enforced by `make changelog-lint RELEASE_VERSION=vX.Y.Z`; scaffold a
 new entry with `make changelog-stub RELEASE_VERSION=vX.Y.Z`.
 
+## [2.0.0] - Unreleased
+
+HyperServe v2 combines the planned v1.7 cleanup with the breaking API changes
+that require a new Go module path, so applications migrate once rather than
+through a temporary compatibility layer.
+
+### What's new
+
+- **Breaking (Go library):** imports move to
+  `github.com/osauer/hyperserve/v2`; lifecycle, middleware, options, and logging
+  use smaller standard-library-shaped APIs.
+- Added provider-neutral request authentication with stable issuer/subject
+  principals and a real OpenID Connect adapter example.
+- Server-owned listeners, logging, and option snapshots now remain isolated to
+  one server instance and are cleaned up on partial-startup paths.
+
+### Added
+
+- Added `pkg/auth` with `Authenticator`, `TokenVerifier`, bearer extraction,
+  `Require` middleware, and request principal accessors.
+- Added `WithLogger`, `Options()`, `RunStdio()`, `Shutdown(ctx)`, `Use`, and
+  `UsePrefix`.
+- Replaced the previous multi-provider authentication demonstration with a
+  focused, tested OpenID Connect adapter that keeps provider dependencies in
+  its standalone example module.
+
+### Changed
+
+- Changed the module path and public package imports to `/v2`.
+- Changed `Run` to require an application-owned context; process signals are no
+  longer claimed by the library.
+- Changed middleware to the standard `func(http.Handler) http.Handler` shape
+  and made prefix matching stop at URL path boundaries.
+- Renamed `ServerOptionFunc`, `ServerOptions`, and `DefaultServerOptions` to
+  `Option`, `Options`, and `DefaultOptions`.
+- Explicit zero values passed to `WithTimeouts` now disable those deadlines,
+  matching `http.Server`.
+
+### Removed
+
+- Removed `RunContext`, `Stop`, `AddMiddleware`, `AddMiddlewareStack`, mutable
+  `Server.Options`, process-global logger setters, server-owned token
+  validation, the `SecureAPI` bundle, `WithHardenedMode`, and
+  `WithSuppressBanner`. `HandleStaticChecked` becomes the error-returning
+  `HandleStatic`; raw `Mux`, `DefaultMiddleware`, and `EnsureTrailingSlash`
+  are also removed in favor of `Handler`, automatic defaults, and standard
+  library path handling. Direct replacements are documented in
+  [Migrating to v2](./docs/MIGRATING_V2.md).
+
+### Fixed
+
+- Retained and explicitly closed listeners opened during startup, including
+  the narrow failure window before a serving goroutine registers its listener
+  with `http.Server`.
+
+### Verification
+
+- `go test ./...`
+- `(cd examples/auth && go test ./...)`
+- `make check`
+- `make test-race`
+- `make fuzz-smoke`
+
 ## [1.6.1] - 2026-08-24 11:38 CEST
 
 Direct TLS now uses the configured certificate correctly and rejects invalid

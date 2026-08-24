@@ -1,12 +1,13 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 
-	serverpkg "github.com/osauer/hyperserve/pkg/server"
+	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
 )
 
 func main() {
@@ -43,9 +44,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer func() { _ = loaded.Stop() }()
+	defer func() { _ = loaded.Shutdown(context.Background()) }()
 	fmt.Println("After defaults, file, and environment:")
-	printOptions(loaded.Options)
+	printOptions(loaded.Options())
 
 	// Options apply left to right, so the final two calls enforce application invariants.
 	srv, err := serverpkg.NewServer(
@@ -58,16 +59,16 @@ func main() {
 		log.Fatal(err)
 	}
 	defer func() {
-		if err := srv.Stop(); err != nil {
+		if err := srv.Shutdown(context.Background()); err != nil {
 			log.Printf("stop server: %v", err)
 		}
 	}()
 
 	fmt.Println("\nAfter programmatic options:")
-	printOptions(srv.Options)
+	printOptions(srv.Options())
 }
 
-func printOptions(options *serverpkg.ServerOptions) {
+func printOptions(options serverpkg.Options) {
 	fmt.Printf("  address: %s\n", options.Addr)
 	fmt.Printf("  rate:    %.0f requests/second\n", float64(options.RateLimit))
 	fmt.Printf("  burst:   %d\n", options.Burst)

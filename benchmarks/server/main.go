@@ -9,7 +9,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/osauer/hyperserve/pkg/server"
+	"github.com/osauer/hyperserve/v2/pkg/auth"
+	"github.com/osauer/hyperserve/v2/pkg/server"
 )
 
 func main() {
@@ -19,9 +20,6 @@ func main() {
 	srv, err := server.NewServer(
 		server.WithAddr(*addr),
 		server.WithLogLevel("ERROR"),
-		server.WithAuthTokenValidator(func(token string) (bool, error) {
-			return token == "benchmark-token", nil
-		}),
 	)
 	if err != nil {
 		log.Fatal(err)
@@ -32,16 +30,26 @@ func main() {
 	})
 	srv.HandleFunc("/minimal", okHandler)
 	srv.HandleFunc("/middleware", okHandler)
-	srv.AddMiddlewareStack("/middleware", server.MiddlewareStack{
-		server.HeadersMiddleware(srv.Options),
-		server.AuthMiddleware(srv.Options),
-	})
+	authenticator := auth.Bearer(benchmarkVerifier{})
+	srv.UsePrefix("/middleware",
+		server.HeadersMiddleware(srv.Options()),
+		auth.Require(authenticator),
+	)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	if err := srv.RunContext(ctx); err != nil {
+	if err := srv.Run(ctx); err != nil {
 		log.Fatal(err)
 	}
+}
+
+type benchmarkVerifier struct{}
+
+func (benchmarkVerifier) VerifyToken(_ context.Context, token string) (auth.Principal, error) {
+	if token != "benchmark-token" {
+		return auth.Principal{}, auth.ErrUnauthenticated
+	}
+	return auth.Principal{Issuer: "benchmark", Subject: "load-client"}, nil
 }
 
 func okHandler(w http.ResponseWriter, _ *http.Request) {

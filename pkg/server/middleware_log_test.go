@@ -16,24 +16,18 @@ func TestMiddlewareLogBehavior(t *testing.T) {
 	handler := slog.NewTextHandler(&logBuffer, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
 	})
-	oldLogger := logger
-	logger = slog.New(handler)
-	defer func() { logger = oldLogger }()
-
 	// Create server
 	srv, err := NewServer(
 		WithAddr(":0"),
-		WithAuthTokenValidator(func(token string) (bool, error) {
-			return true, nil // Accept all tokens for testing
-		}),
+		WithLogger(slog.New(handler)),
 	)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
 
 	// Add some middleware
-	srv.AddMiddleware("/api", RateLimitMiddleware(srv))
-	srv.AddMiddleware("/api", AuthMiddleware(srv.Options))
+	srv.UsePrefix("/api", RateLimitMiddleware(srv))
+	srv.UsePrefix("/api", HeadersMiddleware(srv.options))
 
 	// Add a test handler
 	srv.HandleFunc("/api/test", func(w http.ResponseWriter, r *http.Request) {
@@ -76,7 +70,7 @@ func TestMiddlewareLogBehavior(t *testing.T) {
 		"RequestLoggerMiddleware enabled",
 		"RecoveryMiddleware enabled",
 		"RateLimitMiddleware enabled",
-		"AuthMiddleware enabled",
+		"Authentication middleware enabled",
 		"HeadersMiddleware enabled",
 	}
 
@@ -96,19 +90,15 @@ func TestMiddlewareOnlyLogsOncePerRoute(t *testing.T) {
 	handler := slog.NewTextHandler(&logBuffer, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
 	})
-	oldLogger := logger
-	logger = slog.New(handler)
-	defer func() { logger = oldLogger }()
-
 	// Create server
-	srv, err := NewServer(WithAddr(":0"))
+	srv, err := NewServer(WithAddr(":0"), WithLogger(slog.New(handler)))
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
 
 	// Register middleware stacks
-	srv.AddMiddlewareStack("/", SecureWeb(srv.Options))
-	srv.AddMiddlewareStack("/api", SecureAPI(srv))
+	srv.UsePrefix("/", SecureWeb(srv.options))
+	srv.UsePrefix("/api", RateLimitMiddleware(srv))
 
 	// Add handlers
 	srv.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -126,7 +116,7 @@ func TestMiddlewareOnlyLogsOncePerRoute(t *testing.T) {
 	rec1 := httptest.NewRecorder()
 	httpHandler.ServeHTTP(rec1, req1)
 
-	// Request to /api/data (will fail auth but that's ok)
+	// Request to /api/data
 	req2 := httptest.NewRequest("GET", "/api/data", nil)
 	rec2 := httptest.NewRecorder()
 	httpHandler.ServeHTTP(rec2, req2)
@@ -141,8 +131,8 @@ func TestMiddlewareOnlyLogsOncePerRoute(t *testing.T) {
 	// Check logs
 	logs := logBuffer.String()
 
-	// Should see exactly 2 "Middleware stack registered" messages
-	stackRegisteredCount := strings.Count(logs, "Middleware stack registered")
+	// Should see exactly 2 registration messages.
+	stackRegisteredCount := strings.Count(logs, "Middleware registered")
 	if stackRegisteredCount != 2 {
 		t.Errorf("Expected 'Middleware stack registered' exactly 2 times, found %d", stackRegisteredCount)
 	}

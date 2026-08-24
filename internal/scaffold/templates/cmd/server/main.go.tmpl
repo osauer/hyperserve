@@ -1,12 +1,18 @@
 package main
 
 import (
+	"context"
 	"log"
+	"os"
+	"os/signal"
 
 	"{{ .Module }}/internal/app"
 )
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
 	cfg, err := app.LoadConfig(app.ResolveConfigPath())
 	if err != nil {
 		log.Fatalf("load config: %v", err)
@@ -21,7 +27,7 @@ func main() {
 	app.RegisterRoutes(srv, cfg)
 
 	log.Printf("%s listening on %s", cfg.ServiceName, cfg.Addr)
-	if err := srv.Run(); err != nil {
+	if err := srv.Run(ctx); err != nil {
 		log.Fatalf("server exited: %v", err)
 	}
 }

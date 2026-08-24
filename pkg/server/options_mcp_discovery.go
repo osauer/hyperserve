@@ -3,7 +3,7 @@ package server
 import (
 	"net/http"
 
-	"github.com/osauer/hyperserve/pkg/mcp"
+	"github.com/osauer/hyperserve/v2/pkg/mcp"
 )
 
 // WithMCPDiscoveryPolicy sets the discovery policy for MCP tools and resources.
@@ -13,9 +13,9 @@ import (
 //	srv, _ := server.NewServer(
 //	    server.WithMCPDiscoveryPolicy(mcp.DiscoveryCount),
 //	)
-func WithMCPDiscoveryPolicy(policy mcp.DiscoveryPolicy) ServerOptionFunc {
+func WithMCPDiscoveryPolicy(policy mcp.DiscoveryPolicy) Option {
 	return func(srv *Server) error {
-		srv.Options.MCPDiscoveryPolicy = policy
+		srv.options.MCPDiscoveryPolicy = policy
 		return nil
 	}
 }
@@ -36,9 +36,9 @@ func WithMCPDiscoveryPolicy(policy mcp.DiscoveryPolicy) ServerOptionFunc {
 //	        return true
 //	    }),
 //	)
-func WithMCPDiscoveryFilter(filter func(toolName string, r *http.Request) bool) ServerOptionFunc {
+func WithMCPDiscoveryFilter(filter func(toolName string, r *http.Request) bool) Option {
 	return func(srv *Server) error {
-		srv.Options.MCPDiscoveryFilter = filter
+		srv.options.MCPDiscoveryFilter = filter
 		return nil
 	}
 }

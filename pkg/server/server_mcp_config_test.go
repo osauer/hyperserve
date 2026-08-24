@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/hyperserve/pkg/mcp"
+	"github.com/osauer/hyperserve/v2/pkg/mcp"
 )
 
 // TestMCPProgrammaticConfigurationNoDoubleWarning tests that when MCP is configured
@@ -20,14 +20,13 @@ import (
 func TestMCPProgrammaticConfigurationNoDoubleWarning(t *testing.T) {
 	// Capture log output
 	var buf bytes.Buffer
-	oldLogger := logger
-	logger = slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	defer func() { logger = oldLogger }()
+	testLogger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	// Simulate HF_DAW's configuration approach
-	serverOpts := []ServerOptionFunc{
+	serverOpts := []Option{
 		WithRateLimit(100, 200),
 		WithCSPWebWorkerSupport(),
+		WithLogger(testLogger),
 	}
 
 	// Configure MCP with dev mode (like HF_DAW does)
@@ -66,10 +65,10 @@ func TestMCPProgrammaticConfigurationNoDoubleWarning(t *testing.T) {
 	}
 
 	// Verify developer mode was applied
-	if !srv.Options.mcpTransportOpts.DeveloperMode {
+	if !srv.options.mcpTransportOpts.DeveloperMode {
 		t.Error("Developer mode should be enabled in transport options")
 	}
-	if !srv.Options.MCPDev {
+	if !srv.options.MCPDev {
 		t.Error("Developer mode should be visible in exported server options")
 	}
 }
@@ -85,12 +84,10 @@ func TestMCPEnvironmentConfiguration(t *testing.T) {
 
 	// Capture log output
 	var buf bytes.Buffer
-	oldLogger := logger
-	logger = slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	defer func() { logger = oldLogger }()
+	testLogger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	// The application explicitly opts into process-environment configuration.
-	srv, err := NewServer(WithEnvironment())
+	srv, err := NewServer(WithEnvironment(), WithLogger(testLogger))
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -126,13 +123,12 @@ func TestMCPMixedConfiguration(t *testing.T) {
 
 	// Capture log output
 	var buf bytes.Buffer
-	oldLogger := logger
-	logger = slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	defer func() { logger = oldLogger }()
+	testLogger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	// But configure programmatically with observability mode instead
 	srv, err := NewServer(
 		WithEnvironment(),
+		WithLogger(testLogger),
 		WithMCPSupport("ProgrammaticApp", "3.0.0", MCPObservability()),
 	)
 	if err != nil {
@@ -148,19 +144,19 @@ func TestMCPMixedConfiguration(t *testing.T) {
 	}
 
 	// Should use programmatic name, not environment name
-	if srv.Options.MCPServerName != "ProgrammaticApp" {
-		t.Errorf("Expected programmatic name 'ProgrammaticApp', got %s", srv.Options.MCPServerName)
+	if srv.options.MCPServerName != "ProgrammaticApp" {
+		t.Errorf("Expected programmatic name 'ProgrammaticApp', got %s", srv.options.MCPServerName)
 	}
 
 	// Should have observability mode, not dev mode
-	if srv.Options.mcpTransportOpts.DeveloperMode {
+	if srv.options.mcpTransportOpts.DeveloperMode {
 		t.Error("Should not have developer mode when configured with observability")
 	}
-	if !srv.Options.mcpTransportOpts.ObservabilityMode {
+	if !srv.options.mcpTransportOpts.ObservabilityMode {
 		t.Error("Should have observability mode")
 	}
-	if srv.Options.MCPDev || !srv.Options.MCPObservability {
-		t.Errorf("exported preset flags = dev %v, observability %v", srv.Options.MCPDev, srv.Options.MCPObservability)
+	if srv.options.MCPDev || !srv.options.MCPObservability {
+		t.Errorf("exported preset flags = dev %v, observability %v", srv.options.MCPDev, srv.options.MCPObservability)
 	}
 }
 

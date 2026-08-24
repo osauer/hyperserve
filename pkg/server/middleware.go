@@ -7,32 +7,20 @@ The middleware package includes:
   - Request logging with structured output
   - Panic recovery to prevent server crashes
   - Request metrics collection
-  - Authentication (Basic, Bearer token, custom)
   - Rate limiting per IP address
   - Security headers (HSTS, CSP, etc.)
   - Request/Response timing
 
-Middleware can be applied globally or to specific routes:
-
-	// Global middleware
-	srv.AddMiddleware("*", server.RequestLoggerMiddleware)
-
-	// Route-specific middleware
-	srv.AddMiddleware("/api", server.AuthMiddleware(srv.Options))
-
-	// Combine multiple middleware
-	srv.AddMiddlewareGroup("/admin",
-		server.AuthMiddleware(srv.Options),
-		server.RateLimitMiddleware(srv),
-	)
+Middleware can be applied globally with Server.Use or to a path subtree with
+Server.UsePrefix. Authentication is provided by pkg/auth, where it can remain
+independent of server configuration.
 */
 
 import (
 	"bufio"
-	"context"
-	"crypto/subtle"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"slices"
@@ -42,17 +30,15 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// MiddlewareFunc is a function type that wraps an http.Handler and returns a new http.HandlerFunc.
-// This is the standard pattern for HTTP middleware in Go.
-type MiddlewareFunc func(http.Handler) http.HandlerFunc
+// Middleware wraps an HTTP handler. It has the standard net/http middleware
+// shape, so middleware from other packages works without an adapter.
+type Middleware func(http.Handler) http.Handler
 
 // MiddlewareStack is a collection of middleware functions that can be applied to an http.Handler.
 // Middleware in the stack is applied in order, with the first middleware being the outermost.
-type MiddlewareStack []MiddlewareFunc
+type MiddlewareStack []Middleware
 
-// GlobalMiddlewareRoute is a special route identifier that applies middleware to all routes.
-// Use this constant when registering middleware that should run for every request.
-const GlobalMiddlewareRoute = "*"
+const globalMiddlewareRoute = "*"
 
 // middlewareRegistry manages middleware stacks for different routes.
 //
@@ -61,9 +47,8 @@ const GlobalMiddlewareRoute = "*"
 // handler more tightly. It is rebuilt only inside Add(); the request hot
 // path reads it and never allocates a key slice or runs a sort.
 //
-// Unexported in v1.0 — the type had no external callers and the field
-// holding it on Server was already unexported. Use AddMiddlewareStack on
-// the server to compose routes.
+// The registry is an implementation detail; callers compose middleware with
+// Server.Use and Server.UsePrefix.
 type middlewareRegistry struct {
 	middleware   map[string]MiddlewareStack
 	sortedRoutes []string
@@ -76,7 +61,7 @@ func newMiddlewareRegistry(globalMiddleware MiddlewareStack) *middlewareRegistry
 		middleware: make(map[string]MiddlewareStack),
 	}
 	if globalMiddleware != nil {
-		ret.Add(GlobalMiddlewareRoute, globalMiddleware)
+		ret.Add(globalMiddlewareRoute, globalMiddleware)
 	}
 	return ret
 }
@@ -114,7 +99,7 @@ func (mwr *middlewareRegistry) applyToMux(mux *http.ServeMux) http.Handler {
 		}
 
 		// Global stack wraps everything (outermost).
-		global := mwr.middleware[GlobalMiddlewareRoute]
+		global := mwr.middleware[globalMiddlewareRoute]
 		for _, g := range slices.Backward(global) {
 			finalHandler = g(finalHandler)
 		}
@@ -162,8 +147,7 @@ func pathPrefixMatches(path, key string) bool {
 	return path[len(key)] == '/'
 }
 
-// Add registers a MiddlewareStack for a specific route in the registry.
-// Use GlobalMiddlewareRoute ("*") to apply middleware to all routes.
+// Add registers a middleware stack for one internal route key.
 func (mwr *middlewareRegistry) Add(route string, middleware MiddlewareStack) {
 	if existing, exists := mwr.middleware[route]; exists {
 		// Append to existing middleware for this route
@@ -181,7 +165,7 @@ func (mwr *middlewareRegistry) Add(route string, middleware MiddlewareStack) {
 func (mwr *middlewareRegistry) rebuildSorted() {
 	keys := make([]string, 0, len(mwr.middleware))
 	for k := range mwr.middleware {
-		if k == GlobalMiddlewareRoute {
+		if k == globalMiddlewareRoute {
 			continue
 		}
 		keys = append(keys, k)
@@ -200,46 +184,24 @@ func (mwr *middlewareRegistry) rebuildSorted() {
 func (mwr *middlewareRegistry) Get(route string) MiddlewareStack {
 	ret := mwr.middleware[route]
 	if ret == nil {
-		logger.Warn("No middleware found for route", "route", route)
 		ret = MiddlewareStack{}
 	}
 	return ret
 }
 
-// DefaultMiddleware returns a predefined middleware stack with essential server functionality.
-// Includes metrics collection, request logging, and panic recovery.
-// This middleware is applied by default unless explicitly excluded.
-func DefaultMiddleware(server *Server) MiddlewareStack {
+func defaultMiddleware(server *Server) MiddlewareStack {
 	return MiddlewareStack{
 		MetricsMiddleware(server),
-		RequestLoggerMiddleware,
-		RecoveryMiddleware}
+		requestLoggerMiddleware(server.logger),
+		recoveryMiddleware(server.logger)}
 }
 
-// SecureAPI returns a middleware stack configured for secure API endpoints.
-// Includes authentication and rate limiting middleware.
-func SecureAPI(srv *Server) MiddlewareStack {
-	return MiddlewareStack{
-		AuthMiddleware(srv.Options),
-		RateLimitMiddleware(srv)}
-}
-
-// SecureWeb returns a middleware stack configured for secure web endpoints.
-// Includes security headers middleware for web applications.
-func SecureWeb(options *ServerOptions) MiddlewareStack {
-	return MiddlewareStack{HeadersMiddleware(options)}
+// SecureWeb returns security-header middleware for browser-facing routes.
+func SecureWeb(options Options) Middleware {
+	return HeadersMiddleware(options)
 }
 
 // middleware definitions
-
-// Header context keys
-type contextKey string
-
-const (
-	authorizationHeader            = "Authorization"
-	bearerTokenPrefix              = "Bearer "
-	sessionIDKey        contextKey = "sessionID"
-)
 
 // header is an internal key/value pair used by the static securityHeaders
 // table. It is intentionally unexported — the previous public Header type
@@ -251,63 +213,14 @@ type header struct {
 
 // MetricsMiddleware returns a middleware function that collects request metrics.
 // It tracks total request count and response times for performance monitoring.
-func MetricsMiddleware(srv *Server) MiddlewareFunc {
-	return func(next http.Handler) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
+func MetricsMiddleware(srv *Server) Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			srv.totalRequests.Add(1)
 			start := time.Now()
 			next.ServeHTTP(w, r)
 			srv.totalResponseTime.Add(time.Since(start).Microseconds())
-		}
-	}
-}
-
-// AuthMiddleware returns a middleware function that validates bearer tokens in the Authorization header.
-// Requires requests to include a valid Bearer token, otherwise returns 401 Unauthorized.
-func AuthMiddleware(options *ServerOptions) MiddlewareFunc {
-	return func(next http.Handler) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
-			// Check for auth token
-			authHeader := r.Header.Get(authorizationHeader)
-
-			// check if header has bearer token
-			token, ok := strings.CutPrefix(authHeader, bearerTokenPrefix)
-			if !ok {
-				http.Error(w, "Unauthorized: Bearer token required", http.StatusUnauthorized)
-				return
-			}
-			if token == "" {
-				http.Error(w, "Unauthorized: Bearer token invalid", http.StatusUnauthorized)
-				return
-			}
-
-			// validate token with timing attack protection
-			if options.AuthTokenValidatorFunc == nil {
-				http.Error(w, "Internal Server Error: Auth not configured", http.StatusInternalServerError)
-				return
-			}
-
-			// Use crypto/subtle.WithDataIndependentTiming for constant-time token validation
-			var valid bool
-			var err error
-			subtle.WithDataIndependentTiming(func() {
-				valid, err = options.AuthTokenValidatorFunc(token)
-			})
-
-			if err != nil {
-				logger.Error("error validating token", "error", err)
-				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-				return
-			}
-			if !valid {
-				http.Error(w, "Unauthorized: Bearer token invalid", http.StatusUnauthorized)
-				return
-			}
-
-			// add session and ID to the context
-			ctx := context.WithValue(r.Context(), sessionIDKey, token)
-			next.ServeHTTP(w, r.WithContext(ctx))
-		}
+		})
 	}
 }
 
@@ -322,37 +235,45 @@ func AuthMiddleware(options *ServerOptions) MiddlewareFunc {
 //
 // This middleware is included by default in NewServer().
 // For high-traffic applications, consider the performance impact of logging.
-func RequestLoggerMiddleware(next http.Handler) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// create a new logging response writer to capture status code and bytes written
-		lrw := &loggingResponseWriter{w, http.StatusOK, 0}
+func RequestLoggerMiddleware(next http.Handler) http.Handler {
+	return requestLoggerMiddleware(slog.Default())(next)
+}
 
-		ip, _, _ := net.SplitHostPort(r.RemoteAddr)
-
-		start := time.Now()
-		next.ServeHTTP(lrw, r)
-		duration := time.Since(start)
-		logger.Info("Request completed",
-			"from", ip,
-			"method", r.Method,
-			"url", r.URL.String(),
-			"status", lrw.statusCode,
-			"bytes", lrw.bytesWritten,
-			"duration", duration)
+func requestLoggerMiddleware(logger *slog.Logger) Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			lrw := &loggingResponseWriter{w, http.StatusOK, 0}
+			ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+			start := time.Now()
+			next.ServeHTTP(lrw, r)
+			logger.Info("Request completed",
+				"from", ip,
+				"method", r.Method,
+				"url", r.URL.String(),
+				"status", lrw.statusCode,
+				"bytes", lrw.bytesWritten,
+				"duration", time.Since(start))
+		})
 	}
 }
 
 // RecoveryMiddleware returns a middleware function that recovers from panics in request handlers.
 // Catches panics, logs the error, and returns a 500 Internal Server Error response.
-func RecoveryMiddleware(next http.Handler) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		defer func() {
-			if err := recover(); err != nil {
-				logger.Error("Panic recovered", "error", err)
-				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			}
-		}()
-		next.ServeHTTP(w, r)
+func RecoveryMiddleware(next http.Handler) http.Handler {
+	return recoveryMiddleware(slog.Default())(next)
+}
+
+func recoveryMiddleware(logger *slog.Logger) Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			defer func() {
+				if err := recover(); err != nil {
+					logger.Error("Panic recovered", "error", err)
+					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				}
+			}()
+			next.ServeHTTP(w, r)
+		})
 	}
 }
 
@@ -360,9 +281,9 @@ func RecoveryMiddleware(next http.Handler) http.HandlerFunc {
 // Uses token bucket algorithm with configurable rate limit and burst capacity.
 // Returns 429 Too Many Requests when rate limit is exceeded.
 // Optimized for Go 1.24's Swiss Tables map implementation.
-func RateLimitMiddleware(srv *Server) MiddlewareFunc {
-	return func(next http.Handler) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
+func RateLimitMiddleware(srv *Server) Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ip, _, _ := net.SplitHostPort(r.RemoteAddr)
 
 			// Try to get existing limiter with read lock (fast path)
@@ -377,7 +298,7 @@ func RateLimitMiddleware(srv *Server) MiddlewareFunc {
 				entry, exists = srv.rateLimiters.clients[ip]
 				if !exists {
 					entry = &rateLimiterEntry{
-						limiter: rate.NewLimiter(srv.Options.RateLimit, srv.Options.Burst),
+						limiter: rate.NewLimiter(srv.options.RateLimit, srv.options.Burst),
 					}
 					entry.lastAccessUnixNano.Store(time.Now().UnixNano())
 					srv.rateLimiters.clients[ip] = entry
@@ -390,7 +311,7 @@ func RateLimitMiddleware(srv *Server) MiddlewareFunc {
 
 			if entry.limiter.Allow() {
 				// Add rate limit headers to inform clients of their current status
-				w.Header().Set("X-RateLimit-Limit", fmt.Sprintf("%.0f", float64(srv.Options.RateLimit)))
+				w.Header().Set("X-RateLimit-Limit", fmt.Sprintf("%.0f", float64(srv.options.RateLimit)))
 				w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%.0f", entry.limiter.Tokens()))
 				w.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", time.Now().Add(time.Second).Unix()))
 				next.ServeHTTP(w, r)
@@ -399,7 +320,7 @@ func RateLimitMiddleware(srv *Server) MiddlewareFunc {
 				w.Header().Set("Retry-After", "1")
 				writeErrorResponse(w, http.StatusTooManyRequests, "Rate limit exceeded")
 			}
-		}
+		})
 	}
 }
 
@@ -430,7 +351,7 @@ var securityHeaders = []header{
 // options. The directive set was previously duplicated as two near-identical
 // string literals — the two-form variant tolerated drift on a
 // security-critical header. Now both forms are derived from one slice.
-func generateCSP(options *ServerOptions) string {
+func generateCSP(options Options) string {
 	directives := []string{
 		"default-src 'self'",
 		"script-src 'self' 'unsafe-inline'",
@@ -460,9 +381,9 @@ func generateCSP(options *ServerOptions) string {
 // HeadersMiddleware returns a middleware function that adds security headers to responses.
 // Includes headers for XSS protection, content type sniffing prevention, HSTS, CSP, and CORS.
 // Automatically handles CORS preflight requests.
-func HeadersMiddleware(options *ServerOptions) MiddlewareFunc {
-	return func(next http.Handler) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
+func HeadersMiddleware(options Options) Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Library consumers are unidentified by default. Applications that
 			// deliberately opt in control the exact public value.
 			if options.ServerHeader != "" {
@@ -491,7 +412,7 @@ func HeadersMiddleware(options *ServerOptions) MiddlewareFunc {
 
 			// call the next handler if not in preflight
 			next.ServeHTTP(w, r)
-		}
+		})
 	}
 }
 

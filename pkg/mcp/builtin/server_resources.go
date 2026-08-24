@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/hyperserve/pkg/server"
+	"github.com/osauer/hyperserve/v2/pkg/server"
 )
 
 // ServerConfigResource exposes a sanitized snapshot of server configuration.
@@ -35,9 +35,9 @@ func (r *ServerConfigResource) Read() (any, error) {
 		return nil, fmt.Errorf("server not initialized")
 	}
 	// SECURITY: sensitive fields are explicitly excluded:
-	//   KeyFile/CertFile (TLS material), AuthTokenValidatorFunc, StaticDir/TemplateDir,
+	//   KeyFile/CertFile (TLS material), StaticDir/TemplateDir,
 	//   MCPFileToolRoot. These could leak internal paths or secrets.
-	opts := r.server.Options
+	opts := r.server.Options()
 	return map[string]any{
 		"version":        server.Version,
 		"build_hash":     server.BuildHash,
@@ -49,7 +49,7 @@ func (r *ServerConfigResource) Read() (any, error) {
 		"rate_limit":     opts.RateLimit,
 		"burst":          opts.Burst,
 		"server_header":  opts.ServerHeader,
-		"startup_banner": !opts.SuppressBanner,
+		"startup_banner": opts.StartupBanner,
 		"fips_mode":      opts.FIPSMode,
 		"mcp_enabled":    opts.MCPEnabled,
 		"mcp_endpoint":   opts.MCPEndpoint,
@@ -254,13 +254,13 @@ func (r *RouteListResource) Read() (any, error) {
 
 func (r *RouteListResource) List() ([]string, error) { return []string{r.URI()}, nil }
 
-// ConfigResource wraps a *server.ServerOptions for read-only exposure.
+// ConfigResource wraps an immutable server.Options snapshot for exposure.
 type ConfigResource struct {
-	options *server.ServerOptions
+	options server.Options
 }
 
 // NewConfigResource creates a ConfigResource.
-func NewConfigResource(options *server.ServerOptions) *ConfigResource {
+func NewConfigResource(options server.Options) *ConfigResource {
 	return &ConfigResource{options: options}
 }
 
@@ -285,7 +285,7 @@ func (r *ConfigResource) Read() (any, error) {
 		"runHealthServer": r.options.RunHealthServer,
 		"fipsMode":        r.options.FIPSMode,
 		"serverHeader":    r.options.ServerHeader,
-		"startupBanner":   !r.options.SuppressBanner,
+		"startupBanner":   r.options.StartupBanner,
 	}
 	jsonBytes, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {

@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/osauer/hyperserve/pkg/server"
+	"github.com/osauer/hyperserve/v2/pkg/server"
 )
 
 // TestRouteInspectorTool tests the RouteInspectorTool functionality
@@ -16,11 +16,11 @@ func TestRouteInspectorTool(t *testing.T) {
 	}
 
 	// Add some test routes with middleware
-	srv.AddMiddlewareStack("/api/test", server.DefaultMiddleware(srv))
-	srv.AddMiddlewareStack("/api/users", server.SecureAPI(srv))
-	srv.AddMiddlewareStack("/admin", server.SecureAPI(srv))
-	srv.AddMiddlewareStack("/static", server.SecureWeb(srv.Options))
-	srv.AddMiddlewareStack("/middleware-only", server.SecureAPI(srv))
+	srv.UsePrefix("/api/test", server.RequestLoggerMiddleware)
+	srv.UsePrefix("/api/users", server.RateLimitMiddleware(srv))
+	srv.UsePrefix("/admin", server.RateLimitMiddleware(srv))
+	srv.UsePrefix("/static", server.SecureWeb(srv.Options()))
+	srv.UsePrefix("/middleware-only", server.RateLimitMiddleware(srv))
 
 	srv.HandleFunc("/api/test", func(w http.ResponseWriter, r *http.Request) {})
 	srv.GET("/api/users", func(w http.ResponseWriter, r *http.Request) {})
@@ -228,14 +228,14 @@ func TestRouteInspectorTool(t *testing.T) {
 		foundMCPRoute := false
 		for _, route := range routes {
 			pattern, ok := route["pattern"].(string)
-			if ok && pattern == srv.Options.MCPEndpoint {
+			if ok && pattern == srv.Options().MCPEndpoint {
 				foundMCPRoute = true
 				break
 			}
 		}
 
 		if !foundMCPRoute {
-			t.Errorf("Expected MCP route %s not found", srv.Options.MCPEndpoint)
+			t.Errorf("Expected MCP route %s not found", srv.Options().MCPEndpoint)
 		}
 	})
 
@@ -336,29 +336,6 @@ func TestServerControlTool(t *testing.T) {
 			if _, ok := response[field]; !ok {
 				t.Errorf("Expected field %s not found in response", field)
 			}
-		}
-	})
-
-	t.Run("set_log_level", func(t *testing.T) {
-		result, err := tool.Execute(map[string]any{
-			"action":    "set_log_level",
-			"log_level": "DEBUG",
-		})
-		if err != nil {
-			t.Errorf("Execute failed: %v", err)
-		}
-
-		response, ok := result.(map[string]any)
-		if !ok {
-			t.Errorf("Expected map[string]any, got %T", result)
-		}
-
-		if response["status"] != "log_level_changed" {
-			t.Errorf("Expected status 'log_level_changed', got %v", response["status"])
-		}
-
-		if response["new_level"] != "DEBUG" {
-			t.Errorf("Expected new_level 'DEBUG', got %v", response["new_level"])
 		}
 	})
 

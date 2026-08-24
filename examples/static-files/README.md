@@ -79,7 +79,7 @@ if err != nil {
 }
 
 // Register the explicitly configured root at the URL root.
-if err := server.HandleStaticChecked("/"); err != nil {
+if err := server.HandleStatic("/"); err != nil {
     log.Fatal(err)
 }
 ```
@@ -95,7 +95,7 @@ When you request `/`, HyperServe automatically serves `/index.html` if it exists
 ### 3. Security Headers
 
 ```go
-server.AddMiddleware("*", server.HeadersMiddleware(server.Options))
+srv.Use(server.HeadersMiddleware(srv.Options()))
 ```
 
 This middleware adds important security headers to all responses.
@@ -127,15 +127,15 @@ server, err := server.NewServer(
 ### Adding Cache Headers
 
 ```go
-server.AddMiddleware("*", func(next http.Handler) http.HandlerFunc {
-    return func(w http.ResponseWriter, r *http.Request) {
+srv.Use(func(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         // Cache static assets for 1 hour
         if strings.HasPrefix(r.URL.Path, "/css/") || 
            strings.HasPrefix(r.URL.Path, "/js/") {
             w.Header().Set("Cache-Control", "public, max-age=3600")
         }
         next.ServeHTTP(w, r)
-    }
+	})
 })
 ```
 

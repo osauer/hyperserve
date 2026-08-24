@@ -1,6 +1,7 @@
 package server
 
 import (
+	"log/slog"
 	"path"
 	"slices"
 	"strconv"
@@ -43,7 +44,7 @@ func normalizeCORSOptions(opts *CORSOptions) *CORSOptions {
 	// configured into a state where any site can read authenticated responses.
 	if copy.AllowCredentials && slices.Contains(copy.AllowedOrigins, "*") {
 		copy.AllowCredentials = false
-		logger.Warn("CORS: AllowCredentials=true is incompatible with AllowedOrigins=[\"*\"] (Fetch spec); credentials disabled. Specify exact origins to allow credentials.")
+		slog.Default().Warn("CORS: AllowCredentials=true is incompatible with AllowedOrigins=[\"*\"] (Fetch spec); credentials disabled. Specify exact origins to allow credentials.")
 	}
 
 	if len(copy.AllowedMethods) == 0 {

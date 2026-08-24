@@ -1,13 +1,16 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
 	"strings"
 
-	"github.com/osauer/hyperserve/pkg/mcp"
-	serverpkg "github.com/osauer/hyperserve/pkg/server"
+	"github.com/osauer/hyperserve/v2/pkg/mcp"
+	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
 )
 
 // CustomTool that opts out of discovery
@@ -46,6 +49,9 @@ func (t *PublicTool) Execute(params map[string]any) (any, error) {
 }
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
 	// Example 1: Count-only policy (most restrictive)
 	srv1, _ := serverpkg.NewServer(
 		serverpkg.WithAddr(":8081"),
@@ -86,8 +92,8 @@ func main() {
 	log.Println("Server 3 on :8083 - Custom filter (localhost sees all, others see public only)")
 
 	// Start servers
-	go srv1.Run()
-	go srv2.Run()
+	go srv1.Run(ctx)
+	go srv2.Run(ctx)
 
 	// Add demo endpoint to show discovery
 	srv3.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -110,7 +116,7 @@ func main() {
 		fmt.Fprintln(w, "   # From external IP - only public tools")
 	})
 
-	srv3.Run()
+	srv3.Run(ctx)
 }
 
 // CustomTool with configurable name

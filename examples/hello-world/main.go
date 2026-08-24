@@ -1,14 +1,20 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
 
-	serverpkg "github.com/osauer/hyperserve/pkg/server"
+	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
 )
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
 	// Create a new HyperServe server with default options
 	// This creates a server that will listen on port 8080
 	srv, err := serverpkg.NewServer()
@@ -29,7 +35,7 @@ func main() {
 	log.Println("Starting server on http://localhost:8080")
 	log.Println("Press Ctrl+C to stop")
 
-	if err := srv.Run(); err != nil {
+	if err := srv.Run(ctx); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
 }

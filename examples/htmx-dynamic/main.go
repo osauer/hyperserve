@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
 	"time"
 
-	serverpkg "github.com/osauer/hyperserve/pkg/server"
+	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
 )
 
 type pageData struct {
@@ -15,21 +18,23 @@ type pageData struct {
 }
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
 	// Initialize the hyperserve server
-	srv, err := serverpkg.NewServer()
+	srv, err := serverpkg.NewServer(
+		serverpkg.WithTemplateDir("./templates"),
+		serverpkg.WithStaticDir("./static"),
+	)
 	if err != nil {
 		log.Fatalf("Error initializing server: %v", err)
 	}
 
-	// Configure server options
-	srv.Options.TemplateDir = "./templates"
-	srv.Options.StaticDir = "./static"
-
 	// Middleware: Add security headers for all routes
-	srv.AddMiddlewareStack("/", serverpkg.SecureWeb(srv.Options))
+	srv.UsePrefix("/", serverpkg.SecureWeb(srv.Options()))
 
 	// Static content route (e.g., CSS, JS)
-	if err := srv.HandleStaticChecked("/static/"); err != nil {
+	if err := srv.HandleStatic("/static/"); err != nil {
 		log.Fatalf("Static files unavailable: %v", err)
 	}
 
@@ -43,7 +48,7 @@ func main() {
 	srv.HandleFuncDynamic("/dynamic-content", "dynamic-content.html", currentTime)
 
 	// Start the server
-	if err := srv.Run(); err != nil {
+	if err := srv.Run(ctx); err != nil {
 		log.Fatalf("Server failed to start: %v", err)
 	}
 }

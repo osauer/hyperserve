@@ -27,43 +27,6 @@ func TestMetricsMiddlewareIncrementsTotalRequests(t *testing.T) {
 	}
 }
 
-func TestAuthMiddlewareValidToken(t *testing.T) {
-	t.Parallel()
-	options := &ServerOptions{
-		AuthTokenValidatorFunc: func(token string) (bool, error) {
-			return token == "valid-token", nil
-		},
-	}
-	handler := AuthMiddleware(options)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	req := httptest.NewRequest("GET", "/", nil)
-	req.Header.Set("Authorization", "Bearer valid-token")
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Errorf("expected status %v, got %v", http.StatusOK, rec.Code)
-	}
-}
-
-func TestAuthMiddlewareMissingToken(t *testing.T) {
-	t.Parallel()
-	options := &ServerOptions{
-		AuthTokenValidatorFunc: func(token string) (bool, error) {
-			return false, nil
-		},
-	}
-	handler := AuthMiddleware(options)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	req := httptest.NewRequest("GET", "/", nil)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusUnauthorized {
-		t.Errorf("expected status %v, got %v", http.StatusUnauthorized, rec.Code)
-	}
-}
-
 func TestRecoveryMiddlewareRecoversFromPanic(t *testing.T) {
 	t.Parallel()
 	handler := RecoveryMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -80,8 +43,8 @@ func TestRecoveryMiddlewareRecoversFromPanic(t *testing.T) {
 func TestRateLimitMiddlewareAllowsRequest(t *testing.T) {
 	t.Parallel()
 	srv, _ := NewServer()
-	srv.Options.RateLimit = rate.Every(time.Second)
-	srv.Options.Burst = 1
+	srv.options.RateLimit = rate.Every(time.Second)
+	srv.options.Burst = 1
 	handler := RateLimitMiddleware(srv)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -97,8 +60,8 @@ func TestRateLimitMiddlewareAllowsRequest(t *testing.T) {
 func TestRateLimitMiddlewareBlocksRequest(t *testing.T) {
 	t.Parallel()
 	srv, _ := NewServer()
-	srv.Options.RateLimit = rate.Every(time.Second)
-	srv.Options.Burst = 1
+	srv.options.RateLimit = rate.Every(time.Second)
+	srv.options.Burst = 1
 	handler := RateLimitMiddleware(srv)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -116,7 +79,7 @@ func TestRateLimitMiddlewareBlocksRequest(t *testing.T) {
 
 func TestHeadersMiddlewareOmitsServerHeaderByDefault(t *testing.T) {
 	t.Parallel()
-	options := &ServerOptions{}
+	options := Options{}
 	handler := HeadersMiddleware(options)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -137,7 +100,7 @@ func TestHeadersMiddlewareOmitsServerHeaderByDefault(t *testing.T) {
 
 func TestHeadersMiddlewareWithServerHeader(t *testing.T) {
 	t.Parallel()
-	options := &ServerOptions{
+	options := Options{
 		ServerHeader: "example-service",
 	}
 	handler := HeadersMiddleware(options)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -179,7 +142,7 @@ func TestHSTSOnlyOverTLS(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			options := &ServerOptions{EnableTLS: tc.enableTLS}
+			options := Options{EnableTLS: tc.enableTLS}
 			handler := HeadersMiddleware(options)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			}))
@@ -197,7 +160,7 @@ func TestHSTSOnlyOverTLS(t *testing.T) {
 
 func TestCSPGenerationWithoutWebWorkerSupport(t *testing.T) {
 	t.Parallel()
-	options := &ServerOptions{
+	options := Options{
 		CSPWebWorkerSupport: false,
 	}
 
@@ -226,7 +189,7 @@ func TestCSPGenerationWithoutWebWorkerSupport(t *testing.T) {
 
 func TestCSPGenerationWithWebWorkerSupport(t *testing.T) {
 	t.Parallel()
-	options := &ServerOptions{
+	options := Options{
 		CSPWebWorkerSupport: true,
 	}
 
@@ -250,7 +213,7 @@ func TestCSPGenerationWithWebWorkerSupport(t *testing.T) {
 
 func TestHeadersMiddlewareCSPWebWorkerSupport(t *testing.T) {
 	t.Parallel()
-	options := &ServerOptions{
+	options := Options{
 		CSPWebWorkerSupport: true,
 	}
 	handler := HeadersMiddleware(options)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -278,7 +241,7 @@ func TestHeadersMiddlewareCSPWebWorkerSupport(t *testing.T) {
 
 func TestHeadersMiddlewarePermissionsPolicyFixed(t *testing.T) {
 	t.Parallel()
-	options := &ServerOptions{}
+	options := Options{}
 	handler := HeadersMiddleware(options)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -305,12 +268,12 @@ func TestHeadersMiddlewarePermissionsPolicyFixed(t *testing.T) {
 // countingMW returns a middleware that increments hits whenever a request
 // flows through it. Combined with a counter map keyed by route, this is the
 // minimal probe for "did the prefix match the request path".
-func countingMW(hits *int) MiddlewareFunc {
-	return func(next http.Handler) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
+func countingMW(hits *int) Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			*hits++
 			next.ServeHTTP(w, r)
-		}
+		})
 	}
 }
 
@@ -343,7 +306,7 @@ func TestMiddlewarePathPrefixBoundary(t *testing.T) {
 				t.Fatalf("NewServer: %v", err)
 			}
 			var hits int
-			srv.AddMiddleware("/api", countingMW(&hits))
+			srv.UsePrefix("/api", countingMW(&hits))
 			srv.HandleFunc("/api", func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			})
@@ -376,7 +339,7 @@ func TestMiddlewarePathPrefixBoundary(t *testing.T) {
 }
 
 // TestMiddlewareEmptyKeyMatchesAll pins the legacy "" key behaviour: some
-// callers (including pkg/mcp/builtin tests) use `srv.AddMiddleware("", ...)`
+// callers (including pkg/mcp/builtin tests) use `srv.UsePrefix("", ...)`
 // as a synonym for "apply to every route". Before the boundary fix, that
 // worked by accident (HasPrefix accepts an empty key). After the fix, an
 // empty key needs an explicit short-circuit — otherwise the next-char
@@ -392,7 +355,7 @@ func TestMiddlewareEmptyKeyMatchesAll(t *testing.T) {
 				t.Fatalf("NewServer: %v", err)
 			}
 			var hits int
-			srv.AddMiddleware("", countingMW(&hits))
+			srv.UsePrefix("", countingMW(&hits))
 			srv.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			})
@@ -419,7 +382,7 @@ func TestMiddlewareRootPrefixMatches(t *testing.T) {
 				t.Fatalf("NewServer: %v", err)
 			}
 			var hits int
-			srv.AddMiddleware("/", countingMW(&hits))
+			srv.UsePrefix("/", countingMW(&hits))
 			srv.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			})

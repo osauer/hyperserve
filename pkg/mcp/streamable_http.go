@@ -15,7 +15,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	jsonrpc "github.com/osauer/hyperserve/pkg/jsonrpc"
+	jsonrpc "github.com/osauer/hyperserve/v2/pkg/jsonrpc"
 )
 
 const (

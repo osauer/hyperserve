@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	mcp "github.com/osauer/hyperserve/pkg/mcp"
+	mcp "github.com/osauer/hyperserve/v2/pkg/mcp"
 )
 
 // WithMCPSupport enables MCP (Model Context Protocol) support on the server.
@@ -17,53 +17,41 @@ import (
 // Example:
 //
 //	server.NewServer(server.WithMCPSupport("MyServer", "1.0.0"))
-func WithMCPSupport(name, version string, configs ...mcp.TransportConfig) ServerOptionFunc {
+func WithMCPSupport(name, version string, configs ...mcp.TransportConfig) Option {
 	return func(srv *Server) error {
-		srv.Options.MCPEnabled = true
-		srv.Options.MCPServerName = name
-		srv.Options.MCPServerVersion = version
+		srv.options.MCPEnabled = true
+		srv.options.MCPServerName = name
+		srv.options.MCPServerVersion = version
 
 		if len(configs) == 0 {
-			srv.Options.MCPTransport = mcp.HTTPTransport
-			srv.Options.mcpTransportOpts.Transport = mcp.HTTPTransport
-			srv.Options.mcpTransportOpts.Endpoint = srv.Options.MCPEndpoint
+			srv.options.MCPTransport = mcp.HTTPTransport
+			srv.options.mcpTransportOpts.Transport = mcp.HTTPTransport
+			srv.options.mcpTransportOpts.Endpoint = srv.options.MCPEndpoint
 		} else {
 			for _, cfg := range configs {
-				cfg(&srv.Options.mcpTransportOpts)
+				cfg(&srv.options.mcpTransportOpts)
 			}
-			srv.Options.MCPTransport = srv.Options.mcpTransportOpts.Transport
-			if srv.Options.mcpTransportOpts.Endpoint != "" {
-				srv.Options.MCPEndpoint = srv.Options.mcpTransportOpts.Endpoint
+			srv.options.MCPTransport = srv.options.mcpTransportOpts.Transport
+			if srv.options.mcpTransportOpts.Endpoint != "" {
+				srv.options.MCPEndpoint = srv.options.mcpTransportOpts.Endpoint
 			}
 		}
 		// Keep exported options truthful for status pages and consumers. The
 		// transport options are internal implementation detail; callers should
 		// not need them to learn which preset is active.
-		srv.Options.MCPDev = srv.Options.mcpTransportOpts.DeveloperMode
-		srv.Options.MCPObservability = srv.Options.mcpTransportOpts.ObservabilityMode
+		srv.options.MCPDev = srv.options.mcpTransportOpts.DeveloperMode
+		srv.options.MCPObservability = srv.options.mcpTransportOpts.ObservabilityMode
 
 		// Presets gate the built-in registration hooks.
 		switch {
-		case srv.Options.mcpTransportOpts.ObservabilityMode:
-			srv.Options.MCPResourcesEnabled = true
-			srv.Options.MCPToolsEnabled = false
-		case srv.Options.mcpTransportOpts.DeveloperMode:
-			srv.Options.MCPResourcesEnabled = true
-			srv.Options.MCPToolsEnabled = true
+		case srv.options.mcpTransportOpts.ObservabilityMode:
+			srv.options.MCPResourcesEnabled = true
+			srv.options.MCPToolsEnabled = false
+		case srv.options.mcpTransportOpts.DeveloperMode:
+			srv.options.MCPResourcesEnabled = true
+			srv.options.MCPToolsEnabled = true
 		}
 
-		transportName := "HTTP"
-		if srv.Options.MCPTransport == mcp.StdioTransport {
-			transportName = "stdio"
-		}
-		logger.Debug("MCP (Model Context Protocol) support enabled",
-			"name", name,
-			"version", version,
-			"transport", transportName,
-			"endpoint", srv.Options.MCPEndpoint,
-			"observabilityMode", srv.Options.mcpTransportOpts.ObservabilityMode,
-			"developerMode", srv.Options.mcpTransportOpts.DeveloperMode,
-		)
 		return nil
 	}
 }
@@ -72,31 +60,26 @@ func WithMCPSupport(name, version string, configs ...mcp.TransportConfig) Server
 // The validator receives every MCP request and should allow requests without
 // Origin when non-browser clients are expected. Use an explicit allowlist and
 // do not trust Origin as authentication. Passing nil restores the default.
-func WithMCPOriginValidator(validator func(*http.Request) bool) ServerOptionFunc {
+func WithMCPOriginValidator(validator func(*http.Request) bool) Option {
 	return func(srv *Server) error {
-		srv.Options.MCPOriginValidator = validator
-		if srv.mcpHandler != nil {
-			srv.mcpHandler.SetOriginValidator(validator)
-		}
+		srv.options.MCPOriginValidator = validator
 		return nil
 	}
 }
 
 // WithMCPEndpoint configures the MCP endpoint path. Default is "/mcp".
-func WithMCPEndpoint(endpoint string) ServerOptionFunc {
+func WithMCPEndpoint(endpoint string) Option {
 	return func(srv *Server) error {
-		srv.Options.MCPEndpoint = endpoint
-		logger.Debug("MCP endpoint configured", "endpoint", endpoint)
+		srv.options.MCPEndpoint = endpoint
 		return nil
 	}
 }
 
 // WithMCPFileToolRoot scopes MCP file tools to rootDir via os.Root, so
 // they cannot read or list paths outside it.
-func WithMCPFileToolRoot(rootDir string) ServerOptionFunc {
+func WithMCPFileToolRoot(rootDir string) Option {
 	return func(srv *Server) error {
-		srv.Options.MCPFileToolRoot = rootDir
-		logger.Debug("MCP file tool root configured", "root", rootDir)
+		srv.options.MCPFileToolRoot = rootDir
 		return nil
 	}
 }
@@ -106,28 +89,25 @@ func WithMCPFileToolRoot(rootDir string) ServerOptionFunc {
 // to the caller; see the caveat in contextToolWrapper for what happens to
 // the underlying goroutine. Zero or negative values fall back to the
 // package default (30s).
-func WithMCPToolCallTimeout(d time.Duration) ServerOptionFunc {
+func WithMCPToolCallTimeout(d time.Duration) Option {
 	return func(srv *Server) error {
-		srv.Options.MCPToolCallTimeout = d
+		srv.options.MCPToolCallTimeout = d
 		return nil
 	}
 }
 
 // WithMCPProtocolVersion overrides the MCP protocol version advertised to
 // clients. Empty values reset to mcp.DefaultProtocolVersion.
-func WithMCPProtocolVersion(version string) ServerOptionFunc {
+func WithMCPProtocolVersion(version string) Option {
 	return func(srv *Server) error {
 		if version == mcp.StreamableHTTPProtocolVersion {
 			return fmt.Errorf("MCP protocol version %s is selected per Streamable HTTP request and cannot be configured as the initialize-era version", version)
 		}
 		if version == "" {
-			srv.Options.MCPProtocolVersion = mcp.DefaultProtocolVersion
+			srv.options.MCPProtocolVersion = mcp.DefaultProtocolVersion
 			return nil
 		}
-		srv.Options.MCPProtocolVersion = version
-		if srv.mcpHandler != nil {
-			srv.mcpHandler.SetProtocolVersion(version)
-		}
+		srv.options.MCPProtocolVersion = version
 		return nil
 	}
 }
@@ -137,24 +117,21 @@ func WithMCPProtocolVersion(version string) ServerOptionFunc {
 // migrate to MCP 2026-07-28 Streamable HTTP subscriptions/listen.
 //
 // Deprecated: use MCP 2026-07-28 Streamable HTTP.
-func WithMCPLegacyRoutedSSE(enabled bool) ServerOptionFunc {
+func WithMCPLegacyRoutedSSE(enabled bool) Option {
 	return func(srv *Server) error {
-		srv.Options.MCPLegacyRoutedSSE = enabled
-		if srv.mcpHandler != nil {
-			srv.mcpHandler.SetLegacyRoutedSSEEnabled(enabled)
-		}
+		srv.options.MCPLegacyRoutedSSE = enabled
 		return nil
 	}
 }
 
 // WithMCPBuiltinTools toggles the built-in MCP tools (Calculator plus
 // sandboxed FileRead / ListDirectory when WithMCPFileToolRoot is set).
-// Default off. Requires `_ "github.com/osauer/hyperserve/pkg/mcp/builtin"`
+// Default off. Requires `_ "github.com/osauer/hyperserve/v2/pkg/mcp/builtin"`
 // to be blank-imported by the consumer; otherwise NewServer logs a warning
 // and registers nothing.
-func WithMCPBuiltinTools(enabled bool) ServerOptionFunc {
+func WithMCPBuiltinTools(enabled bool) Option {
 	return func(srv *Server) error {
-		srv.Options.MCPToolsEnabled = enabled
+		srv.options.MCPToolsEnabled = enabled
 		return nil
 	}
 }
@@ -162,9 +139,9 @@ func WithMCPBuiltinTools(enabled bool) ServerOptionFunc {
 // WithMCPBuiltinResources toggles the built-in MCP resources (Config,
 // Metrics, System, ServerLog, ServerHealth). Default off. Same
 // blank-import requirement as WithMCPBuiltinTools.
-func WithMCPBuiltinResources(enabled bool) ServerOptionFunc {
+func WithMCPBuiltinResources(enabled bool) Option {
 	return func(srv *Server) error {
-		srv.Options.MCPResourcesEnabled = enabled
+		srv.options.MCPResourcesEnabled = enabled
 		return nil
 	}
 }

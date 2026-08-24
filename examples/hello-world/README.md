@@ -1,6 +1,7 @@
 # Hello World Example
 
-This is the simplest possible HyperServe application. It demonstrates the absolute minimum code needed to create a working HTTP server.
+This is the smallest complete HyperServe application. It includes orderly
+Ctrl+C shutdown rather than hiding process-signal ownership in the library.
 
 ## What This Example Shows
 
@@ -30,17 +31,26 @@ Or open http://localhost:8080 in your web browser.
 ## Code Breakdown
 
 ```go
-// Create a server with default settings
-server, err := server.NewServer()
+ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+defer stop()
+
+srv, err := server.NewServer()
+if err != nil {
+	log.Fatal(err)
+}
 
 // Register a handler for the root path
-server.HandleFunc("/", handler)
+srv.HandleFunc("/", handler)
 
-// Start the server (blocks until stopped)
-server.Run()
+// Run blocks until Ctrl+C cancels ctx.
+if err := srv.Run(ctx); err != nil {
+	log.Fatal(err)
+}
 ```
 
-That's it! Just three function calls to get a working server.
+The extra context lines are ordinary Go lifecycle plumbing. They make it clear
+that the application owns process signals while HyperServe owns cleanup of the
+listeners and workers it starts.
 
 ## What's Next?
 

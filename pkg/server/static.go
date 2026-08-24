@@ -9,39 +9,19 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
-// EnsureTrailingSlash ensures that a directory path ends with a trailing slash.
-func EnsureTrailingSlash(dir string) string {
-	if dir != "" && !strings.HasSuffix(dir, string(filepath.Separator)) {
-		dir += string(filepath.Separator)
-	}
-	return dir
-}
-
-// HandleStatic registers a handler that serves files only through an os.Root
-// confined to Options.StaticDir. A root-open failure is logged and leaves the
-// route unregistered.
-//
-// Deprecated: use HandleStaticChecked to handle setup failures explicitly.
-func (srv *Server) HandleStatic(pattern string) {
-	if err := srv.HandleStaticChecked(pattern); err != nil {
-		logger.Error("Static route not registered", "pattern", pattern, "error", err)
-	}
-}
-
-// HandleStaticChecked registers a handler that serves files only through an
+// HandleStatic registers a handler that serves files only through an
 // os.Root confined to Options.StaticDir. It returns an error without
 // registering the route if the configured root cannot be opened.
-func (srv *Server) HandleStaticChecked(pattern string) error {
-	if srv.staticRoot == nil && srv.Options.StaticDir != "" {
-		staticRoot, err := os.OpenRoot(srv.Options.StaticDir)
+func (srv *Server) HandleStatic(pattern string) error {
+	if srv.staticRoot == nil && srv.options.StaticDir != "" {
+		staticRoot, err := os.OpenRoot(srv.options.StaticDir)
 		if err != nil {
-			return fmt.Errorf("open static root %q: %w", srv.Options.StaticDir, err)
+			return fmt.Errorf("open static root %q: %w", srv.options.StaticDir, err)
 		}
 		srv.staticRoot = staticRoot
-		logger.Info("Static root initialized", "dir", srv.Options.StaticDir)
+		srv.logger.Info("Static root initialized", "dir", srv.options.StaticDir)
 	}
 	if srv.staticRoot == nil {
 		return fmt.Errorf("static directory is not configured")
@@ -49,7 +29,7 @@ func (srv *Server) HandleStaticChecked(pattern string) error {
 
 	srv.registerRoute(pattern)
 	srv.mux.Handle(pattern, http.StripPrefix(pattern, srv.rootFileServer()))
-	logger.Info("Static file serving using secure os.Root", "pattern", pattern)
+	srv.logger.Info("Static file serving using secure os.Root", "pattern", pattern)
 	return nil
 }
 
@@ -73,7 +53,7 @@ func (srv *Server) rootFileServer() http.Handler {
 				http.NotFound(w, r)
 			} else {
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
-				logger.Error("Failed to open file", "path", path, "error", err)
+				srv.logger.Error("Failed to open file", "path", path, "error", err)
 			}
 			return
 		}

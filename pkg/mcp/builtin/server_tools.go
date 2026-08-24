@@ -2,18 +2,15 @@ package builtin
 
 import (
 	"fmt"
-	"log/slog"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/osauer/hyperserve/pkg/server"
+	"github.com/osauer/hyperserve/v2/pkg/server"
 )
 
 // ServerControlTool provides server lifecycle management for development.
 type ServerControlTool struct {
 	server *server.Server
-	mu     sync.Mutex
 }
 
 // NewServerControlTool creates a ServerControlTool.
@@ -24,7 +21,7 @@ func NewServerControlTool(srv *server.Server) *ServerControlTool {
 func (t *ServerControlTool) Name() string { return "server_control" }
 
 func (t *ServerControlTool) Description() string {
-	return "Inspect and adjust the running HyperServe instance. Actions: get_status (check health), set_log_level (DEBUG/INFO/WARN/ERROR)."
+	return "Inspect the running HyperServe instance. Action: get_status."
 }
 
 func (t *ServerControlTool) Schema() map[string]any {
@@ -33,13 +30,8 @@ func (t *ServerControlTool) Schema() map[string]any {
 		"properties": map[string]any{
 			"action": map[string]any{
 				"type":        "string",
-				"enum":        []string{"set_log_level", "get_status"},
-				"description": "Action to perform: get_status (read server health) or set_log_level (change logging verbosity).",
-			},
-			"log_level": map[string]any{
-				"type":        "string",
-				"enum":        []string{"DEBUG", "INFO", "WARN", "ERROR"},
-				"description": "New log level for set_log_level action. DEBUG shows all logs, INFO shows informational and above, WARN shows warnings and errors, ERROR shows only errors",
+				"enum":        []string{"get_status"},
+				"description": "Return current server health and configuration status.",
 			},
 		},
 		"required": []string{"action"},
@@ -51,40 +43,14 @@ func (t *ServerControlTool) Execute(params map[string]any) (any, error) {
 	if !ok {
 		return nil, fmt.Errorf("action is required")
 	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	switch action {
-	case "set_log_level":
-		level, ok := params["log_level"].(string)
-		if !ok {
-			return nil, fmt.Errorf("log_level is required for set_log_level action")
-		}
-		switch level {
-		case "DEBUG":
-			slog.SetLogLoggerLevel(slog.LevelDebug)
-		case "INFO":
-			slog.SetLogLoggerLevel(slog.LevelInfo)
-		case "WARN":
-			slog.SetLogLoggerLevel(slog.LevelWarn)
-		case "ERROR":
-			slog.SetLogLoggerLevel(slog.LevelError)
-		default:
-			return nil, fmt.Errorf("invalid log level: %s", level)
-		}
-		t.server.Options.LogLevel = level
-		return map[string]any{
-			"status":    "log_level_changed",
-			"new_level": level,
-		}, nil
-
 	case "get_status":
 		return map[string]any{
 			"running":   t.server.IsRunning(),
 			"ready":     t.server.IsReady(),
 			"uptime":    time.Since(t.server.ServerStart()).String(),
-			"log_level": t.server.Options.LogLevel,
-			"addr":      t.server.Options.Addr,
+			"log_level": t.server.Options().LogLevel,
+			"addr":      t.server.Options().Addr,
 		}, nil
 
 	default:
@@ -147,14 +113,14 @@ func (t *RouteInspectorTool) Execute(params map[string]any) (any, error) {
 	}
 
 	// Synthesize known health routes when they aren't visible via middleware registry.
-	if t.server.Options.RunHealthServer {
+	if t.server.Options().RunHealthServer {
 		for _, route := range []string{"/healthz", "/readyz", "/livez"} {
 			routes = ensureSyntheticRoute(routes, pattern, route, "health", []string{"GET"}, includeMiddleware, []string{"HealthCheckMiddleware"})
 		}
 	}
 
-	if t.server.Options.MCPEnabled {
-		mcpRoute := t.server.Options.MCPEndpoint
+	if t.server.Options().MCPEnabled {
+		mcpRoute := t.server.Options().MCPEndpoint
 		routes = ensureSyntheticRoute(routes, pattern, mcpRoute, "main", []string{"GET", "POST"}, includeMiddleware, []string{"MCPMiddleware"})
 	}
 

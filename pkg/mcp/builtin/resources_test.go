@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/hyperserve/pkg/server"
+	"github.com/osauer/hyperserve/v2/pkg/server"
 )
 
 func TestSystemResource(t *testing.T) {
@@ -78,7 +78,7 @@ func TestSystemResource(t *testing.T) {
 
 func TestConfigResource(t *testing.T) {
 	// Create test server options
-	options := &server.ServerOptions{
+	options := &server.Options{
 		Addr:            ":8080",
 		EnableTLS:       false,
 		HealthAddr:      ":9080",
@@ -92,10 +92,10 @@ func TestConfigResource(t *testing.T) {
 		RunHealthServer: false,
 		FIPSMode:        false,
 		ServerHeader:    "test-service",
-		SuppressBanner:  true,
+		StartupBanner:   false,
 	}
 
-	resource := NewConfigResource(options)
+	resource := NewConfigResource(*options)
 
 	// Test resource metadata
 	if resource.URI() != "config://server/options" {
@@ -142,11 +142,6 @@ func TestConfigResource(t *testing.T) {
 
 	if config["rateLimit"] != float64(100) {
 		t.Errorf("Expected rateLimit 100, got %v", config["rateLimit"])
-	}
-
-	// Ensure sensitive data is not included (AuthTokenValidatorFunc should not be serialized)
-	if _, exists := config["authTokenValidatorFunc"]; exists {
-		t.Error("Sensitive data (authTokenValidatorFunc) should not be included")
 	}
 
 	// Test list method

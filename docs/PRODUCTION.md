@@ -1,6 +1,6 @@
 # Production Deployment Guide
 
-_Last updated: 2026-08-24 (v1 line)._
+_Last updated: 2026-08-24 (v2 line)._
 
 How to put HyperServe behind a reverse proxy without getting bitten.
 
@@ -102,10 +102,10 @@ if err != nil {
 }
 ```
 
-Direct TLS listens on `ServerOptions.TLSAddr` (`:8443` by default), not the
-plaintext `Addr`. `NewServer` confirms that both files exist; `Run` and
-`RunContext` load and validate the certificate/key pair before opening the
-listener, so a missing, unreadable, or mismatched pair stops startup.
+Direct TLS listens on `Options.TLSAddr` (`:8443` by default), not the
+plaintext `Addr`. `NewServer` confirms that both files exist; `Run(ctx)` loads
+and validates the certificate/key pair before opening the listener, so a
+missing, unreadable, or mismatched pair stops startup.
 
 ### HSTS
 
@@ -165,7 +165,7 @@ metadata, Accept values, parameters, or transport-confusion headers return
 `400`; oversized bodies return `413`; unsupported content types return `415`;
 unsupported RPC methods return `404`; invalid Origins return `403`.
 
-`Server.Stop` and the normal signal path call `(*mcp.Handler).Shutdown` before
+`Server.Run` and `Server.Shutdown` call `(*mcp.Handler).Shutdown` before
 canceling the HTTP base context so active listens can receive their final
 `resultType: complete` response. Applications that mount an `mcp.Handler`
 directly should call its idempotent `Shutdown(ctx)` during graceful shutdown.
@@ -198,7 +198,7 @@ your own header-logging middleware, filter `X-SSE-Binding`.
 Off by default. Blank-import the package and flip the toggles:
 
 ```go
-import _ "github.com/osauer/hyperserve/pkg/mcp/builtin"
+import _ "github.com/osauer/hyperserve/v2/pkg/mcp/builtin"
 
 server.WithMCPSupport("MyServer", "1.0.0")
 server.WithMCPBuiltinTools(true)
@@ -235,7 +235,7 @@ exposes `config://server/current`, `health://server/status`, and
 
 ## Static files
 
-`HandleStaticChecked(pattern)` confines file serving to `Options.StaticDir`
+`HandleStatic(pattern)` confines file serving to `Options.StaticDir`
 with `os.OpenRoot`. If the root cannot be opened, it returns an error and does
 not register the route:
 
@@ -244,15 +244,13 @@ srv, err := server.NewServer(server.WithStaticDir("./static"))
 if err != nil {
     return err
 }
-if err := srv.HandleStaticChecked("/static/"); err != nil {
+if err := srv.HandleStatic("/static/"); err != nil {
     return fmt.Errorf("mount static files: %w", err)
 }
 ```
 
-`HandleStatic(pattern)` remains as a deprecated v1-compatible wrapper. It logs
-the setup error and leaves the route unregistered. New code should use the
-checked method so a missing or inaccessible root stops startup explicitly.
-There is no `http.Dir` fallback.
+There is no unchecked or `http.Dir` fallback. A missing or inaccessible root
+must stop startup explicitly.
 
 Static serving is GET/HEAD only. POST returns 405.
 
@@ -264,7 +262,7 @@ Static serving is GET/HEAD only. POST returns 405.
 |---|---|---|
 | `/healthz/` | Process is alive | Never returns 503 (process-level liveness only) |
 | `/readyz/` | `isReady` is set | Deferred init not yet complete |
-| `/livez/` | Server has not started shutdown | After `Stop()` is called |
+| `/livez/` | Server has not started shutdown | After cancellation or `Shutdown(ctx)` |
 
 `isReady` is set immediately after `NewServer` returns. The exception
 is `WithDeferredInit(...)`. Under that option, `/readyz/` returns 503
@@ -286,7 +284,7 @@ srv, _ := server.NewServer(
     server.WithDeferredInit(func(ctx context.Context, srv *server.Server) error {
         return slowBootstrap(ctx)
     }),
-    server.WithOnReady(func(ctx context.Context) error {
+    server.WithOnReady(func(ctx context.Context, srv *server.Server) error {
         log.Println("Server is ready")
         return nil
     }),
@@ -307,15 +305,17 @@ This is the standard Kubernetes split between "is this pod alive?"
 
 ## Rate limiting and auth
 
-`WithRateLimit(rps, burst)` enables a per-remote-IP token bucket.
-Per-client limiters live in a `sync.Map` that HyperServe sweeps every
+`WithRateLimit(rps, burst)` configures a per-remote-IP token bucket used by
+`RateLimitMiddleware`. Per-client limiters live in a mutex-protected map that
+HyperServe sweeps every
 5 minutes for entries not seen in the last 10. There is no global
 limiter. Add one as middleware if you need one.
 
-For application-level auth, validator hooks accept Bearer, Basic, and
-API-key. See [examples/auth/](../examples/auth/) for a JWT example.
-Validators run inside `subtle.WithDataIndependentTiming` to prevent
-timing oracles.
+For application-level authentication, `pkg/auth` can require an
+`Authenticator` and place a stable issuer/subject principal on the request.
+The [federated auth example](../examples/auth/) adapts an OpenID Connect token
+verifier without adding provider dependencies to HyperServe's runtime module.
+Your application still owns roles, permissions, sessions, and login flows.
 
 If auth lives upstream (JWT-validating reverse proxy, Envoy filter,
 OAuth2 proxy), HyperServe just passes headers through. No auth is
@@ -332,13 +332,13 @@ import "log/slog"
 handler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
     Level: slog.LevelInfo,
 })
-slog.SetDefault(slog.New(handler))
-server.SetDefaultLogger(slog.New(handler))
+appLogger := slog.New(handler)
+srv, err := server.NewServer(server.WithLogger(appLogger))
 ```
 
-Set both. The HyperServe package-level logger is separate from
-`slog.Default()` so callers can silence framework chatter without
-affecting application logs.
+`WithLogger` affects that server and the MCP handler it owns. It does not
+replace `slog.Default`, so other servers and application packages can keep
+their own handlers and levels.
 
 No request-correlation middleware ships in core. Write one if you
 need it: set or propagate `X-Request-ID`, add it to the request
@@ -361,7 +361,7 @@ empty in every real deployment.
 - [ ] `MCPDev()` not present in any production preset
 - [ ] `WithMCPFileToolRoot` set whenever `WithMCPBuiltinTools(true)` is
       set; otherwise file tools are skipped with a WARN log
-- [ ] Every `HandleStaticChecked` error is handled during startup
+- [ ] Every `HandleStatic` error is handled during startup
 - [ ] JSON logging configured if your aggregator needs it
 - [ ] Request-correlation middleware added if you need one (none ships)
 

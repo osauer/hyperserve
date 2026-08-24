@@ -1,10 +1,10 @@
-module github.com/osauer/hyperserve/tools
+module github.com/osauer/hyperserve/v2/tools
 
 go 1.27
 
 require (
 	github.com/modelcontextprotocol/go-sdk v1.7.0
-	github.com/osauer/hyperserve v0.0.0
+	github.com/osauer/hyperserve/v2 v2.0.0
 )
 
 require (
@@ -21,6 +21,6 @@ require (
 	golang.org/x/tools/gopls v0.23.0 // indirect
 )
 
-replace github.com/osauer/hyperserve => ..
+replace github.com/osauer/hyperserve/v2 => ..
 
 tool golang.org/x/tools/gopls/internal/analysis/modernize/cmd/modernize

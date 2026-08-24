@@ -3,8 +3,8 @@ package app
 import (
 	"fmt"
 
-	_ "github.com/osauer/hyperserve/pkg/mcp/builtin"
-	server "github.com/osauer/hyperserve/pkg/server"
+	_ "github.com/osauer/hyperserve/v2/pkg/mcp/builtin"
+	server "github.com/osauer/hyperserve/v2/pkg/server"
 	"golang.org/x/time/rate"
 )
 
@@ -12,7 +12,7 @@ const version = "0.1.0"
 
 // NewServer constructs a HyperServe instance configured with security-first defaults.
 func NewServer(cfg Config) (*server.Server, error) {
-	var opts []server.ServerOptionFunc
+	var opts []server.Option
 
 	if cfg.HealthAddr != "" {
 		opts = append(opts, server.WithHealthAddr(cfg.HealthAddr))
@@ -46,7 +46,7 @@ func NewServer(cfg Config) (*server.Server, error) {
 
 // RegisterMiddleware applies opinionated middleware stacks for secure defaults.
 func RegisterMiddleware(srv *server.Server) {
-	srv.AddMiddleware("*", server.RequestLoggerMiddleware)
-	srv.AddMiddlewareStack("/web", server.SecureWeb(srv.Options))
-	srv.AddMiddleware("/api", server.RateLimitMiddleware(srv))
+	srv.Use(server.RequestLoggerMiddleware)
+	srv.UsePrefix("/web", server.SecureWeb(srv.Options()))
+	srv.UsePrefix("/api", server.RateLimitMiddleware(srv))
 }

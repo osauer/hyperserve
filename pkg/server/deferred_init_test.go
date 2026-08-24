@@ -172,7 +172,7 @@ func TestDeferredInitFailureStopsServer(t *testing.T) {
 
 	serverErr := make(chan error, 1)
 	go func() {
-		serverErr <- srv.Run()
+		serverErr <- srv.Run(context.Background())
 	}()
 
 	select {
@@ -342,7 +342,7 @@ func TestRunHonorsDeferredInitHandler(t *testing.T) {
 
 	serverErr := make(chan error, 1)
 	go func() {
-		serverErr <- srv.Run()
+		serverErr <- srv.Run(context.Background())
 	}()
 
 	for !srv.isRunning.Load() {
@@ -371,7 +371,7 @@ func TestRunHonorsDeferredInitHandler(t *testing.T) {
 		t.Fatalf("expected 200 after deferred init, got %d", rec.Code)
 	}
 
-	if err := srv.Stop(); err != nil {
+	if err := srv.Shutdown(context.Background()); err != nil {
 		t.Fatalf("failed to stop server: %v", err)
 	}
 

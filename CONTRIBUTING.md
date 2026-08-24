@@ -52,7 +52,7 @@ fix it locally rather than relying on CI to surface it.
 | Scaffold generator                                | `internal/scaffold/`, `cmd/hyperserve-init/` |
 | Self-contained `go run .` examples                | `examples/`                    |
 
-The library imports as `github.com/osauer/hyperserve/pkg/server`. There is
+The library imports as `github.com/osauer/hyperserve/v2/pkg/server`. There is
 no Go code at the repository root.
 
 ## Architecture decisions

@@ -1,13 +1,19 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
 
-	serverpkg "github.com/osauer/hyperserve/pkg/server"
+	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
 )
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
 	// Filesystem roots are deliberately explicit: an embedding application's
 	// working directory must never become web content by convention alone.
 	srv, err := serverpkg.NewServer(serverpkg.WithStaticDir("./static"))
@@ -17,11 +23,11 @@ func main() {
 
 	// Add security headers middleware for our static content
 	// This adds headers like X-Content-Type-Options, X-Frame-Options, etc.
-	srv.AddMiddleware("*", serverpkg.HeadersMiddleware(srv.Options))
+	srv.Use(serverpkg.HeadersMiddleware(srv.Options()))
 
 	// Serve static files from the ./static directory
 	// When someone visits /, it will automatically serve static/index.html
-	if err := srv.HandleStaticChecked("/"); err != nil {
+	if err := srv.HandleStatic("/"); err != nil {
 		log.Fatalf("Static files unavailable: %v", err)
 	}
 
@@ -41,7 +47,7 @@ func main() {
 	log.Println("")
 	log.Println("Press Ctrl+C to stop")
 
-	if err := srv.Run(); err != nil {
+	if err := srv.Run(ctx); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
 }

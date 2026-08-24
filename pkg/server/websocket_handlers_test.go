@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -10,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/hyperserve/pkg/websocket"
+	"github.com/osauer/hyperserve/v2/pkg/websocket"
 )
 
 func TestWebSocketPingPongHandlers(t *testing.T) {
@@ -19,7 +20,7 @@ func TestWebSocketPingPongHandlers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
-	defer srv.Stop()
+	defer srv.Shutdown(context.Background())
 
 	upgrader := &websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool { return true },
@@ -97,7 +98,7 @@ func TestWebSocketCloseHandler(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
-	defer srv.Stop()
+	defer srv.Shutdown(context.Background())
 
 	upgrader := &websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool { return true },

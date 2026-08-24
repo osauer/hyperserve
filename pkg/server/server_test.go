@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -150,37 +151,6 @@ func TestHandleFuncDynamicMissingTemplate(t *testing.T) {
 	}
 }
 
-func TestHandleStatic(t *testing.T) {
-	t.Parallel()
-	srv, _ := NewServer()
-	// Use unique directory name to avoid conflicts in parallel tests
-	srv.Options.StaticDir = fmt.Sprintf("./test_static_%d_%d", time.Now().UnixNano(), os.Getpid())
-
-	// Create a temporary static file
-	staticContent := "Hello, Static World!"
-	err := os.MkdirAll(srv.Options.StaticDir, 0755)
-	if err != nil {
-		t.Fatalf("error creating static directory: %v", err)
-	}
-	err = os.WriteFile(srv.Options.StaticDir+"/test.txt", []byte(staticContent), 0644)
-	if err != nil {
-		t.Fatalf("error writing static file: %v", err)
-	}
-	defer os.RemoveAll(srv.Options.StaticDir)
-
-	// Test static file serving
-	srv.HandleStatic("/static/")
-	req := httptest.NewRequest("GET", "/static/test.txt", nil)
-	rec := httptest.NewRecorder()
-	srv.mux.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Errorf("expected status %v, got %v", http.StatusOK, rec.Code)
-	}
-	if rec.Body.String() != staticContent {
-		t.Errorf("expected body %v, got %v", staticContent, rec.Body.String())
-	}
-}
-
 func TestFIPSMode(t *testing.T) {
 	t.Parallel()
 	srv, err := NewServer(WithFIPSMode())
@@ -188,7 +158,7 @@ func TestFIPSMode(t *testing.T) {
 		t.Fatalf("failed to create server with FIPS mode: %v", err)
 	}
 
-	if !srv.Options.FIPSMode {
+	if !srv.options.FIPSMode {
 		t.Error("expected FIPSMode to be enabled")
 	}
 
@@ -210,12 +180,12 @@ func TestRunReturnsErrorWhenTLSMisconfigured(t *testing.T) {
 		t.Fatalf("failed to create server: %v", err)
 	}
 
-	srv.Options.EnableTLS = true
-	srv.Options.TLSAddr = ":0"
-	srv.Options.CertFile = ""
-	srv.Options.KeyFile = ""
+	srv.options.EnableTLS = true
+	srv.options.TLSAddr = ":0"
+	srv.options.CertFile = ""
+	srv.options.KeyFile = ""
 
-	err = srv.Run()
+	err = srv.Run(context.Background())
 	if err == nil {
 		t.Fatal("expected Run to fail when TLS is misconfigured")
 	}
@@ -266,38 +236,8 @@ func TestWithTemplateDirValidDirectory(t *testing.T) {
 		t.Errorf("unexpected error for valid template directory: %v", err)
 	}
 
-	if srv.Options.TemplateDir != templateDir {
-		t.Errorf("expected template directory to be %s, got %s", templateDir, srv.Options.TemplateDir)
-	}
-}
-
-func TestLegacyWithHardenedModeClearsServerHeader(t *testing.T) {
-	srv, err := NewServer(
-		WithServerHeader("example-service"),
-		WithHardenedMode(),
-	)
-	if err != nil {
-		t.Fatalf("NewServer: %v", err)
-	}
-	t.Cleanup(func() { _ = srv.Stop() })
-
-	if srv.Options.ServerHeader != "" {
-		t.Fatalf("ServerHeader = %q, want legacy option to clear it", srv.Options.ServerHeader)
-	}
-}
-
-func TestLegacyHardenedEnvironmentClearsServerHeader(t *testing.T) {
-	t.Setenv(paramHardenedMode, "true")
-	srv, err := NewServer(
-		WithServerHeader("example-service"),
-		WithEnvironment(),
-	)
-	if err != nil {
-		t.Fatalf("NewServer: %v", err)
-	}
-	t.Cleanup(func() { _ = srv.Stop() })
-	if srv.Options.ServerHeader != "" {
-		t.Fatalf("ServerHeader = %q, want legacy environment option to clear it", srv.Options.ServerHeader)
+	if srv.options.TemplateDir != templateDir {
+		t.Errorf("expected template directory to be %s, got %s", templateDir, srv.options.TemplateDir)
 	}
 }
 
@@ -312,8 +252,8 @@ func TestStartupBannerIsOptIn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
-	t.Cleanup(func() { _ = plain.Stop() })
-	if !plain.Options.SuppressBanner {
+	t.Cleanup(func() { _ = plain.Shutdown(context.Background()) })
+	if plain.Options().StartupBanner {
 		t.Fatal("startup banner enabled by default")
 	}
 
@@ -321,8 +261,8 @@ func TestStartupBannerIsOptIn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer with banner: %v", err)
 	}
-	t.Cleanup(func() { _ = optedIn.Stop() })
-	if optedIn.Options.SuppressBanner {
+	t.Cleanup(func() { _ = optedIn.Shutdown(context.Background()) })
+	if !optedIn.Options().StartupBanner {
 		t.Fatal("WithStartupBanner did not enable banner")
 	}
 }
@@ -403,7 +343,7 @@ func TestWithCSPWebWorkerSupport(t *testing.T) {
 		t.Fatalf("error creating server: %v", err)
 	}
 
-	if srv.Options.CSPWebWorkerSupport {
+	if srv.options.CSPWebWorkerSupport {
 		t.Error("expected CSPWebWorkerSupport to be disabled by default")
 	}
 
@@ -413,7 +353,7 @@ func TestWithCSPWebWorkerSupport(t *testing.T) {
 		t.Fatalf("error creating server with CSP Web Worker support: %v", err)
 	}
 
-	if !srv.Options.CSPWebWorkerSupport {
+	if !srv.options.CSPWebWorkerSupport {
 		t.Error("expected CSPWebWorkerSupport to be enabled")
 	}
 }

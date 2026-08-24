@@ -5,7 +5,7 @@ BUILD_HASH ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_TIME ?= $(shell date -u +"%Y-%m-%d_%H:%M:%S_UTC" || echo "unknown")
 
 # Stamped into pkg/server.Version/BuildHash/BuildTime via -X.
-LDFLAGS := -ldflags "-X github.com/osauer/hyperserve/pkg/server.Version=$(VERSION) -X github.com/osauer/hyperserve/pkg/server.BuildHash=$(BUILD_HASH) -X github.com/osauer/hyperserve/pkg/server.BuildTime=$(BUILD_TIME)"
+LDFLAGS := -ldflags "-X github.com/osauer/hyperserve/v2/pkg/server.Version=$(VERSION) -X github.com/osauer/hyperserve/v2/pkg/server.BuildHash=$(BUILD_HASH) -X github.com/osauer/hyperserve/v2/pkg/server.BuildTime=$(BUILD_TIME)"
 
 MAIN_BRANCH ?= main
 RELEASE_TEST_JOBS ?= 2
@@ -112,7 +112,7 @@ release-smoke: ## Run the full local release gate before tagging
 	@tmp=$$(mktemp -d); \
 		trap 'rm -rf "$$tmp"' EXIT; \
 		go run ./cmd/hyperserve-init --module example.com/hyperserve-release-smoke --out "$$tmp/app" --local-replace "$$(pwd)" >/dev/null; \
-		grep -Fq 'github.com/osauer/hyperserve $(RELEASE_VERSION)' "$$tmp/app/go.mod" || { echo "release-smoke: scaffold does not require $(RELEASE_VERSION)" >&2; exit 1; }; \
+		grep -Fq 'github.com/osauer/hyperserve/v2 $(RELEASE_VERSION)' "$$tmp/app/go.mod" || { echo "release-smoke: scaffold does not require $(RELEASE_VERSION)" >&2; exit 1; }; \
 		grep -Fq 'go 1.27' "$$tmp/app/go.mod" || { echo "release-smoke: scaffold does not use Go 1.27" >&2; exit 1; }; \
 		grep -Fq 'FROM golang:1.27 AS builder' "$$tmp/app/Dockerfile" || { echo "release-smoke: scaffold Dockerfile does not use Go 1.27" >&2; exit 1; }; \
 		(cd "$$tmp/app" && GOWORK=off go test -mod=readonly ./...)
@@ -253,7 +253,7 @@ modernize-check: ## go fix -diff + modernize gate (Go idiom drift vs go.mod's go
 		echo "go fix found pending changes:"; echo "$$out"; \
 		echo "apply with: make modernize"; exit 1; \
 	fi
-	@out=$$(go -C tools tool modernize github.com/osauer/hyperserve/... 2>&1 1>/dev/null | grep -v '^go: downloading'); \
+	@out=$$(go -C tools tool modernize github.com/osauer/hyperserve/v2/... 2>&1 1>/dev/null | grep -v '^go: downloading'); \
 	if [ -n "$$out" ]; then \
 		echo "modernize found pending changes:"; echo "$$out"; \
 		echo "apply with: make modernize"; exit 1; \
@@ -261,7 +261,7 @@ modernize-check: ## go fix -diff + modernize gate (Go idiom drift vs go.mod's go
 
 modernize: ## Apply go fix + modernize rewrites in place
 	go fix ./...
-	go -C tools tool modernize -fix github.com/osauer/hyperserve/...
+	go -C tools tool modernize -fix github.com/osauer/hyperserve/v2/...
 
 fmt: ## gofmt -w over tracked / non-gitignored .go files (same scope as `make check`)
 	@git ls-files --cached --others --exclude-standard '*.go' | \

@@ -9,42 +9,35 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
-	"io"
 	"log/slog"
-	"maps"
 	"net"
 	"net/http"
 	"os"
-	"os/signal"
 	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"golang.org/x/time/rate"
 
-	"github.com/osauer/hyperserve/pkg/mcp"
-	"github.com/osauer/hyperserve/pkg/websocket"
+	"github.com/osauer/hyperserve/v2/pkg/mcp"
+	"github.com/osauer/hyperserve/v2/pkg/websocket"
 )
 
 func init() {
-	slog.SetLogLoggerLevel(slog.LevelInfo)
-	logger.Debug("Server initializing...")
-
 	// If version is still "dev", try to get it from build info
 	if Version == "dev" {
 		if info, ok := debug.ReadBuildInfo(); ok {
 			for _, dep := range info.Deps {
-				if dep.Path == "github.com/osauer/hyperserve" {
+				if dep.Path == "github.com/osauer/hyperserve/v2" {
 					Version = dep.Version
 					break
 				}
 			}
 			// If we're the main module, use the Go version as a fallback
-			if Version == "dev" && info.Main.Path == "github.com/osauer/hyperserve" {
+			if Version == "dev" && info.Main.Path == "github.com/osauer/hyperserve/v2" {
 				if info.Main.Version != "" && info.Main.Version != "(devel)" {
 					Version = info.Main.Version
 				}
@@ -59,14 +52,6 @@ var (
 	BuildHash = "unknown" // Git commit hash
 	BuildTime = "unknown" // Build timestamp
 )
-
-// closeWithLog is a helper to handle Close errors in defer statements.
-// Usage: defer closeWithLog(file, "file")
-func closeWithLog(c io.Closer, name string) {
-	if err := c.Close(); err != nil {
-		logger.Warn("Failed to close resource", "resource", name, "error", err)
-	}
-}
 
 // VersionInfo returns formatted version information
 func VersionInfo() string {
@@ -88,9 +73,6 @@ const (
 	paramRateLimit            = "HS_RATE_LIMIT"
 	paramBurstLimit           = "HS_BURST_LIMIT"
 	paramServerHeader         = "HS_SERVER_HEADER"
-	paramHardenedMode         = "HS_HARDENED_MODE"
-	paramFileName             = "options.json"
-	paramConfigPath           = "HS_CONFIG_PATH"
 	paramMCPEnabled           = "HS_MCP_ENABLED"
 	paramMCPEndpoint          = "HS_MCP_ENDPOINT"
 	paramMCPServerName        = "HS_MCP_SERVER_NAME"
@@ -112,7 +94,6 @@ const (
 	paramLogLevel             = "HS_LOG_LEVEL"
 	paramDebugMode            = "HS_DEBUG"
 	paramStartupBanner        = "HS_STARTUP_BANNER"
-	paramSuppressBanner       = "HS_SUPPRESS_BANNER"
 	paramBannerColor          = "HS_BANNER_COLOR"
 )
 
@@ -143,16 +124,22 @@ type rateLimiterEntry struct {
 //	)
 //
 //	srv.HandleFunc("/api/users", handleUsers)
-//	srv.Run()
+//	if err := srv.Run(ctx); err != nil {
+//		log.Fatal(err)
+//	}
 type Server struct {
 	mux                    *http.ServeMux
 	healthMux              *http.ServeMux
 	httpServer             *http.Server
 	healthServer           *http.Server
+	listener               net.Listener
+	healthListener         net.Listener
 	middleware             *middlewareRegistry
 	templates              *template.Template
 	templatesMu            sync.Mutex
-	Options                *ServerOptions
+	options                Options
+	logger                 *slog.Logger
+	customLogger           bool
 	isReady                atomic.Bool
 	isRunning              atomic.Bool
 	totalRequests          atomic.Uint64
@@ -206,11 +193,8 @@ type deferredLifecycle struct {
 //	)
 //
 // Returns an error if any of the options fail to apply.
-func NewServer(opts ...ServerOptionFunc) (*Server, error) {
+func NewServer(opts ...Option) (*Server, error) {
 	srv := newServerSkeleton()
-
-	srv.middleware = newMiddlewareRegistry(DefaultMiddleware(srv))
-	logger.Debug("Default middleware registered", "middlewares", []string{"MetricsMiddleware", "RequestLoggerMiddleware", "RecoveryMiddleware"})
 
 	for _, opt := range opts {
 		if err := opt(srv); err != nil {
@@ -218,21 +202,23 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 		}
 	}
 
-	if err := normalizeServerOptions(srv.Options); err != nil {
+	if err := normalizeOptions(&srv.options); err != nil {
 		return nil, err
 	}
-	applyConfiguredLogLevel(srv.Options)
+	srv.applyConfiguredLogLevel()
+	srv.middleware = newMiddlewareRegistry(defaultMiddleware(srv))
+	srv.logger.Debug("Default middleware registered", "middlewares", []string{"MetricsMiddleware", "RequestLoggerMiddleware", "RecoveryMiddleware"})
 
 	if err := autoConfigureMCP(srv); err != nil {
 		return nil, err
 	}
-	if err := validateMCPProtocolVersion(srv.Options); err != nil {
+	if err := validateMCPProtocolVersion(&srv.options); err != nil {
 		return nil, err
 	}
 
 	openTemplateRoot(srv)
 
-	if srv.Options.MCPEnabled {
+	if srv.options.MCPEnabled {
 		initializeMCPHandler(srv)
 	}
 
@@ -247,10 +233,11 @@ func NewServer(opts ...ServerOptionFunc) (*Server, error) {
 // newServerSkeleton allocates the fields the rest of NewServer expects to
 // find non-nil — mux, options, rate-limiter pool, deferred-init bookkeeping.
 func newServerSkeleton() *Server {
-	options := DefaultServerOptions()
+	options := DefaultOptions()
 	return &Server{
 		mux:     http.NewServeMux(),
-		Options: &options,
+		options: options,
+		logger:  slog.Default(),
 		rateLimiters: rateLimiterPool{
 			clients:     make(map[string]*rateLimiterEntry),
 			cleanupDone: make(chan bool),
@@ -266,64 +253,64 @@ func newServerSkeleton() *Server {
 	}
 }
 
-// applyConfiguredLogLevel maps the fully bound LogLevel string (or DebugMode
-// flag) onto slog's default logger. Configuration sources and caller options
-// have all run before this process-global side effect occurs.
-func applyConfiguredLogLevel(opts *ServerOptions) {
-	if opts.LogLevel != "" {
-		switch opts.LogLevel {
+// applyConfiguredLogLevel creates the server-owned default logger after all
+// configuration has been bound. A caller-provided logger remains untouched.
+func (srv *Server) applyConfiguredLogLevel() {
+	if srv.customLogger {
+		return
+	}
+	level := slog.LevelInfo
+	if srv.options.DebugMode {
+		level = slog.LevelDebug
+	} else {
+		switch srv.options.LogLevel {
+		case "", "INFO":
 		case "DEBUG":
-			slog.SetLogLoggerLevel(slog.LevelDebug)
-		case "INFO":
-			slog.SetLogLoggerLevel(slog.LevelInfo)
+			level = slog.LevelDebug
 		case "WARN":
-			slog.SetLogLoggerLevel(slog.LevelWarn)
+			level = slog.LevelWarn
 		case "ERROR":
-			slog.SetLogLoggerLevel(slog.LevelError)
+			level = slog.LevelError
 		default:
-			logger.Warn("Unknown log level, using INFO", "level", opts.LogLevel)
-			slog.SetLogLoggerLevel(slog.LevelInfo)
+			srv.logger.Warn("Unknown log level, using INFO", "level", srv.options.LogLevel)
 		}
 	}
-	if opts.DebugMode {
-		slog.SetLogLoggerLevel(slog.LevelDebug)
-		logger.Debug("Debug mode enabled from configuration")
-	}
+	srv.logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 }
 
 // autoConfigureMCP handles the "resolved options asked for MCP but no
 // WithMCPSupport was called" path. WithMCPSupport with explicit modes wins.
 func autoConfigureMCP(srv *Server) error {
-	if !srv.Options.MCPEnabled || srv.Options.MCPServerName == "" || srv.mcpHandler != nil {
+	if !srv.options.MCPEnabled || srv.options.MCPServerName == "" || srv.mcpHandler != nil {
 		return nil
 	}
-	if srv.Options.mcpTransportOpts.DeveloperMode || srv.Options.mcpTransportOpts.ObservabilityMode {
-		logger.Debug("MCP already configured programmatically, skipping auto-configuration")
+	if srv.options.mcpTransportOpts.DeveloperMode || srv.options.mcpTransportOpts.ObservabilityMode {
+		srv.logger.Debug("MCP already configured programmatically, skipping auto-configuration")
 		return nil
 	}
-	if !srv.Options.MCPDev && !srv.Options.MCPObservability {
+	if !srv.options.MCPDev && !srv.options.MCPObservability {
 		return nil
 	}
 
 	var mcpConfigs []mcp.TransportConfig
-	if srv.Options.MCPTransport == mcp.StdioTransport {
+	if srv.options.MCPTransport == mcp.StdioTransport {
 		mcpConfigs = append(mcpConfigs, mcp.OverStdio())
 	}
-	if srv.Options.MCPDev {
+	if srv.options.MCPDev {
 		mcpConfigs = append(mcpConfigs, MCPDev())
 	}
-	if srv.Options.MCPObservability {
+	if srv.options.MCPObservability {
 		mcpConfigs = append(mcpConfigs, MCPObservability())
 	}
 
-	if err := WithMCPSupport(srv.Options.MCPServerName, srv.Options.MCPServerVersion, mcpConfigs...)(srv); err != nil {
+	if err := WithMCPSupport(srv.options.MCPServerName, srv.options.MCPServerVersion, mcpConfigs...)(srv); err != nil {
 		return fmt.Errorf("failed to auto-configure MCP: %w", err)
 	}
-	logger.Info("MCP auto-configured from resolved options",
-		"name", srv.Options.MCPServerName,
-		"transport", srv.Options.MCPTransport,
-		"dev", srv.Options.MCPDev,
-		"observability", srv.Options.MCPObservability)
+	srv.logger.Info("MCP auto-configured from resolved options",
+		"name", srv.options.MCPServerName,
+		"transport", srv.options.MCPTransport,
+		"dev", srv.options.MCPDev,
+		"observability", srv.options.MCPObservability)
 	return nil
 }
 
@@ -332,57 +319,57 @@ func autoConfigureMCP(srv *Server) error {
 // unified MCP endpoint + discovery routes on the mux.
 func initializeMCPHandler(srv *Server) {
 	serverInfo := mcp.ServerInfo{
-		Name:    srv.Options.MCPServerName,
-		Version: srv.Options.MCPServerVersion,
+		Name:    srv.options.MCPServerName,
+		Version: srv.options.MCPServerVersion,
 	}
 	srv.mcpHandler = mcp.NewHandler(serverInfo)
 	// The MCP handler owns its logging chain. Seed it from the logger injected
 	// into the server package, then let presets wrap only this handler without
 	// replacing process-wide defaults.
-	srv.mcpHandler.SetLogger(logger)
-	srv.mcpHandler.SetProtocolVersion(srv.Options.MCPProtocolVersion)
-	srv.mcpHandler.SetToolCallTimeout(srv.Options.MCPToolCallTimeout)
-	srv.mcpHandler.SetOriginValidator(srv.Options.MCPOriginValidator)
+	srv.mcpHandler.SetLogger(srv.logger)
+	srv.mcpHandler.SetProtocolVersion(srv.options.MCPProtocolVersion)
+	srv.mcpHandler.SetToolCallTimeout(srv.options.MCPToolCallTimeout)
+	srv.mcpHandler.SetOriginValidator(srv.options.MCPOriginValidator)
 	//lint:ignore SA1019 Server wiring must apply the explicit legacy compatibility option.
-	srv.mcpHandler.SetLegacyRoutedSSEEnabled(srv.Options.MCPLegacyRoutedSSE)
+	srv.mcpHandler.SetLegacyRoutedSSEEnabled(srv.options.MCPLegacyRoutedSSE)
 
-	if srv.Options.mcpTransportOpts.DeveloperMode {
-		logger.Warn("⚠️  MCP DEVELOPER MODE ENABLED ⚠️",
+	if srv.options.mcpTransportOpts.DeveloperMode {
+		srv.logger.Warn("⚠️  MCP DEVELOPER MODE ENABLED ⚠️",
 			"warning", "This mode allows server restart and configuration changes",
 			"security", "Only use in development environments")
 	}
-	if srv.Options.MCPToolsEnabled {
+	if srv.options.MCPToolsEnabled {
 		if builtinToolsHook != nil {
 			builtinToolsHook(srv)
 		} else {
-			logger.Warn("WithMCPBuiltinTools(true) was set but no builtin tools are registered",
+			srv.logger.Warn("WithMCPBuiltinTools(true) was set but no builtin tools are registered",
 				"reason", "missing blank import",
-				"fix", `add: _ "github.com/osauer/hyperserve/pkg/mcp/builtin"`)
+				"fix", `add: _ "github.com/osauer/hyperserve/v2/pkg/mcp/builtin"`)
 		}
 	}
-	if srv.Options.MCPResourcesEnabled {
+	if srv.options.MCPResourcesEnabled {
 		switch {
-		case srv.Options.mcpTransportOpts.ObservabilityMode && builtinObservabilityHook != nil:
+		case srv.options.mcpTransportOpts.ObservabilityMode && builtinObservabilityHook != nil:
 			builtinObservabilityHook(srv)
-		case srv.Options.mcpTransportOpts.DeveloperMode && builtinDeveloperHook != nil:
+		case srv.options.mcpTransportOpts.DeveloperMode && builtinDeveloperHook != nil:
 			builtinDeveloperHook(srv)
 		case builtinStandardResourcesHook != nil:
 			builtinStandardResourcesHook(srv)
 		default:
-			logger.Warn("WithMCPBuiltinResources(true) was set but no builtin resources are registered",
+			srv.logger.Warn("WithMCPBuiltinResources(true) was set but no builtin resources are registered",
 				"reason", "missing blank import",
-				"fix", `add: _ "github.com/osauer/hyperserve/pkg/mcp/builtin"`)
+				"fix", `add: _ "github.com/osauer/hyperserve/v2/pkg/mcp/builtin"`)
 		}
 	}
 
-	srv.registerRoute(srv.Options.MCPEndpoint)
-	srv.mux.Handle(srv.Options.MCPEndpoint, srv.mcpHandler)
-	logger.Debug("MCP handler initialized", "endpoint", srv.Options.MCPEndpoint)
+	srv.registerRoute(srv.options.MCPEndpoint)
+	srv.mux.Handle(srv.options.MCPEndpoint, srv.mcpHandler)
+	srv.logger.Debug("MCP handler initialized", "endpoint", srv.options.MCPEndpoint)
 
 	srv.setupDiscoveryEndpoints()
 }
 
-func validateMCPProtocolVersion(options *ServerOptions) error {
+func validateMCPProtocolVersion(options *Options) error {
 	version := strings.TrimSpace(options.MCPProtocolVersion)
 	if version == "" {
 		options.MCPProtocolVersion = mcp.DefaultProtocolVersion
@@ -395,63 +382,44 @@ func validateMCPProtocolVersion(options *ServerOptions) error {
 	return nil
 }
 
-// Run starts the server and blocks until a shutdown signal is received.
-// It automatically:
-//   - Starts the main HTTP/HTTPS server
-//   - Starts the health check server (if enabled)
-//   - Sets up graceful shutdown on SIGINT/SIGTERM
-//   - Handles cleanup of resources
-//   - Waits for active requests to complete before shutting down
-//
-// The method will block until the server is shut down, either by signal or error.
-// Returns an error if the server fails to start or encounters a fatal error.
-//
-// Example:
-//
-//	if err := srv.Run(); err != nil {
-//	    log.Fatal("Server failed:", err)
-//	}
-func (srv *Server) Run() error {
-	// MCP stdio owns its lifecycle through stdin EOF. Registering for signals
-	// here would consume them without giving the blocking read loop a way to
-	// stop, so preserve the transport's existing EOF-only behavior.
-	if srv.Options.MCPEnabled && srv.Options.MCPTransport == mcp.StdioTransport {
-		return srv.run(context.Background())
-	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-	defer stop()
-	return srv.run(ctx)
-}
-
-// RunContext starts the HTTP/HTTPS server and blocks until ctx requests a
+// Run starts the HTTP/HTTPS server and blocks until ctx requests a
 // graceful shutdown, the server exits, or deferred initialization fails. It
-// does not subscribe to process signals; the caller owns the lifecycle.
+// does not subscribe to process signals; the application owns the lifecycle.
 // Cancellation is a normal shutdown trigger and returns nil when shutdown
-// succeeds. RunContext returns an error for MCP stdio transport because a
-// context cannot portably interrupt its blocking stdin read; use Run and EOF.
-// A Server must not be run concurrently or reused after RunContext returns.
-func (srv *Server) RunContext(ctx context.Context) error {
+// succeeds. Run returns an error for MCP stdio transport because a context
+// cannot portably interrupt its blocking stdin read; use RunStdio instead.
+// A Server must not be run concurrently or reused after Run returns.
+func (srv *Server) Run(ctx context.Context) error {
 	if ctx == nil {
-		return errors.New("hyperserve: RunContext called with nil context")
+		return errors.New("hyperserve: Run called with nil context")
 	}
-	if srv.Options.MCPEnabled && srv.Options.MCPTransport == mcp.StdioTransport {
-		return errors.New("hyperserve: RunContext does not support MCP stdio transport; use Run and close stdin")
+	if srv.options.MCPEnabled && srv.options.MCPTransport == mcp.StdioTransport {
+		return errors.New("hyperserve: Run does not support MCP stdio transport; use RunStdio")
 	}
 	if ctx.Err() != nil {
-		logger.Info("Server context already done; skipping startup.", "reason", context.Cause(ctx))
+		srv.logger.Info("Server context already done; skipping startup.", "reason", context.Cause(ctx))
 		return srv.shutdownAfter(nil)
 	}
 	return srv.run(ctx)
 }
 
-// run contains the transport startup shared by Run and RunContext. triggerCtx
+// RunStdio runs an MCP stdio server until stdin reaches EOF. Stdio is kept
+// separate from Run because an arbitrary io.Reader cannot be interrupted by a
+// context without closing an object the application may own.
+func (srv *Server) RunStdio() error {
+	if !srv.options.MCPEnabled || srv.options.MCPTransport != mcp.StdioTransport {
+		return errors.New("hyperserve: RunStdio requires MCP stdio transport")
+	}
+	return srv.shutdownAfter(srv.run(context.Background()))
+}
+
+// run contains the transport startup shared by Run and RunStdio. triggerCtx
 // begins shutdown but deliberately does not become the HTTP BaseContext: the
 // server's internal lifecycle context preserves the existing request and
 // deferred-initialization semantics.
 func (srv *Server) run(triggerCtx context.Context) error {
 	// Print ASCII art on startup (skip in stdio mode or if suppressed)
-	if srv.Options.MCPTransport != mcp.StdioTransport && !srv.Options.SuppressBanner {
+	if srv.options.MCPTransport != mcp.StdioTransport && srv.options.StartupBanner {
 		srv.printStartupBanner()
 	}
 
@@ -459,9 +427,9 @@ func (srv *Server) run(triggerCtx context.Context) error {
 	srv.serverStart = time.Now()
 
 	// Check if we're running in stdio mode for MCP
-	if srv.Options.MCPEnabled && srv.Options.MCPTransport == mcp.StdioTransport {
+	if srv.options.MCPEnabled && srv.options.MCPTransport == mcp.StdioTransport {
 		if srv.deferred.init != nil {
-			logger.Warn("Deferred initialization is not supported in MCP stdio transport; ignoring configuration")
+			srv.logger.Warn("Deferred initialization is not supported in MCP stdio transport; ignoring configuration")
 		}
 		// Run MCP in stdio mode
 		if srv.mcpHandler == nil {
@@ -483,10 +451,10 @@ func (srv *Server) run(triggerCtx context.Context) error {
 	// initialize the underlying http httpServer for serving requests
 	srv.httpServer = &http.Server{
 		Handler:           baseHandler,
-		ReadTimeout:       srv.Options.ReadTimeout,
-		WriteTimeout:      srv.Options.WriteTimeout,
-		IdleTimeout:       srv.Options.IdleTimeout,
-		ReadHeaderTimeout: srv.Options.ReadHeaderTimeout, // Prevent Slowloris attacks
+		ReadTimeout:       srv.options.ReadTimeout,
+		WriteTimeout:      srv.options.WriteTimeout,
+		IdleTimeout:       srv.options.IdleTimeout,
+		ReadHeaderTimeout: srv.options.ReadHeaderTimeout, // Prevent Slowloris attacks
 		BaseContext: func(_ net.Listener) context.Context {
 			return lifecycleCtx
 		},
@@ -497,13 +465,13 @@ func (srv *Server) run(triggerCtx context.Context) error {
 		srv.httpServer.ReadHeaderTimeout = srv.httpServer.ReadTimeout
 	}
 	srv.httpServer.RegisterOnShutdown(srv.logServerMetrics)
-	if srv.Options.EnableTLS {
-		if srv.Options.CertFile == "" || srv.Options.KeyFile == "" {
+	if srv.options.EnableTLS {
+		if srv.options.CertFile == "" || srv.options.KeyFile == "" {
 			configErr := fmt.Errorf("TLS enabled but no key or cert file provided")
-			logger.Error(configErr.Error(), "key", srv.Options.KeyFile, "cert", srv.Options.CertFile)
+			srv.logger.Error(configErr.Error(), "key", srv.options.KeyFile, "cert", srv.options.CertFile)
 			return srv.shutdownAfter(configErr)
 		}
-		certificate, err := tls.LoadX509KeyPair(srv.Options.CertFile, srv.Options.KeyFile)
+		certificate, err := tls.LoadX509KeyPair(srv.options.CertFile, srv.options.KeyFile)
 		if err != nil {
 			return srv.shutdownAfter(fmt.Errorf("load TLS certificate: %w", err))
 		}
@@ -511,7 +479,7 @@ func (srv *Server) run(triggerCtx context.Context) error {
 		srv.httpServer.TLSConfig.Certificates = []tls.Certificate{certificate}
 	}
 
-	if srv.Options.RunHealthServer {
+	if srv.options.RunHealthServer {
 		err := srv.initHealthServer()
 		if err != nil {
 			// Construction already owns cleanup resources, so even a failed first
@@ -530,21 +498,22 @@ func (srv *Server) run(triggerCtx context.Context) error {
 	var listener net.Listener
 	var listenErr error
 
-	if srv.Options.EnableTLS {
-		srv.httpServer.Addr = srv.Options.TLSAddr
-		listener, listenErr = net.Listen("tcp", srv.Options.TLSAddr)
+	if srv.options.EnableTLS {
+		srv.httpServer.Addr = srv.options.TLSAddr
+		listener, listenErr = net.Listen("tcp", srv.options.TLSAddr)
 		if listenErr != nil {
 			// The health listener may already be serving at this point.
-			return srv.shutdownAfter(fmt.Errorf("failed to listen on %s: %w", srv.Options.TLSAddr, listenErr))
+			return srv.shutdownAfter(fmt.Errorf("failed to listen on %s: %w", srv.options.TLSAddr, listenErr))
 		}
 	} else {
-		srv.httpServer.Addr = srv.Options.Addr
-		listener, listenErr = net.Listen("tcp", srv.Options.Addr)
+		srv.httpServer.Addr = srv.options.Addr
+		listener, listenErr = net.Listen("tcp", srv.options.Addr)
 		if listenErr != nil {
 			// The health listener may already be serving at this point.
-			return srv.shutdownAfter(fmt.Errorf("failed to listen on %s: %w", srv.Options.Addr, listenErr))
+			return srv.shutdownAfter(fmt.Errorf("failed to listen on %s: %w", srv.options.Addr, listenErr))
 		}
 	}
+	srv.listener = listener
 
 	// Run the server in a goroutine
 	go func(enableTLS bool, ln net.Listener) {
@@ -556,10 +525,10 @@ func (srv *Server) run(triggerCtx context.Context) error {
 			serveErr = srv.httpServer.Serve(ln)
 		}
 		if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
-			logger.Error("HTTP server encountered an error", "error", serveErr)
+			srv.logger.Error("HTTP server encountered an error", "error", serveErr)
 		}
 		serverErr <- serveErr
-	}(srv.Options.EnableTLS, listener)
+	}(srv.options.EnableTLS, listener)
 
 	// Mark as running only AFTER all servers (http AND health) are initialized
 	srv.isRunning.Store(true)
@@ -583,7 +552,7 @@ func (srv *Server) logServerMetrics() {
 		avgUs = totalUs / int64(totalReq)
 	}
 	upTime := time.Since(srv.serverStart)
-	logger.Info("Server metrics:",
+	srv.logger.Info("Server metrics:",
 		"up-time", upTime,
 		"µs-in-handlers", totalUs,
 		"total-req", totalReq,
@@ -597,7 +566,7 @@ func (srv *Server) tlsConfig() *tls.Config {
 		MaxVersion: tls.VersionTLS13,
 	}
 
-	if srv.Options.FIPSMode {
+	if srv.options.FIPSMode {
 		// FIPS 140-3 compliant cipher suites and curves only
 		config.CipherSuites = []uint16{
 			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
@@ -611,7 +580,7 @@ func (srv *Server) tlsConfig() *tls.Config {
 			tls.CurveP256,
 			tls.CurveP384,
 		}
-		logger.Info("TLS configured with FIPS-approved cipher suites and curves",
+		srv.logger.Info("TLS configured with FIPS-approved cipher suites and curves",
 			"note", "this is not full FIPS 140-3 compliance; see WithFIPSMode docs")
 	} else {
 		// Standard cipher suites including post-quantum ready
@@ -631,18 +600,20 @@ func (srv *Server) tlsConfig() *tls.Config {
 	return config
 }
 
-// AddMiddleware adds a single middleware function to the specified route.
-// Use "*" as the route to apply middleware globally to all routes.
-func (srv *Server) AddMiddleware(route string, mw MiddlewareFunc) {
-	srv.middleware.Add(route, MiddlewareStack{mw})
-	logger.Debug("Middleware registered", "route", route, "count", 1)
+// Use registers middleware for every request. Middleware is applied in the
+// order provided, with the first item outermost. Register middleware before
+// calling Run or serving Handler concurrently.
+func (srv *Server) Use(middleware ...Middleware) {
+	srv.middleware.Add(globalMiddlewareRoute, middleware)
+	srv.logger.Debug("Middleware registered", "scope", "global", "count", len(middleware))
 }
 
-// AddMiddlewareStack adds a collection of middleware functions to the specified route.
-// The middleware stack is applied in the order provided.
-func (srv *Server) AddMiddlewareStack(route string, mw MiddlewareStack) {
-	srv.middleware.Add(route, mw)
-	logger.Debug("Middleware stack registered", "route", route, "count", len(mw))
+// UsePrefix registers middleware for a URL path and its child paths at a
+// slash boundary. For example, "/api" matches "/api/users" but not "/apiv2".
+// Register middleware before calling Run or serving Handler concurrently.
+func (srv *Server) UsePrefix(prefix string, middleware ...Middleware) {
+	srv.middleware.Add(prefix, middleware)
+	srv.logger.Debug("Middleware registered", "scope", prefix, "count", len(middleware))
 }
 
 func (srv *Server) initHealthServer() error {
@@ -658,12 +629,12 @@ func (srv *Server) initHealthServer() error {
 	}
 
 	srv.healthServer = &http.Server{
-		Addr:              srv.Options.HealthAddr,
+		Addr:              srv.options.HealthAddr,
 		Handler:           srv.healthMux,
-		ReadTimeout:       srv.Options.ReadTimeout,
-		WriteTimeout:      srv.Options.WriteTimeout,
-		IdleTimeout:       srv.Options.IdleTimeout,
-		ReadHeaderTimeout: srv.Options.ReadHeaderTimeout, // Prevent Slowloris attacks
+		ReadTimeout:       srv.options.ReadTimeout,
+		WriteTimeout:      srv.options.WriteTimeout,
+		IdleTimeout:       srv.options.IdleTimeout,
+		ReadHeaderTimeout: srv.options.ReadHeaderTimeout, // Prevent Slowloris attacks
 		BaseContext: func(_ net.Listener) context.Context {
 			return baseCtx
 		},
@@ -679,15 +650,16 @@ func (srv *Server) initHealthServer() error {
 	// on a contended runner that timer could win a real `bind` error and we'd
 	// claim success while the listener was dead. net.Listen + Serve(ln) is
 	// what the main HTTP server already uses; the health server now matches.
-	ln, err := net.Listen("tcp", srv.Options.HealthAddr)
+	ln, err := net.Listen("tcp", srv.options.HealthAddr)
 	if err != nil {
-		return fmt.Errorf("failed to listen on %s: %w", srv.Options.HealthAddr, err)
+		return fmt.Errorf("failed to listen on %s: %w", srv.options.HealthAddr, err)
 	}
+	srv.healthListener = ln
 
 	go func() {
-		logger.Debug("Starting health server", "addr", srv.Options.HealthAddr)
+		srv.logger.Debug("Starting health server", "addr", srv.options.HealthAddr)
 		if err := srv.healthServer.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Error("Health server encountered an error", "error", err)
+			srv.logger.Error("Health server encountered an error", "error", err)
 		}
 	}()
 	return nil
@@ -699,13 +671,13 @@ func (srv *Server) handleShutdown(triggerCtx context.Context, serverErr <-chan e
 	for {
 		select {
 		case <-triggerCtx.Done():
-			logger.Info("Shutting down server.", "reason", context.Cause(triggerCtx))
+			srv.logger.Info("Shutting down server.", "reason", context.Cause(triggerCtx))
 			return srv.shutdownAfter(nil)
 		case err := <-deferredErr:
 			if err == nil {
 				continue
 			}
-			logger.Error("Deferred initialization failed", "error", err)
+			srv.logger.Error("Deferred initialization failed", "error", err)
 			return srv.shutdownAfter(err)
 		case err := <-serverErr:
 			return srv.handleServerExit(err)
@@ -762,7 +734,7 @@ func (srv *Server) startDeferredInit(errChan chan<- error) {
 
 	go func() {
 		defer cancel()
-		logger.Info("Deferred initialization started")
+		srv.logger.Info("Deferred initialization started")
 		if err := srv.deferred.init(initCtx, srv); err != nil {
 			srv.completeDeferredInit(initCtx, err, errChan)
 			return
@@ -781,22 +753,22 @@ func (srv *Server) reportDeferredInitError(message string, err error, errChan ch
 
 	wrapped := fmt.Errorf("%s: %w", message, err)
 	if errors.Is(err, context.Canceled) {
-		logger.Warn(message, "error", err)
+		srv.logger.Warn(message, "error", err)
 	} else {
-		logger.Error(message, "error", err)
+		srv.logger.Error(message, "error", err)
 	}
 
 	srv.setDeferredInitError(wrapped)
 	srv.isReady.Store(false)
 
-	shouldStop := srv.Options.StopOnDeferredInitFailure
+	shouldStop := srv.options.StopOnDeferredInitFailure
 	if errors.Is(err, context.Canceled) {
 		// If context was cancelled because the server is shutting down, always unblock Run.
 		shouldStop = true
 	}
 
 	if !shouldStop {
-		logger.Warn("Deferred initialization failure will keep server in initializing state", "ready", false)
+		srv.logger.Warn("Deferred initialization failure will keep server in initializing state", "ready", false)
 	}
 
 	if shouldStop && errChan != nil {
@@ -808,7 +780,7 @@ func (srv *Server) reportDeferredInitError(message string, err error, errChan ch
 }
 
 func (srv *Server) runOnReadyHooks(ctx context.Context) error {
-	if len(srv.Options.OnReadyHooks) == 0 {
+	if len(srv.options.OnReadyHooks) == 0 {
 		return nil
 	}
 
@@ -817,8 +789,8 @@ func (srv *Server) runOnReadyHooks(ctx context.Context) error {
 		hookCtx = context.Background()
 	}
 
-	logger.Info("Executing OnReady hooks", "count", len(srv.Options.OnReadyHooks))
-	for i, hook := range srv.Options.OnReadyHooks {
+	srv.logger.Info("Executing OnReady hooks", "count", len(srv.options.OnReadyHooks))
+	for i, hook := range srv.options.OnReadyHooks {
 		if hook == nil {
 			continue
 		}
@@ -829,12 +801,12 @@ func (srv *Server) runOnReadyHooks(ctx context.Context) error {
 			return fmt.Errorf("on ready hook %d failed: %w", i, err)
 		}
 	}
-	logger.Info("OnReady hooks completed")
+	srv.logger.Info("OnReady hooks completed")
 	return nil
 }
 
 func (srv *Server) runOnReadyOnce(ctx context.Context) error {
-	if len(srv.Options.OnReadyHooks) == 0 {
+	if len(srv.options.OnReadyHooks) == 0 {
 		return nil
 	}
 
@@ -873,7 +845,7 @@ func (srv *Server) completeDeferredInit(ctx context.Context, initErr error, errC
 
 	srv.setDeferredInitError(nil)
 	srv.isReady.Store(true)
-	logger.Info("Deferred initialization completed; server is ready")
+	srv.logger.Info("Deferred initialization completed; server is ready")
 	return nil
 }
 
@@ -981,7 +953,7 @@ func (srv *Server) shutdown(ctx context.Context) error {
 		mcpCtx, cancelMCP := mcpShutdownContext(ctx)
 		if err := srv.mcpHandler.Shutdown(mcpCtx); err != nil {
 			mcpShutdownErr = fmt.Errorf("MCP handler shutdown error: %w", err)
-			logger.Error("Error during MCP handler shutdown.", "error", err)
+			srv.logger.Error("Error during MCP handler shutdown.", "error", err)
 		}
 		cancelMCP()
 	}
@@ -994,7 +966,7 @@ func (srv *Server) shutdown(ctx context.Context) error {
 
 	// Execute shutdown hooks first (before HTTP server shutdown)
 	// Give hooks 5 seconds of the 10-second budget
-	if len(srv.Options.OnShutdownHooks) > 0 {
+	if len(srv.options.OnShutdownHooks) > 0 {
 		hookDeadline := 5 * time.Second
 		// If overall deadline is shorter, use half of it for hooks
 		if deadline, ok := ctx.Deadline(); ok {
@@ -1007,8 +979,8 @@ func (srv *Server) shutdown(ctx context.Context) error {
 		hookCtx, hookCancel := context.WithTimeout(ctx, hookDeadline)
 		defer hookCancel()
 
-		logger.Info("Executing shutdown hooks", "count", len(srv.Options.OnShutdownHooks))
-		for i, hook := range srv.Options.OnShutdownHooks {
+		srv.logger.Info("Executing shutdown hooks", "count", len(srv.options.OnShutdownHooks))
+		for i, hook := range srv.options.OnShutdownHooks {
 			if hook == nil {
 				continue
 			}
@@ -1022,29 +994,37 @@ func (srv *Server) shutdown(ctx context.Context) error {
 			select {
 			case err := <-done:
 				if err != nil {
-					logger.Error("Shutdown hook error", "hook", i, "error", err)
+					srv.logger.Error("Shutdown hook error", "hook", i, "error", err)
 				} else {
-					logger.Debug("Shutdown hook completed", "hook", i)
+					srv.logger.Debug("Shutdown hook completed", "hook", i)
 				}
 			case <-hookCtx.Done():
-				logger.Warn("Shutdown hook timeout", "hook", i)
+				srv.logger.Warn("Shutdown hook timeout", "hook", i)
 				// Continue with remaining hooks even if one times out
 			}
 		}
-		logger.Info("All shutdown hooks executed")
+		srv.logger.Info("All shutdown hooks executed")
 	}
 
 	// Create an error channel to collect errors from goroutines
-	errChan := make(chan error, 2)
+	errChan := make(chan error, 4)
 	var wg sync.WaitGroup
 
 	// Shutdown health server if it's running
-	if srv.Options.RunHealthServer && srv.healthServer != nil {
+	if srv.options.RunHealthServer && srv.healthServer != nil {
 		wg.Go(func() {
-			logger.Info("Shutting down health server.")
+			srv.logger.Info("Shutting down health server.")
 			if err := srv.healthServer.Shutdown(ctx); err != nil && err != http.ErrServerClosed {
-				logger.Error("Error during health server shutdown.", "error", err)
+				srv.logger.Error("Error during health server shutdown.", "error", err)
 				errChan <- fmt.Errorf("health server shutdown error: %w", err)
+			}
+			// Shutdown only knows about listeners after Serve has registered them.
+			// Close our owned listener as a fallback for cancellation during the
+			// narrow handoff between net.Listen and Serve.
+			if srv.healthListener != nil {
+				if err := srv.healthListener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+					errChan <- fmt.Errorf("health listener close error: %w", err)
+				}
 			}
 		})
 	}
@@ -1052,10 +1032,15 @@ func (srv *Server) shutdown(ctx context.Context) error {
 	// Shutdown http server
 	if srv.httpServer != nil {
 		wg.Go(func() {
-			logger.Info("Shutting down http server.")
+			srv.logger.Info("Shutting down http server.")
 			if err := srv.httpServer.Shutdown(ctx); err != nil && err != http.ErrServerClosed {
-				logger.Error("Error during main server shutdown.", "error", err)
+				srv.logger.Error("Error during main server shutdown.", "error", err)
 				errChan <- fmt.Errorf("main server shutdown error: %w", err)
+			}
+			if srv.listener != nil {
+				if err := srv.listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+					errChan <- fmt.Errorf("main listener close error: %w", err)
+				}
 			}
 		})
 	}
@@ -1078,12 +1063,12 @@ func (srv *Server) shutdown(ctx context.Context) error {
 	// Close os.Root handles if they exist
 	if srv.staticRoot != nil {
 		if err := srv.staticRoot.Close(); err != nil {
-			logger.Error("Failed to close static root", "error", err)
+			srv.logger.Error("Failed to close static root", "error", err)
 		}
 	}
 	if srv.templateRoot != nil {
 		if err := srv.templateRoot.Close(); err != nil {
-			logger.Error("Failed to close template root", "error", err)
+			srv.logger.Error("Failed to close template root", "error", err)
 		}
 	}
 
@@ -1124,10 +1109,11 @@ func (srv *Server) WebSocketUpgrader() *websocket.Upgrader {
 	}
 }
 
-// Stop gracefully stops the server with a default timeout of 10 seconds
-func (srv *Server) Stop() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+// Shutdown gracefully stops the server within the caller's deadline.
+func (srv *Server) Shutdown(ctx context.Context) error {
+	if ctx == nil {
+		return errors.New("hyperserve: Shutdown called with nil context")
+	}
 	srv.isReady.Store(false)
 	srv.isRunning.Store(false)
 	return srv.shutdown(ctx)
@@ -1142,8 +1128,8 @@ func (srv *Server) CompleteDeferredInit(ctx context.Context, err error) error {
 }
 
 // Handle registers an http.Handler for the given pattern. Mirrors
-// http.ServeMux.Handle but also tracks the pattern so middleware stacks
-// applied via AddMiddlewareStack can find it. Use this when you have an
+// http.ServeMux.Handle but also tracks the pattern so prefix middleware can
+// find it. Use this when you have an
 // existing http.Handler (e.g., http.FileServer); use HandleFunc for inline
 // handler functions.
 //
@@ -1192,6 +1178,12 @@ func (srv *Server) hasRoute(pattern string) bool {
 
 func (srv *Server) Handler() http.Handler {
 	return srv.middleware.applyToMux(srv.mux)
+}
+
+// Options returns an independent snapshot of the server configuration.
+// Mutating the returned value does not reconfigure the running server.
+func (srv *Server) Options() Options {
+	return cloneOptions(srv.options)
 }
 
 func (srv *Server) HandleFunc(pattern string, handler http.HandlerFunc) {
@@ -1269,7 +1261,7 @@ func (srv *Server) cleanupRateLimiters() {
 			for ip, entry := range srv.rateLimiters.clients {
 				if entry.lastAccessUnixNano.Load() < cutoff {
 					delete(srv.rateLimiters.clients, ip)
-					logger.Debug("Cleaned up rate limiter", "ip", ip)
+					srv.logger.Debug("Cleaned up rate limiter", "ip", ip)
 				}
 			}
 			srv.rateLimiters.mu.Unlock()
@@ -1342,11 +1334,6 @@ func (srv *Server) ClientLimiterCount() int {
 	return len(srv.rateLimiters.clients)
 }
 
-// Mux returns the server's underlying http.ServeMux. Exposed so tests can
-// mount the server's handler in an httptest server without going through
-// (*Server).Run.
-func (srv *Server) Mux() *http.ServeMux { return srv.mux }
-
 // RegisteredRoutes returns a sorted snapshot of patterns registered through
 // Handle, HandleFunc, and the method-aware route helpers.
 func (srv *Server) RegisteredRoutes() []string {
@@ -1361,14 +1348,15 @@ func (srv *Server) RegisteredRoutes() []string {
 }
 
 // MiddlewareRoutes returns a snapshot of the registered route-to-middleware
-// mapping. The returned map is a shallow copy; mutating it does not affect the
-// server.
+// mapping. The map and its stacks are independent snapshots.
 func (srv *Server) MiddlewareRoutes() map[string]MiddlewareStack {
 	if srv.middleware == nil {
 		return nil
 	}
 	out := make(map[string]MiddlewareStack, len(srv.middleware.middleware))
-	maps.Copy(out, srv.middleware.middleware)
+	for route, stack := range srv.middleware.middleware {
+		out[route] = slices.Clone(stack)
+	}
 	return out
 }
 
@@ -1383,7 +1371,7 @@ func (srv *Server) printStartupBanner() {
 |_| |_|\__, | .__/ \___|_|  |___/\___|_|    \_/ \___|
        |___/|_|                                      
 `
-	if srv.Options.BannerColor {
+	if srv.options.BannerColor {
 		const bannerColor = "\033[35m"
 		const reset = "\033[0m"
 		fmt.Print(bannerColor, banner, reset)
@@ -1399,30 +1387,30 @@ func (srv *Server) printStartupBanner() {
 	fmt.Println()
 
 	// Build consolidated startup information
-	addr := srv.Options.Addr
-	if srv.Options.EnableTLS {
-		addr = srv.Options.TLSAddr
+	addr := srv.options.Addr
+	if srv.options.EnableTLS {
+		addr = srv.options.TLSAddr
 	}
 
 	protocol := "http"
-	if srv.Options.EnableTLS {
+	if srv.options.EnableTLS {
 		protocol = "https"
 	}
 
 	// Print consolidated startup info
 	fmt.Printf("\nServer:    %s://%s\n", protocol, addr)
 
-	if srv.Options.RunHealthServer {
-		fmt.Printf("Health:    http://%s\n", srv.Options.HealthAddr)
+	if srv.options.RunHealthServer {
+		fmt.Printf("Health:    http://%s\n", srv.options.HealthAddr)
 	}
 
-	if srv.Options.MCPEnabled {
-		fmt.Printf("MCP:       %s (unified HTTP/SSE endpoint)\n", srv.Options.MCPEndpoint)
-		if srv.Options.mcpTransportOpts.DeveloperMode {
+	if srv.options.MCPEnabled {
+		fmt.Printf("MCP:       %s (unified HTTP/SSE endpoint)\n", srv.options.MCPEndpoint)
+		if srv.options.mcpTransportOpts.DeveloperMode {
 			// Make MCP more discoverable for AI assistants
 			fmt.Printf("\n🤖 MCP ENABLED: AI assistants connect via unified endpoint:\n")
-			fmt.Printf("   SSE: GET %s://%s%s with Accept: text/event-stream\n", protocol, addr, srv.Options.MCPEndpoint)
-			fmt.Printf("   HTTP: POST %s://%s%s with Content-Type: application/json\n", protocol, addr, srv.Options.MCPEndpoint)
+			fmt.Printf("   SSE: GET %s://%s%s with Accept: text/event-stream\n", protocol, addr, srv.options.MCPEndpoint)
+			fmt.Printf("   HTTP: POST %s://%s%s with Content-Type: application/json\n", protocol, addr, srv.options.MCPEndpoint)
 		}
 	}
 

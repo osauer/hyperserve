@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,7 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/hyperserve/pkg/mcp"
+	"github.com/osauer/hyperserve/v2/pkg/auth"
+	"github.com/osauer/hyperserve/v2/pkg/mcp"
 )
 
 // BenchmarkBaseline measures the raw performance of a minimal HyperServe handler
@@ -54,7 +56,7 @@ func BenchmarkConcurrentRequestPath(b *testing.B) {
 			middleware: func(srv *Server, next http.Handler) http.Handler {
 				return MetricsMiddleware(srv)(
 					RecoveryMiddleware(
-						HeadersMiddleware(srv.Options)(next),
+						HeadersMiddleware(srv.options)(next),
 					),
 				)
 			},
@@ -67,7 +69,7 @@ func BenchmarkConcurrentRequestPath(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			b.Cleanup(func() { _ = srv.Stop() })
+			b.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
 
 			srv.HandleFunc("/benchmark", func(w http.ResponseWriter, _ *http.Request) {
 				_, _ = w.Write([]byte("OK"))
@@ -93,22 +95,18 @@ func BenchmarkConcurrentRequestPath(b *testing.B) {
 	}
 }
 
-// BenchmarkSecureAPI measures a typical secure API setup with multiple middleware
-func BenchmarkSecureAPI(b *testing.B) {
-	srv, err := NewServer(
-		WithAuthTokenValidator(func(token string) (bool, error) {
-			return token == "test-token", nil
-		}),
-	)
+// BenchmarkAuthenticatedAPI measures a typical protected API middleware chain.
+func BenchmarkAuthenticatedAPI(b *testing.B) {
+	srv, err := NewServer()
 	if err != nil {
 		b.Fatal(err)
 	}
 
 	// Add typical security middleware stack
-	srv.AddMiddleware("*", RequestLoggerMiddleware)
-	srv.AddMiddleware("/api", RateLimitMiddleware(srv))
-	srv.AddMiddleware("/api", AuthMiddleware(srv.Options))
-	srv.AddMiddleware("*", HeadersMiddleware(srv.Options))
+	srv.Use(RequestLoggerMiddleware)
+	srv.UsePrefix("/api", RateLimitMiddleware(srv))
+	srv.UsePrefix("/api", auth.Require(testBearerAuthenticator("test-token")))
+	srv.Use(HeadersMiddleware(srv.options))
 
 	srv.HandleFunc("/api/data", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -119,9 +117,10 @@ func BenchmarkSecureAPI(b *testing.B) {
 	req.Header.Set("Authorization", "Bearer test-token")
 
 	b.ReportAllocs()
+	handler := srv.Handler()
 	for b.Loop() {
 		w := httptest.NewRecorder()
-		srv.mux.ServeHTTP(w, req)
+		handler.ServeHTTP(w, req)
 	}
 }
 
@@ -133,7 +132,7 @@ func BenchmarkIndividualMiddleware(b *testing.B) {
 
 	tests := []struct {
 		name       string
-		middleware func(http.Handler) http.HandlerFunc
+		middleware Middleware
 		setup      func(*http.Request)
 	}{
 		{
@@ -146,21 +145,14 @@ func BenchmarkIndividualMiddleware(b *testing.B) {
 		},
 		{
 			name: "RateLimit",
-			middleware: func(next http.Handler) http.HandlerFunc {
+			middleware: func(next http.Handler) http.Handler {
 				srv, _ := NewServer()
 				return RateLimitMiddleware(srv)(next)
 			},
 		},
 		{
-			name: "Auth",
-			middleware: func(next http.Handler) http.HandlerFunc {
-				opts := &ServerOptions{
-					AuthTokenValidatorFunc: func(token string) (bool, error) {
-						return token == "test-token", nil
-					},
-				}
-				return AuthMiddleware(opts)(next)
-			},
+			name:       "Auth",
+			middleware: auth.Require(testBearerAuthenticator("test-token")),
 			setup: func(r *http.Request) {
 				r.Header.Set("Authorization", "Bearer test-token")
 			},
@@ -193,13 +185,13 @@ func BenchmarkStaticFile(b *testing.B) {
 	}
 
 	// Create a temporary static file
-	srv.Options.StaticDir = b.TempDir()
+	srv.options.StaticDir = b.TempDir()
 	testFile := []byte("This is a test file for benchmarking static file serving performance.")
-	if err := writeFile(srv.Options.StaticDir+"/test.txt", testFile); err != nil {
+	if err := writeFile(srv.options.StaticDir+"/test.txt", testFile); err != nil {
 		b.Fatal(err)
 	}
 
-	if err := srv.HandleStaticChecked("/static/"); err != nil {
+	if err := srv.HandleStatic("/static/"); err != nil {
 		b.Fatal(err)
 	}
 	req := httptest.NewRequest("GET", "/static/test.txt", nil)
@@ -496,18 +488,15 @@ func BenchmarkMCPWithMiddleware(b *testing.B) {
 	srv, err := NewServer(
 		WithAddr(":0"),
 		WithMCPSupport("benchmark-server", "1.0.0"),
-		WithAuthTokenValidator(func(token string) (bool, error) {
-			return token == "benchmark-token", nil
-		}),
 	)
 	if err != nil {
 		b.Fatal(err)
 	}
 
 	// Add middleware stack
-	srv.AddMiddleware("", RequestLoggerMiddleware)
-	srv.AddMiddleware("/mcp", RateLimitMiddleware(srv))
-	srv.AddMiddleware("/mcp", AuthMiddleware(srv.Options))
+	srv.Use(RequestLoggerMiddleware)
+	srv.UsePrefix("/mcp", RateLimitMiddleware(srv))
+	srv.UsePrefix("/mcp", auth.Require(testBearerAuthenticator("benchmark-token")))
 
 	request := map[string]any{
 		"jsonrpc": "2.0",
@@ -530,6 +519,15 @@ func BenchmarkMCPWithMiddleware(b *testing.B) {
 		handler := srv.middleware.applyToMux(srv.mux)
 		handler.ServeHTTP(w, req)
 	}
+}
+
+func testBearerAuthenticator(want string) auth.Authenticator {
+	return auth.Bearer(auth.TokenVerifierFunc(func(_ context.Context, token string) (auth.Principal, error) {
+		if token != want {
+			return auth.Principal{}, auth.ErrUnauthenticated
+		}
+		return auth.Principal{Issuer: "benchmark", Subject: "client"}, nil
+	}))
 }
 
 // BenchmarkMCPLargePayload measures performance with large JSON-RPC payloads

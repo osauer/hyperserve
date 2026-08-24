@@ -18,7 +18,7 @@ import (
 // latestStableVersion is intentionally advanced with each release candidate:
 // generated projects must depend on the version whose docs and examples they
 // were created from, rather than a pseudo-version of the local checkout.
-const latestStableVersion = "v1.6.1"
+const latestStableVersion = "v2.0.0"
 
 // Generate scaffolds a new HyperServe project and returns the absolute output directory.
 func Generate(opts Options) (string, error) {

@@ -16,7 +16,7 @@ func writeErrorResponse(w http.ResponseWriter, status int, message string) {
 	response := map[string]string{"error": message}
 	err := json.NewEncoder(w).Encode(response)
 	if err != nil {
-		logger.Error("Failed to write error response", "error", err)
+		slog.Default().Error("Failed to write error response", "error", err)
 	}
 }
 
@@ -26,7 +26,7 @@ func (srv *Server) templateHandler(templateName string, data any) http.HandlerFu
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
 		if err := srv.templates.ExecuteTemplate(w, templateName, data); err != nil {
-			slog.Error("Error rendering template", "error", err)
+			srv.logger.Error("Error rendering template", "error", err)
 			http.Error(w, "Error rendering template", http.StatusInternalServerError)
 		}
 	}
@@ -99,12 +99,12 @@ func (srv *Server) healthHandlerHelper(w http.ResponseWriter, request *http.Requ
 	if status.Load() {
 		w.WriteHeader(http.StatusOK)
 		if _, err := w.Write([]byte(probe)); err != nil {
-			logger.Error(fmt.Sprintf("error writing endpoint status (%s)", probe), "error", err)
+			srv.logger.Error(fmt.Sprintf("error writing endpoint status (%s)", probe), "error", err)
 		}
 	} else {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		if _, err := w.Write([]byte("unhealthy")); err != nil {
-			logger.Error(fmt.Sprintf("error writing endpoint status (%s)", probe), "error", err)
+			srv.logger.Error(fmt.Sprintf("error writing endpoint status (%s)", probe), "error", err)
 		}
 	}
 }

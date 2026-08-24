@@ -24,16 +24,16 @@ type DataFunc func(r *http.Request) any
 // loads can't escape the configured directory. Failure is logged but not
 // fatal — handlers that need templates will report a clearer error later.
 func openTemplateRoot(srv *Server) {
-	if srv.Options.TemplateDir == "" {
+	if srv.options.TemplateDir == "" {
 		return
 	}
-	templateRoot, err := os.OpenRoot(srv.Options.TemplateDir)
+	templateRoot, err := os.OpenRoot(srv.options.TemplateDir)
 	if err != nil {
-		logger.Debug("Failed to open template root directory", "error", err, "dir", srv.Options.TemplateDir)
+		srv.logger.Debug("Failed to open template root directory", "error", err, "dir", srv.options.TemplateDir)
 		return
 	}
 	srv.templateRoot = templateRoot
-	logger.Debug("Template root initialized", "dir", srv.Options.TemplateDir)
+	srv.logger.Debug("Template root initialized", "dir", srv.options.TemplateDir)
 }
 
 // HandleFuncDynamic registers a handler that renders templates with dynamic
@@ -41,7 +41,7 @@ func openTemplateRoot(srv *Server) {
 // to the template. Returns an error if template parsing fails.
 func (srv *Server) HandleFuncDynamic(pattern, tmplName string, dataFunc DataFunc) error {
 	if err := srv.parseTemplates(); err != nil {
-		logger.Error("Failed to parse templates", "error", err)
+		srv.logger.Error("Failed to parse templates", "error", err)
 		return err
 	}
 
@@ -57,7 +57,7 @@ func (srv *Server) HandleFuncDynamic(pattern, tmplName string, dataFunc DataFunc
 
 			data := dataFunc(r)
 			if err := srv.templates.ExecuteTemplate(w, tmplName, data); err != nil {
-				logger.Error("Failed to execute template", "template", tmplName, "error", err)
+				srv.logger.Error("Failed to execute template", "template", tmplName, "error", err)
 				http.Error(w, "Error rendering template", http.StatusInternalServerError)
 				return
 			}
@@ -104,32 +104,32 @@ func (srv *Server) parseTemplates() error {
 			if strings.HasSuffix(filename, ".html") {
 				file, err := srv.templateRoot.Open(filename)
 				if err != nil {
-					logger.Error("Failed to open template file", "file", filename, "error", err)
+					srv.logger.Error("Failed to open template file", "file", filename, "error", err)
 					continue
 				}
 
 				content, err := io.ReadAll(file)
 				file.Close()
 				if err != nil {
-					logger.Error("Failed to read template file", "file", filename, "error", err)
+					srv.logger.Error("Failed to read template file", "file", filename, "error", err)
 					continue
 				}
 
 				_, err = tmpl.New(filename).Parse(string(content))
 				if err != nil {
-					logger.Error("Failed to parse template", "file", filename, "error", err)
+					srv.logger.Error("Failed to parse template", "file", filename, "error", err)
 					return fmt.Errorf("failed to parse template %s: %w", filename, err)
 				}
 			}
 		}
 
 		srv.templates = tmpl
-		logger.Info("Templates parsed using secure os.Root", "count", len(tmpl.Templates())-1) // -1 for root template
+		srv.logger.Info("Templates parsed using secure os.Root", "count", len(tmpl.Templates())-1) // -1 for root template
 		return nil
 	}
 
 	// Fallback to traditional template parsing
-	templateDir := srv.Options.TemplateDir
+	templateDir := srv.options.TemplateDir
 	if _, err := os.Stat(templateDir); os.IsNotExist(err) {
 		wd, _ := os.Getwd()
 		ad, _ := filepath.Abs(templateDir)
@@ -138,12 +138,12 @@ func (srv *Server) parseTemplates() error {
 
 	tmpl, err := template.ParseGlob(filepath.Join(templateDir, "*.html"))
 	if err != nil {
-		logger.Error("Failed to parse templates", "error", err)
+		srv.logger.Error("Failed to parse templates", "error", err)
 		return fmt.Errorf("failed to parse templates: %w", err)
 	}
 
 	srv.templates = tmpl
-	logger.Info("Templates parsed.", "pattern", filepath.Join(templateDir, "*.html"))
+	srv.logger.Info("Templates parsed.", "pattern", filepath.Join(templateDir, "*.html"))
 	return nil
 }
 
@@ -154,7 +154,7 @@ func (srv *Server) parseTemplates() error {
 func (srv *Server) listTemplateFiles() ([]string, error) {
 	var files []string
 
-	entries, err := os.ReadDir(srv.Options.TemplateDir)
+	entries, err := os.ReadDir(srv.options.TemplateDir)
 	if err != nil {
 		return nil, err
 	}

@@ -3,8 +3,8 @@ package builtin
 import (
 	"log/slog"
 
-	"github.com/osauer/hyperserve/pkg/mcp"
-	"github.com/osauer/hyperserve/pkg/server"
+	"github.com/osauer/hyperserve/v2/pkg/mcp"
+	"github.com/osauer/hyperserve/v2/pkg/server"
 )
 
 // init wires the builtin presets into pkg/server's auto-registration flow.
@@ -36,13 +36,14 @@ func registerBuiltinTools(srv *server.Server) {
 	if h == nil {
 		return
 	}
-	if srv.Options.MCPFileToolRoot != "" {
-		if fileReadTool, err := NewFileReadTool(srv.Options.MCPFileToolRoot); err != nil {
+	options := srv.Options()
+	if options.MCPFileToolRoot != "" {
+		if fileReadTool, err := NewFileReadTool(options.MCPFileToolRoot); err != nil {
 			logger.Warn("Failed to create file read tool", "error", err)
 		} else {
 			h.RegisterToolInNamespace(fileReadTool, "hyperserve")
 		}
-		if listDirTool, err := NewListDirectoryTool(srv.Options.MCPFileToolRoot); err != nil {
+		if listDirTool, err := NewListDirectoryTool(options.MCPFileToolRoot); err != nil {
 			logger.Warn("Failed to create list directory tool", "error", err)
 		} else {
 			h.RegisterToolInNamespace(listDirTool, "hyperserve")
@@ -61,10 +62,11 @@ func registerStandardResources(srv *server.Server) {
 	if h == nil {
 		return
 	}
-	h.RegisterResource(NewConfigResource(srv.Options))
+	options := srv.Options()
+	h.RegisterResource(NewConfigResource(options))
 	h.RegisterResource(NewMetricsResource(srv))
 	h.RegisterResource(NewSystemResource())
-	logResource := NewServerLogResource(srv.Options.MCPLogResourceSize)
+	logResource := NewServerLogResource(options.MCPLogResourceSize)
 	h.RegisterResource(logResource)
 	wireLogResource(h, logResource)
 }
@@ -87,7 +89,7 @@ func registerObservability(srv *server.Server, handler *mcp.Handler) {
 	handler.RegisterResource(NewServerConfigResource(srv))
 	handler.RegisterResource(NewServerHealthResource(srv))
 
-	logResource := NewServerLogResource(srv.Options.MCPLogResourceSize)
+	logResource := NewServerLogResource(srv.Options().MCPLogResourceSize)
 	handler.RegisterResource(logResource)
 	wireLogResource(handler, logResource)
 

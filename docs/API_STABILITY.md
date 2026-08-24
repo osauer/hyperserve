@@ -1,28 +1,29 @@
 # API Stability
 
-_Last updated: 2026-05-24 07:43 CEST (v1 line)._
+_Last updated: 2026-08-24 (v2 line)._
 
 ## TL;DR
 
-HyperServe is a **v1 Go module**. Public package APIs follow semantic
-versioning from the v1 line forward:
+HyperServe is a **v2 Go module**. Public package APIs follow semantic
+versioning:
 
-- **PATCH (`1.x.y`)**: bug fixes, documentation fixes, security fixes, and behavior corrections that preserve API shape.
-- **MINOR (`1.x.0`)**: additive APIs and compatible behavior improvements.
-- **MAJOR (`2.0.0`)**: breaking exported API changes, requiring the Go module path to move to `/v2`.
+- **PATCH (`2.x.y`)**: fixes and behavior corrections that preserve API shape.
+- **MINOR (`2.x.0`)**: additive APIs and compatible behavior improvements.
+- **MAJOR (`3.0.0`)**: breaking exported API changes and a `/v3` module path.
 
-The repository previously had a confusing version train: older `v1.0.x` tags
-existed while current docs and changelog continued on `v0.34.x`. The v1 line is
-now the source of truth.
+The v1 line remains available to existing importers. The v2 module path is the
+source of truth on `main`; its deliberate breaking changes and direct
+replacements are listed in [Migrating to v2](./MIGRATING_V2.md).
 
 ## Compatibility
 
 The compatibility promise covers exported APIs under:
 
-- `github.com/osauer/hyperserve/pkg/server`
-- `github.com/osauer/hyperserve/pkg/mcp`
-- `github.com/osauer/hyperserve/pkg/jsonrpc`
-- `github.com/osauer/hyperserve/pkg/websocket`
+- `github.com/osauer/hyperserve/v2/pkg/server`
+- `github.com/osauer/hyperserve/v2/pkg/auth`
+- `github.com/osauer/hyperserve/v2/pkg/mcp`
+- `github.com/osauer/hyperserve/v2/pkg/jsonrpc`
+- `github.com/osauer/hyperserve/v2/pkg/websocket`
 
 Examples, generated scaffold layout, and command packages are maintained as
 release-gated developer experience, but they are not a stable import surface.
@@ -34,7 +35,8 @@ When an exported symbol needs to go away:
 
 1. Prefer an additive replacement first.
 2. Mark the old path as deprecated in Go docs.
-3. Keep the deprecated path through the current major line unless it is unsafe.
+3. Keep the deprecated path through the current major line unless it is unsafe
+   or was explicitly removed by the v2 migration guide.
 4. Remove it only in the next major module path.
 
 Security fixes may change behavior when the old behavior is unsafe or

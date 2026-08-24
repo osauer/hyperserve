@@ -12,9 +12,9 @@ and panic recovery. The example adds three things:
 - rate limiting only for `/api` and its descendants.
 
 ```go
-srv.AddMiddleware(server.GlobalMiddlewareRoute, exampleHeader)
-srv.AddMiddlewareStack(server.GlobalMiddlewareRoute, server.SecureWeb(srv.Options))
-srv.AddMiddleware("/api", server.RateLimitMiddleware(srv))
+srv.Use(exampleHeader)
+srv.Use(server.SecureWeb(srv.Options()))
+srv.UsePrefix("/api", server.RateLimitMiddleware(srv))
 ```
 
 That route prefix is segment-aware: it matches `/api` and `/api/data`, but not
@@ -49,11 +49,11 @@ curl http://localhost:8080/stats
 HyperServe keeps the standard handler-wrapper model:
 
 ```go
-func exampleHeader(next http.Handler) http.HandlerFunc {
-    return func(w http.ResponseWriter, r *http.Request) {
-        w.Header().Set("X-Example-Middleware", "active")
-        next.ServeHTTP(w, r)
-    }
+func exampleHeader(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Example-Middleware", "active")
+		next.ServeHTTP(w, r)
+	})
 }
 ```
 

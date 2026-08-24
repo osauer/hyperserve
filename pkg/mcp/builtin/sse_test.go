@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/hyperserve/pkg/server"
+	"github.com/osauer/hyperserve/v2/pkg/server"
 )
 
 func TestMCPSSEEndpoint(t *testing.T) {
@@ -34,7 +34,7 @@ func TestMCPSSEEndpoint(t *testing.T) {
 		return
 	}
 
-	httpSrv := &http.Server{Handler: srv.Mux()}
+	httpSrv := &http.Server{Handler: srv.Handler()}
 	done := make(chan struct{})
 	go func() {
 		_ = httpSrv.Serve(listener)
@@ -55,7 +55,7 @@ func TestMCPSSEEndpoint(t *testing.T) {
 		}
 
 		// Debug: Check MCP endpoint
-		t.Logf("MCP endpoint: %s", srv.Options.MCPEndpoint)
+		t.Logf("MCP endpoint: %s", srv.Options().MCPEndpoint)
 		t.Logf("MCP handler: %v", srv.MCPHandler())
 
 		// First test base MCP endpoint

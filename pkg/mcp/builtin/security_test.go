@@ -2,16 +2,19 @@ package builtin
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
-	jsonrpc "github.com/osauer/hyperserve/pkg/jsonrpc"
-	"github.com/osauer/hyperserve/pkg/server"
+	jsonrpc "github.com/osauer/hyperserve/v2/pkg/jsonrpc"
+	"github.com/osauer/hyperserve/v2/pkg/server"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/osauer/hyperserve/v2/pkg/auth"
 	"time"
 )
 
@@ -279,23 +282,24 @@ func TestMCPSecurity_InputValidation(t *testing.T) {
 
 // TestMCPSecurity_AuthenticationIntegration tests MCP with authentication middleware
 func TestMCPSecurity_AuthenticationIntegration(t *testing.T) {
-	// Token validator that only accepts "valid_token"
-	tokenValidator := func(token string) (bool, error) {
-		return token == "valid_token", nil
-	}
+	verifier := auth.TokenVerifierFunc(func(_ context.Context, token string) (auth.Principal, error) {
+		if token != "valid_token" {
+			return auth.Principal{}, auth.ErrUnauthenticated
+		}
+		return auth.Principal{Issuer: "test", Subject: "client"}, nil
+	})
 
 	// Create server with authentication and MCP
 	srv, err := server.NewServer(
 		server.WithAddr(":0"),
 		server.WithMCPSupport("test-server", "1.0.0"),
-		server.WithAuthTokenValidator(tokenValidator),
 	)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
 
 	// Add auth middleware to the entire server
-	srv.AddMiddleware("", server.AuthMiddleware(srv.Options))
+	srv.Use(auth.Require(auth.Bearer(verifier)))
 
 	testCases := []struct {
 		name         string
@@ -424,9 +428,6 @@ func TestMCPSecurity_ResourceSanitization(t *testing.T) {
 		server.WithAddr(":0"),
 		server.WithMCPSupport("test-server", "1.0.0"),
 		server.WithMCPBuiltinResources(true), // Enable built-in resources for tests
-		server.WithAuthTokenValidator(func(token string) (bool, error) {
-			return token == "secret_token", nil
-		}),
 	)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
@@ -461,7 +462,6 @@ func TestMCPSecurity_ResourceSanitization(t *testing.T) {
 
 	// Verify that sensitive fields are not exposed
 	sensitiveFields := []string{
-		"AuthTokenValidatorFunc",
 		"KeyFile",  // TLS private key path
 		"CertFile", // TLS certificate path (less sensitive but still should be filtered)
 	}

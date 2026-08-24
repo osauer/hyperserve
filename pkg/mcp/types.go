@@ -198,8 +198,7 @@ type ToolResult struct {
 	IsError bool             `json:"isError,omitempty"`
 }
 
-// logger is the package-level slog instance for the mcp package. The
-// previously-exported DefaultLogger/SetDefaultLogger pair had no callers in
-// production or examples (the server-side logger is wired via
-// server.SetDefaultLogger / the slog default) and was removed.
+// logger is the fallback for directly constructed MCP handlers. A Handler
+// receives its own logger at construction and a HyperServe Server injects its
+// instance logger, so this fallback is not mutated by server configuration.
 var logger = slog.Default()

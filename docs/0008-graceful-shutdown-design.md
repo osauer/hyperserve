@@ -22,8 +22,8 @@ Challenges include:
 ## Decision
 
 Implement context-based graceful shutdown:
-- Use Go's `context.Context` for cancellation propagation
-- Configurable shutdown timeout (default 30 seconds)
+- Use the context passed to `Run` for cancellation propagation
+- Let an explicit `Shutdown` caller choose its deadline
 - Coordinate shutdown of both main and health servers
 - Clean up all resources (rate limiters, templates, etc.)
 
@@ -31,9 +31,8 @@ Implement context-based graceful shutdown:
 // Shutdown sequence:
 // 1. Stop accepting new connections
 // 2. Wait for in-flight requests (up to timeout)
-// 3. Force close remaining connections
-// 4. Clean up resources
-// 5. Return
+// 3. Clean up workers, transports, and rooted filesystems
+// 4. Return the original startup/serve error plus any shutdown error
 ```
 
 ## Consequences
@@ -41,7 +40,7 @@ Implement context-based graceful shutdown:
 ### Positive
 - **No dropped requests**: In-flight requests complete normally
 - **Clean termination**: Resources properly released
-- **Predictable behavior**: Timeout ensures eventual termination
+- **Predictable behavior**: The application controls the deadline
 - **Kubernetes-friendly**: Works with termination grace periods
 - **Testable**: Can verify shutdown behavior
 
@@ -52,38 +51,19 @@ Implement context-based graceful shutdown:
 - **Error handling**: Shutdown errors need special handling
 
 ### Mitigation
-- Default timeout of 30 seconds works for most cases
-- Allow timeout customization via options
+- `Run` uses a bounded internal cleanup budget after cancellation
+- `Shutdown(ctx)` accepts an application-owned deadline
 - Clear logging during shutdown phases
 - Unit tests for shutdown scenarios
 
 ## Implementation Details
 
 ```go
-func (s *Server) Stop() error {
-    // Create shutdown context with timeout
-    ctx, cancel := context.WithTimeout(
-        context.Background(), 
-        s.opts.ShutdownTimeout,
-    )
-    defer cancel()
-    
-    // Shutdown main server
-    if err := s.httpServer.Shutdown(ctx); err != nil {
-        log.Error("Main server shutdown error", "error", err)
-    }
-    
-    // Shutdown health server
-    if s.healthServer != nil {
-        s.healthServer.Shutdown(ctx)
-    }
-    
-    // Stop rate limiter cleanup
-    if s.rateLimiterCancel != nil {
-        s.rateLimiterCancel()
-    }
-    
-    return nil
+ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+defer stop()
+
+if err := srv.Run(ctx); err != nil {
+    log.Error("server stopped", "error", err)
 }
 ```
 
@@ -92,16 +72,17 @@ func (s *Server) Stop() error {
 ```go
 // The application owns appCtx and cancels it when its complete process
 // lifecycle should stop. HyperServe drains requests and releases resources
-// before RunContext returns.
+// before Run returns.
 srv, _ := server.NewServer()
-if err := srv.RunContext(appCtx); err != nil {
+if err := srv.Run(appCtx); err != nil {
     log.Error("Server stopped", "error", err)
 }
 
-// Custom shutdown timeout
-srv, _ := server.NewServer(
-    server.WithShutdownTimeout(60 * time.Second),
-)
+shutdownCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+defer cancel()
+if err := srv.Shutdown(shutdownCtx); err != nil {
+    log.Error("shutdown", "error", err)
+}
 
 // Kubernetes pod termination
 // Set terminationGracePeriodSeconds > shutdown timeout

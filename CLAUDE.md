@@ -18,7 +18,7 @@ support. The library lives under `pkg/`:
 Supported binary: `cmd/hyperserve-init` (project scaffold). Generated projects
 contain their own `cmd/server`; the HyperServe repository does not.
 
-Import the library as `github.com/osauer/hyperserve/pkg/server` — there are
+Import the library as `github.com/osauer/hyperserve/v2/pkg/server` — there are
 no `.go` files at the repository root.
 
 ## Talking to an MCP-enabled HyperServe

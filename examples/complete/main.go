@@ -6,14 +6,18 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
 	"net/http"
+	"os"
+	"os/signal"
 	"time"
 
-	serverpkg "github.com/osauer/hyperserve/pkg/server"
+	"github.com/osauer/hyperserve/v2/pkg/auth"
+	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
 )
 
 // Mock user store for authentication demo
@@ -31,14 +35,14 @@ type SystemStatus struct {
 }
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
 	// Create server with configuration
 	srv, err := serverpkg.NewServer(
 		// Basic configuration
 		serverpkg.WithAddr(":8080"),
 		serverpkg.WithHealthServer(), // Health checks on :8081
-
-		// Authentication configuration
-		serverpkg.WithAuthTokenValidator(validateToken),
 
 		// Advanced features
 		serverpkg.WithMCPSupport("complete-example", "1.0.0"),
@@ -46,23 +50,24 @@ func main() {
 
 		// Rate limiting configuration
 		serverpkg.WithRateLimit(100, 200),
+		serverpkg.WithTemplateDir("./templates"),
+		serverpkg.WithStaticDir("./static"),
 	)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}
 
-	// Configure directories
-	srv.Options.TemplateDir = "./templates"
-	srv.Options.StaticDir = "./static"
-
 	// Apply middleware stacks
-	// Note: DefaultMiddleware (metrics, logging, recovery) is already applied
+	// Metrics, request logging, and recovery are already applied by NewServer.
 
 	// SecureWeb adds security headers for web routes
-	srv.AddMiddlewareStack("/", serverpkg.SecureWeb(srv.Options))
+	srv.UsePrefix("/", serverpkg.SecureWeb(srv.Options()))
 
-	// SecureAPI adds auth and rate limiting for API routes
-	srv.AddMiddlewareStack("/api", serverpkg.SecureAPI(srv))
+	verifier := auth.TokenVerifierFunc(verifyToken)
+	apiIdentity := auth.Bearer(verifier)
+	requireIdentity := auth.Require(apiIdentity)
+	srv.UsePrefix("/api", requireIdentity, serverpkg.RateLimitMiddleware(srv))
+	srv.UsePrefix("/mcp", requireIdentity)
 
 	// ===== ROUTE HANDLERS =====
 
@@ -76,12 +81,12 @@ func main() {
 	})
 
 	// 2. Static file serving
-	if err := srv.HandleStaticChecked("/static/"); err != nil {
+	if err := srv.HandleStatic("/static/"); err != nil {
 		log.Fatalf("Static files unavailable: %v", err)
 	}
 
 	// 3. Public API endpoint (no auth required, but has security headers)
-	srv.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
+	srv.GET("/status", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
 			"status":  "running",
@@ -90,18 +95,17 @@ func main() {
 		})
 	})
 
-	// 4. Protected API endpoint (auth required via SecureAPI stack)
-	srv.HandleFunc("/api/user", func(w http.ResponseWriter, r *http.Request) {
-		// Auth middleware has already validated the token
-		token := r.Header.Get("Authorization")
-		if len(token) > 7 {
-			token = token[7:] // Remove "Bearer "
+	// 4. Protected API endpoint. Authentication establishes identity;
+	// application code still owns authorization and domain lookup.
+	srv.GET("/api/user", func(w http.ResponseWriter, r *http.Request) {
+		principal, ok := auth.PrincipalFromRequest(r)
+		if !ok {
+			http.Error(w, "missing authenticated principal", http.StatusInternalServerError)
+			return
 		}
-
-		username := validTokens[token]
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-			"username": username,
+			"username": principal.Subject,
 			"role":     "user",
 			"lastSeen": time.Now(),
 		})
@@ -153,7 +157,7 @@ func main() {
 		// Note: Real metrics are internal. This is a demo endpoint.
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-			"message": "Metrics are collected automatically via DefaultMiddleware",
+			"message": "Metrics are collected automatically by the server defaults",
 			"info":    "Request count and timing are tracked for all requests",
 		})
 	})
@@ -162,22 +166,23 @@ func main() {
 
 	printStartupBanner()
 
-	// The Run() method provides:
-	// - Graceful shutdown on SIGINT/SIGTERM
+	// The application owns signals; Run provides:
 	// - Connection draining
 	// - Context cancellation
 	// - Resource cleanup
 	// - Health checks on separate port
-	if err := srv.Run(); err != nil {
+	if err := srv.Run(ctx); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
 }
 
-// Token validation for auth middleware
-func validateToken(token string) (bool, error) {
-	// In production, this would validate JWT, check database, etc.
-	_, valid := validTokens[token]
-	return valid, nil
+// verifyToken is named business code; auth.Bearer owns only HTTP extraction.
+func verifyToken(_ context.Context, token string) (auth.Principal, error) {
+	user, valid := validTokens[token]
+	if !valid {
+		return auth.Principal{}, auth.ErrUnauthenticated
+	}
+	return auth.Principal{Issuer: "complete-example", Subject: user}, nil
 }
 
 // SSE handler for real-time updates
@@ -230,14 +235,14 @@ func sseHandler(w http.ResponseWriter, r *http.Request) {
 // Get feature list for template
 func getFeatureList() []map[string]string {
 	return []map[string]string{
-		{"name": "Graceful Shutdown", "status": "automatic", "endpoint": "Built into srv.Run()"},
+		{"name": "Graceful Shutdown", "status": "context-driven", "endpoint": "srv.Run(ctx)"},
 		{"name": "Health Checks", "status": "configured", "endpoint": "http://localhost:8081/healthz"},
-		{"name": "Request Logging", "status": "automatic", "endpoint": "Via DefaultMiddleware"},
-		{"name": "Panic Recovery", "status": "automatic", "endpoint": "Via DefaultMiddleware"},
-		{"name": "Metrics Collection", "status": "automatic", "endpoint": "Via DefaultMiddleware"},
+		{"name": "Request Logging", "status": "automatic", "endpoint": "Server default"},
+		{"name": "Panic Recovery", "status": "automatic", "endpoint": "Server default"},
+		{"name": "Metrics Collection", "status": "automatic", "endpoint": "Server default"},
 		{"name": "Security Headers", "status": "configured", "endpoint": "All routes via SecureWeb"},
-		{"name": "Authentication", "status": "configured", "endpoint": "/api/* via SecureAPI"},
-		{"name": "Rate Limiting", "status": "configured", "endpoint": "/api/* via SecureAPI"},
+		{"name": "Authentication", "status": "configured", "endpoint": "/api/* via auth.Require"},
+		{"name": "Rate Limiting", "status": "configured", "endpoint": "/api/* middleware"},
 		{"name": "Server-Sent Events", "status": "active", "endpoint": "/api/stream"},
 		{"name": "Static Files", "status": "active", "endpoint": "/static/*"},
 		{"name": "Templates", "status": "active", "endpoint": "/ (home page)"},
@@ -253,7 +258,7 @@ func printStartupBanner() {
 	fmt.Println("\nEndpoints:")
 	fmt.Println("  http://localhost:8080/              - Home page (template)")
 	fmt.Println("  http://localhost:8080/static/       - Static files")
-	fmt.Println("  http://localhost:8080/api/status    - Public API")
+	fmt.Println("  http://localhost:8080/status        - Public API")
 	fmt.Println("  http://localhost:8080/api/user      - Protected API (needs Bearer token)")
 	fmt.Println("  http://localhost:8080/api/stream    - SSE real-time updates")
 	fmt.Println("  http://localhost:8080/api/error     - Error handling demo")
@@ -266,7 +271,7 @@ func printStartupBanner() {
 	fmt.Println("  - demo-token-123 (user: alice)")
 	fmt.Println("  - demo-token-456 (user: bob)")
 	fmt.Println("\nExample curl commands:")
-	fmt.Println("  curl http://localhost:8080/api/status")
+	fmt.Println("  curl http://localhost:8080/status")
 	fmt.Println("  curl -H 'Authorization: Bearer demo-token-123' http://localhost:8080/api/user")
 	fmt.Println("  curl -N http://localhost:8080/api/stream  # SSE stream")
 	fmt.Println("\nPress Ctrl+C for graceful shutdown")

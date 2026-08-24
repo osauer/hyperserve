@@ -2,16 +2,22 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"time"
 
-	serverpkg "github.com/osauer/hyperserve/pkg/server"
+	"github.com/osauer/hyperserve/v2/pkg/auth"
+	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
 )
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
 	// Create server with enterprise security features
 	srv, err := serverpkg.NewServer(
 		// This example accepts supported deployment environment variables.
@@ -33,9 +39,6 @@ func main() {
 		// Set strict timeouts
 		serverpkg.WithTimeouts(30*time.Second, 30*time.Second, 120*time.Second),
 
-		// Configure authentication
-		serverpkg.WithAuthTokenValidator(validateToken),
-
 		// Set template and static directories
 		serverpkg.WithTemplateDir("./templates"),
 	)
@@ -44,10 +47,10 @@ func main() {
 	}
 
 	// Apply security middleware stack to all routes
-	srv.AddMiddlewareStack("*", serverpkg.SecureWeb(srv.Options))
+	srv.Use(serverpkg.SecureWeb(srv.Options()))
 
-	// Apply API security to /api routes
-	srv.AddMiddlewareStack("/api", serverpkg.SecureAPI(srv))
+	apiAuth := auth.Bearer(auth.TokenVerifierFunc(verifyToken))
+	srv.UsePrefix("/api", auth.Require(apiAuth), serverpkg.RateLimitMiddleware(srv))
 
 	// Public endpoints
 	srv.HandleFunc("/", homeHandler)
@@ -58,7 +61,7 @@ func main() {
 	srv.HandleFunc("/api/data", apiDataHandler)
 
 	// Serve static files securely (uses os.Root in Go 1.24)
-	if err := srv.HandleStaticChecked("/static/"); err != nil {
+	if err := srv.HandleStatic("/static/"); err != nil {
 		log.Fatalf("Static files unavailable: %v", err)
 	}
 
@@ -70,13 +73,13 @@ func main() {
 	log.Println("- Secure file serving with os.Root")
 	log.Println("- Swiss Tables optimized rate limiting")
 
-	if err := srv.Run(); err != nil {
+	if err := srv.Run(ctx); err != nil {
 		log.Fatal("Server failed:", err)
 	}
 }
 
 // validateToken demonstrates timing-safe token validation
-func validateToken(token string) (bool, error) {
+func verifyToken(_ context.Context, token string) (auth.Principal, error) {
 	// In production, this would check against a database or JWT
 	// The middleware already uses crypto/subtle for timing protection
 	validTokens := map[string]bool{
@@ -86,12 +89,12 @@ func validateToken(token string) (bool, error) {
 
 	// Check if token exists
 	if valid, exists := validTokens[token]; exists && valid {
-		return true, nil
+		return auth.Principal{Issuer: "enterprise-example", Subject: token}, nil
 	}
 
 	// Simulate database lookup time to prevent timing attacks
 	time.Sleep(10 * time.Millisecond)
-	return false, nil
+	return auth.Principal{}, auth.ErrUnauthenticated
 }
 
 func homeHandler(w http.ResponseWriter, r *http.Request) {

@@ -40,9 +40,11 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
 	"strings"
 
-	server "github.com/osauer/hyperserve/pkg/server"
+	server "github.com/osauer/hyperserve/v2/pkg/server"
 )
 
 type CreateUser struct {
@@ -75,6 +77,9 @@ func createUser(_ context.Context, in CreateUser) (User, error) {
 }
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
 	srv, err := server.NewServer(server.WithAddr(":8080"))
 	if err != nil {
 		log.Fatal(err)
@@ -112,7 +117,7 @@ func main() {
 	})
 
 	log.Println("listening on :8080")
-	log.Fatal(srv.Run())
+	log.Fatal(srv.Run(ctx))
 }
 
 // writeValidationError mirrors the per-field 400 envelope that

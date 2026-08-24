@@ -11,7 +11,7 @@ The comparison here is with Gin because Gin is the framework anyone evaluating H
 Install:
 
 ```bash
-go get github.com/osauer/hyperserve/pkg/server
+go get github.com/osauer/hyperserve/v2/pkg/server
 ```
 
 The hello world is the same shape every Go HTTP library has:
@@ -20,18 +20,24 @@ The hello world is the same shape every Go HTTP library has:
 package main
 
 import (
+	"context"
     "fmt"
     "net/http"
+	"os"
+	"os/signal"
 
-    server "github.com/osauer/hyperserve/pkg/server"
+    server "github.com/osauer/hyperserve/v2/pkg/server"
 )
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
     srv, _ := server.NewServer()
     srv.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
         fmt.Fprintln(w, "Hello, World!")
     })
-    srv.Run()
+    srv.Run(ctx)
 }
 ```
 
@@ -193,7 +199,7 @@ type CreateUser struct {
 
 srv, _ := server.NewServer(server.WithAddr(":8080"))
 srv.POST("/users", server.JSONEcho[CreateUser]())
-srv.Run()
+srv.Run(ctx)
 ```
 
 The HyperServe handler is one line. `JSONEcho` does the bind, the validation, the per-field 400 envelope, and the 200 response with the validated body. The Gin equivalent needs a handler function regardless, because there's no idiom for "validate and respond" without an explicit function body.
@@ -218,6 +224,6 @@ For new internal services where the team values a small dependency tree, or wher
 
 The library is moving. The last several releases added binding and validation, then a typed `JSONHandler`, then method-aware route helpers, then `JSONEcho` for the validate-and-echo case, then typed MCP tool registration with reflection-derived input and output schemas. The HTTP side and the MCP side share one validator and one set of struct tags. Pre-1.0 means the API can still move; version-pin and read the CHANGELOG before upgrading.
 
-What's left is the long tail: more validation verbs (cross-field rules, custom validators), an OpenAPI generator that reuses the same struct tags, and a published benchmark suite against `net/http` and Gin. The library is now on the v1 line and run by one maintainer; the core surface has stabilised to the point where the remaining work is filling gaps, not picking a shape.
+What's left is the long tail: more validation verbs (cross-field rules, custom validators), an OpenAPI generator that reuses the same struct tags, and a published benchmark suite against `net/http` and Gin. The library is now on the v2 line and run by one maintainer; the core surface has stabilised to the point where the remaining work is filling gaps, not picking a shape.
 
 The `examples/binding`, `examples/mcp-basic`, and `examples/mcp-extensions` directories are the cheap way to find out whether this is the framework you want for the thing you're about to build. They're each a single `go run .` away from running on your machine.

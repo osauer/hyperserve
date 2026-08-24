@@ -1,15 +1,18 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
 	"strconv"
 	"sync"
 	"time"
 
-	serverpkg "github.com/osauer/hyperserve/pkg/server"
+	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
 )
 
 // Todo represents a task in the API.
@@ -115,6 +118,9 @@ func todoID(r *http.Request) (int, bool) {
 }
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
 	store := NewTodoStore()
 	store.Create("Learn HyperServe")
 	store.Create("Build a REST API")
@@ -215,7 +221,7 @@ func main() {
 	fmt.Println("  DELETE /todos/{id}  - Delete a todo")
 	fmt.Println("\nPress Ctrl+C to stop")
 
-	if err := srv.Run(); err != nil {
+	if err := srv.Run(ctx); err != nil {
 		log.Fatalf("server failed: %v", err)
 	}
 }

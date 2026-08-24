@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/osauer/hyperserve/actions/workflows/ci.yml/badge.svg)](https://github.com/osauer/hyperserve/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/osauer/hyperserve?label=release&sort=semver)](https://github.com/osauer/hyperserve/releases/latest)
-[![Go reference](https://pkg.go.dev/badge/github.com/osauer/hyperserve.svg)](https://pkg.go.dev/github.com/osauer/hyperserve)
+[![Go reference](https://pkg.go.dev/badge/github.com/osauer/hyperserve/v2.svg)](https://pkg.go.dev/github.com/osauer/hyperserve/v2)
 [![License: MIT](https://img.shields.io/github/license/osauer/hyperserve)](LICENSE)
 
 HyperServe is a Go server library built on `net/http`. It leaves routing and
@@ -18,19 +18,22 @@ that would rather keep them in one server with one configuration and shutdown
 path, without taking on a framework-specific router or request context.
 
 For a small service with a handful of routes, plain `net/http` is usually the
-better choice. HyperServe also does not provide an ORM, sessions, a frontend
-framework, or application authorization.
+better choice. HyperServe also does not provide an ORM, a frontend framework,
+browser sessions, or application authorization. Its `auth` package establishes
+an identity; the application still decides what that identity may do.
 
 ## Quick start
 
 HyperServe requires Go 1.27.
 
 ```sh
-go get github.com/osauer/hyperserve@latest
+go get github.com/osauer/hyperserve/v2@latest
 ```
 
-Public package APIs on the v1 module line follow
+Public package APIs on the v2 module line follow
 [semantic versioning](./docs/API_STABILITY.md).
+Applications upgrading from v1 should start with the
+[v2 migration guide](./docs/MIGRATING_V2.md).
 See the [examples](./examples/) for runnable variants and the
 [production guide](./docs/PRODUCTION.md) before deployment.
 
@@ -38,14 +41,20 @@ See the [examples](./examples/) for runnable variants and the
 package main
 
 import (
+    "context"
     "fmt"
     "log"
     "net/http"
+    "os"
+    "os/signal"
 
-    "github.com/osauer/hyperserve/pkg/server"
+    "github.com/osauer/hyperserve/v2/pkg/server"
 )
 
 func main() {
+    ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+    defer stop()
+
     srv, err := server.NewServer()
     if err != nil {
         log.Fatal(err)
@@ -57,8 +66,9 @@ func main() {
         fmt.Fprintf(w, "Hello, %s!\n", r.PathValue("name"))
     })
 
-    // Run owns signal handling and graceful shutdown for a standalone service.
-    if err := srv.Run(); err != nil {
+    // The application owns cancellation; HyperServe owns orderly cleanup of
+    // the listeners and workers it starts.
+    if err := srv.Run(ctx); err != nil {
         log.Fatal(err)
     }
 }
@@ -83,9 +93,9 @@ Hello, Ada!
 ```
 
 That is the basic shape: keep standard `net/http` handlers while HyperServe
-applies request logging, request metrics, and panic recovery and owns the
-server lifecycle. Applications that already own cancellation can use
-`RunContext` instead.
+applies request logging, request metrics, and panic recovery. Cancelling the
+context stops the listeners, workers, filesystem roots, and shutdown hooks
+owned by that server.
 
 For typed request bodies, validation, and JSON responses, continue with the
 [binding example](./examples/binding/). Those helpers are optional; they do not
@@ -108,8 +118,9 @@ file, environment variables, or specially named asset directories. Applications
 opt into those sources and decide their precedence.
 
 There is still an ownership line. HyperServe handles transport and server
-mechanics. The application decides authentication, authorization, data access,
-session policy, WebSocket reconnection, and deployment topology.
+mechanics, and can establish a request identity. The application chooses the
+identity provider and credential policy, then owns authorization, data access,
+browser sessions, WebSocket reconnection, and deployment topology.
 
 ## Routes, pages, and assets
 
@@ -137,7 +148,7 @@ custom headers, streaming, or its own response shape. See the
 For HTML applications, HyperServe can render `html/template` files and serve
 static assets. Disk roots are off until the application selects them with
 `WithTemplateDir` or `WithStaticDir`. Static files are confined with
-`os.Root`; `HandleStaticChecked` returns an error and leaves the route closed
+`os.Root`; `HandleStatic` returns an error and leaves the route closed
 if the root cannot be opened. Embedded assets can be served through an ordinary
 handler.
 
@@ -188,9 +199,11 @@ Reconnect behavior is left to the application. See the
 
 ## Startup, shutdown, and configuration
 
-`Run` handles SIGINT, SIGTERM, and SIGQUIT. `RunContext` is for applications
-that already own cancellation, such as desktop applications, supervisors, and
-larger services.
+`Run(ctx)` blocks until the context is cancelled or the server exits. The
+application owns process signals because a library cannot know whether one
+signal should stop one server, several servers, or a larger application.
+`RunStdio()` is the explicit entry point for MCP over standard input/output.
+`Shutdown(ctx)` is available when another component coordinates the deadline.
 
 `WithHealthServer` puts health, readiness, and liveness on a separate
 listener. `WithDeferredInit` keeps readiness false while a database, cache, or
@@ -209,27 +222,36 @@ srv, err := server.NewServer(
 )
 ```
 
-Use `DefaultServerOptions` with `WithOptions` when the embedding application
+Use `DefaultOptions` with `WithOptions` when the embedding application
 wants to bind one reviewed configuration snapshot. The
 [configuration example](./examples/configuration/) covers the precedence rules.
 
 ## Security
 
-Security middleware is opt-in:
+Browser security headers are opt-in:
 
 ```go
 // Browser headers apply to this route prefix. TLS, sessions, and authorization
 // remain separate application decisions.
-srv.AddMiddlewareStack("/", server.SecureWeb(srv.Options))
+srv.UsePrefix("/", server.SecureWeb(srv.Options()))
+```
 
-// SecureAPI applies the configured bearer-token validator and per-IP rate limit.
-srv.AddMiddlewareStack("/api", server.SecureAPI(srv))
+Authentication composes from small, named pieces:
+
+```go
+verifier := auth.TokenVerifierFunc(verifyToken)
+bearerIdentity := auth.Bearer(verifier)
+requireIdentity := auth.Require(bearerIdentity)
+srv.UsePrefix("/api", requireIdentity, server.RateLimitMiddleware(srv))
 ```
 
 `SecureWeb` emits a Content Security Policy and other defensive browser
 headers, applies configured CORS policy, and emits HSTS when HyperServe serves
-TLS. `SecureAPI` requires an application-provided token validator. Neither
-stack defines users, roles, sessions, or resource authorization.
+TLS. `auth.Require` validates credentials and stores an issuer/subject
+principal on the request. It does not define users, roles, sessions, login
+redirects, or resource authorization. The
+[federated authentication example](./examples/auth/) connects that seam to an
+OpenID Connect provider without adding OIDC dependencies to the runtime module.
 
 The [production guide](./docs/PRODUCTION.md) documents TLS, proxies, health
 endpoints, filesystem roots, and the remaining application responsibilities.
@@ -255,19 +277,20 @@ authorization boundaries are in the [MCP guide](./docs/MCP_GUIDE.md).
 
 | Import path | Purpose |
 | --- | --- |
-| `github.com/osauer/hyperserve/pkg/server` | HTTP server, middleware, lifecycle, pages, and MCP wiring |
-| `github.com/osauer/hyperserve/pkg/websocket` | WebSocket upgrader, connection, and outbound dialer |
-| `github.com/osauer/hyperserve/pkg/mcp` | MCP handler, transports, discovery, tools, and resources |
-| `github.com/osauer/hyperserve/pkg/mcp/builtin` | Opt-in demonstration tools and resources |
-| `github.com/osauer/hyperserve/pkg/jsonrpc` | Standalone JSON-RPC 2.0 engine |
+| `github.com/osauer/hyperserve/v2/pkg/server` | HTTP server, middleware, lifecycle, pages, and MCP wiring |
+| `github.com/osauer/hyperserve/v2/pkg/auth` | Provider-neutral request authentication and stable principals |
+| `github.com/osauer/hyperserve/v2/pkg/websocket` | WebSocket upgrader, connection, and outbound dialer |
+| `github.com/osauer/hyperserve/v2/pkg/mcp` | MCP handler, transports, discovery, tools, and resources |
+| `github.com/osauer/hyperserve/v2/pkg/mcp/builtin` | Opt-in demonstration tools and resources |
+| `github.com/osauer/hyperserve/v2/pkg/jsonrpc` | Standalone JSON-RPC 2.0 engine |
 
 The runtime module has one external dependency, `golang.org/x/time`, for rate
 limiting. WebSocket, JSON-RPC, and MCP are maintained in this repository. That
 means fewer packages for an application to assemble, but more protocol code for
 HyperServe to maintain.
 
-The `server`, `websocket`, `mcp`, and `jsonrpc` package APIs follow
-semantic versioning on the v1 module line. Examples, generated layouts,
+The `server`, `auth`, `websocket`, `mcp`, and `jsonrpc` package APIs follow
+semantic versioning on the v2 module line. Examples, generated layouts,
 commands, and builtin demonstrations are maintained and tested but are not
 stable import surfaces. See [API stability](./docs/API_STABILITY.md).
 
@@ -279,7 +302,7 @@ same machine, not for predicting an application's production performance. See th
 ## Scaffold a service
 
 ```sh
-go install github.com/osauer/hyperserve/cmd/hyperserve-init@latest
+go install github.com/osauer/hyperserve/v2/cmd/hyperserve-init@latest
 hyperserve-init --module github.com/acme/payments
 cd payments
 go run ./cmd/server
@@ -291,7 +314,8 @@ because the generator cannot choose the application's authorization policy.
 ## Documentation
 
 - [Examples](./examples/) — runnable programs grouped by task
-- [Go reference](https://pkg.go.dev/github.com/osauer/hyperserve) — exported API documentation
+- [Go reference](https://pkg.go.dev/github.com/osauer/hyperserve/v2) — exported API documentation
+- [Migrate from v1](./docs/MIGRATING_V2.md) — breaking changes and direct replacements
 - [Production guide](./docs/PRODUCTION.md) — deployment and security boundaries
 - [MCP guide](./docs/MCP_GUIDE.md) — tools, resources, transports, and discovery
 - [WebSocket guide](./docs/WEBSOCKET_GUIDE.md) — server and client behavior

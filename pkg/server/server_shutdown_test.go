@@ -25,8 +25,8 @@ func TestWithOnShutdown(t *testing.T) {
 		t.Fatalf("Failed to create server: %v", err)
 	}
 
-	if len(srv.Options.OnShutdownHooks) != 1 {
-		t.Errorf("Expected 1 shutdown hook, got %d", len(srv.Options.OnShutdownHooks))
+	if len(srv.options.OnShutdownHooks) != 1 {
+		t.Errorf("Expected 1 shutdown hook, got %d", len(srv.options.OnShutdownHooks))
 	}
 }
 
@@ -73,8 +73,8 @@ func TestMultipleShutdownHooks(t *testing.T) {
 		t.Fatalf("Failed to create server: %v", err)
 	}
 
-	if len(srv.Options.OnShutdownHooks) != 3 {
-		t.Errorf("Expected 3 shutdown hooks, got %d", len(srv.Options.OnShutdownHooks))
+	if len(srv.options.OnShutdownHooks) != 3 {
+		t.Errorf("Expected 3 shutdown hooks, got %d", len(srv.options.OnShutdownHooks))
 	}
 }
 
@@ -99,7 +99,7 @@ func TestShutdownHookExecution(t *testing.T) {
 	// Start server in background
 	serverErr := make(chan error, 1)
 	go func() {
-		err := srv.Run()
+		err := srv.Run(context.Background())
 		if err != nil && err != http.ErrServerClosed {
 			serverErr <- err
 		}
@@ -305,19 +305,16 @@ func TestShutdownHookNilHandling(t *testing.T) {
 
 	executedCount := 0
 
-	srv := &Server{
-		Options: &ServerOptions{
-			OnShutdownHooks: []func(context.Context) error{
-				func(ctx context.Context) error {
-					executedCount++
-					return nil
-				},
-				nil, // nil hook should be skipped
-				func(ctx context.Context) error {
-					executedCount++
-					return nil
-				},
-			},
+	srv := newServerSkeleton()
+	srv.options.OnShutdownHooks = []func(context.Context) error{
+		func(ctx context.Context) error {
+			executedCount++
+			return nil
+		},
+		nil, // nil hook should be skipped
+		func(ctx context.Context) error {
+			executedCount++
+			return nil
 		},
 	}
 

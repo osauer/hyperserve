@@ -1,13 +1,19 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"os/signal"
 
-	serverpkg "github.com/osauer/hyperserve/pkg/server"
+	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
 )
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
 	// Create server with Web Worker support enabled
 	srv, err := serverpkg.NewServer(
 		serverpkg.WithAddr(":8080"),
@@ -18,10 +24,10 @@ func main() {
 	}
 
 	// Apply security headers with Web Worker support
-	srv.AddMiddleware("*", serverpkg.HeadersMiddleware(srv.Options))
+	srv.Use(serverpkg.HeadersMiddleware(srv.Options()))
 
 	// Serve static files (HTML, JS, CSS)
-	if err := srv.HandleStaticChecked("/static/"); err != nil {
+	if err := srv.HandleStatic("/static/"); err != nil {
 		panic(err)
 	}
 
@@ -214,5 +220,5 @@ func main() {
 	fmt.Println("")
 	fmt.Println("Press Ctrl+C to stop the server")
 
-	srv.Run()
+	srv.Run(ctx)
 }

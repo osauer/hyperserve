@@ -46,7 +46,7 @@ srv, err := server.NewServer(
 )
 
 // Apply security headers with Web Worker support
-srv.AddMiddleware("*", server.HeadersMiddleware(srv.Options))
+srv.Use(server.HeadersMiddleware(srv.Options()))
 ```
 
 ## CSP Configuration

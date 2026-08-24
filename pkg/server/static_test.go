@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,10 +16,10 @@ func TestHandleStaticFailsClosedWhenRootOpenFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
-	t.Cleanup(func() { _ = srv.Stop() })
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
 
-	if err := srv.HandleStaticChecked("/static/"); err == nil {
-		t.Fatal("HandleStaticChecked succeeded with a missing root")
+	if err := srv.HandleStatic("/static/"); err == nil {
+		t.Fatal("HandleStatic succeeded with a missing root")
 	}
 	assertStaticRouteClosed(t, srv, "/static/", "/static/secret.txt")
 }
@@ -33,9 +34,9 @@ func TestWithStaticDirServesExplicitRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
-	t.Cleanup(func() { _ = srv.Stop() })
-	if err := srv.HandleStaticChecked("/static/"); err != nil {
-		t.Fatalf("HandleStaticChecked: %v", err)
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
+	if err := srv.HandleStatic("/static/"); err != nil {
+		t.Fatalf("HandleStatic: %v", err)
 	}
 
 	recorder := httptest.NewRecorder()
@@ -56,25 +57,12 @@ func TestHandleStaticDoesNotServeWorkingDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
-	t.Cleanup(func() { _ = srv.Stop() })
-	srv.Options.StaticDir = ""
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
+	srv.options.StaticDir = ""
 
-	if err := srv.HandleStaticChecked("/static/"); err == nil {
-		t.Fatal("HandleStaticChecked succeeded without a configured root")
+	if err := srv.HandleStatic("/static/"); err == nil {
+		t.Fatal("HandleStatic succeeded without a configured root")
 	}
-	assertStaticRouteClosed(t, srv, "/static/", "/static/secret.txt")
-}
-
-func TestHandleStaticLegacyPathFailsClosed(t *testing.T) {
-	srv, err := NewServer()
-	if err != nil {
-		t.Fatalf("NewServer: %v", err)
-	}
-	t.Cleanup(func() { _ = srv.Stop() })
-
-	srv.Options.StaticDir = filepath.Join(t.TempDir(), "missing")
-	srv.HandleStatic("/static/")
-
 	assertStaticRouteClosed(t, srv, "/static/", "/static/secret.txt")
 }
 

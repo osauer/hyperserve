@@ -8,9 +8,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/osauer/hyperserve/pkg/mcp"
-	_ "github.com/osauer/hyperserve/pkg/mcp/builtin" // register builtin preset hooks
-	serverpkg "github.com/osauer/hyperserve/pkg/server"
+	"github.com/osauer/hyperserve/v2/pkg/mcp"
+	_ "github.com/osauer/hyperserve/v2/pkg/mcp/builtin" // register builtin preset hooks
+	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
 )
 
 func main() {
@@ -40,7 +40,7 @@ func main() {
 	}
 
 	// Create server with MCP stdio support
-	opts := []serverpkg.ServerOptionFunc{
+	opts := []serverpkg.Option{
 		serverpkg.WithMCPSupport("hyperserve-mcp-stdio", "1.0.0", mcp.OverStdio()),
 		serverpkg.WithMCPBuiltinTools(true),
 		serverpkg.WithMCPBuiltinResources(true),
@@ -58,7 +58,7 @@ func main() {
 	}
 
 	// Run the stdio server
-	if err := srv.Run(); err != nil {
+	if err := srv.RunStdio(); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
 }

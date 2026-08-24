@@ -20,8 +20,8 @@ func TestConfigFileCanOverrideDefaultsWithZeroValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
-	t.Cleanup(func() { _ = srv.Stop() })
-	opts := srv.Options
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
+	opts := srv.options
 	if opts.Burst != 0 {
 		t.Fatalf("Burst = %d, want explicit zero from config", opts.Burst)
 	}
@@ -44,8 +44,8 @@ func TestEnvironmentPortAndRateLimitAliases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
-	t.Cleanup(func() { _ = srv.Stop() })
-	opts := srv.Options
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
+	opts := srv.options
 	if opts.Addr != ":9090" {
 		t.Fatalf("Addr = %q, want :9090", opts.Addr)
 	}
@@ -58,7 +58,7 @@ func TestEnvironmentPortAndRateLimitAliases(t *testing.T) {
 	if opts.ServerHeader != "environment-service" {
 		t.Fatalf("ServerHeader = %q, want environment-service", opts.ServerHeader)
 	}
-	if opts.SuppressBanner {
+	if !opts.StartupBanner {
 		t.Fatal("HS_STARTUP_BANNER did not enable the startup banner")
 	}
 }
@@ -78,7 +78,7 @@ func TestConfigurationPrecedence(t *testing.T) {
 		envPort   string
 		envRate   string
 		envBurst  string
-		options   []ServerOptionFunc
+		options   []Option
 		wantAddr  string
 		wantRate  RateLimit
 		wantBurst int
@@ -91,14 +91,14 @@ func TestConfigurationPrecedence(t *testing.T) {
 		},
 		{
 			name:      "file overrides defaults",
-			options:   []ServerOptionFunc{WithConfigFile(path)},
+			options:   []Option{WithConfigFile(path)},
 			wantAddr:  ":9091",
 			wantRate:  10,
 			wantBurst: 20,
 		},
 		{
 			name:      "unset environment preserves file",
-			options:   []ServerOptionFunc{WithConfigFile(path), WithEnvironment()},
+			options:   []Option{WithConfigFile(path), WithEnvironment()},
 			wantAddr:  ":9091",
 			wantRate:  10,
 			wantBurst: 20,
@@ -108,7 +108,7 @@ func TestConfigurationPrecedence(t *testing.T) {
 			envPort:   "9092",
 			envRate:   "30",
 			envBurst:  "40",
-			options:   []ServerOptionFunc{WithConfigFile(path), WithEnvironment()},
+			options:   []Option{WithConfigFile(path), WithEnvironment()},
 			wantAddr:  ":9092",
 			wantRate:  30,
 			wantBurst: 40,
@@ -118,7 +118,7 @@ func TestConfigurationPrecedence(t *testing.T) {
 			envPort:   "9092",
 			envRate:   "0",
 			envBurst:  "0",
-			options:   []ServerOptionFunc{WithConfigFile(path), WithEnvironment()},
+			options:   []Option{WithConfigFile(path), WithEnvironment()},
 			wantAddr:  ":9092",
 			wantRate:  0,
 			wantBurst: 0,
@@ -128,7 +128,7 @@ func TestConfigurationPrecedence(t *testing.T) {
 			envPort:  "9092",
 			envRate:  "30",
 			envBurst: "40",
-			options: []ServerOptionFunc{
+			options: []Option{
 				WithConfigFile(path),
 				WithEnvironment(),
 				WithAddr(":9093"),
@@ -151,19 +151,19 @@ func TestConfigurationPrecedence(t *testing.T) {
 				t.Fatalf("NewServer: %v", err)
 			}
 			t.Cleanup(func() {
-				if err := srv.Stop(); err != nil {
+				if err := srv.Shutdown(context.Background()); err != nil {
 					t.Errorf("Stop: %v", err)
 				}
 			})
 
-			if srv.Options.Addr != tt.wantAddr {
-				t.Errorf("Addr = %q, want %q", srv.Options.Addr, tt.wantAddr)
+			if srv.options.Addr != tt.wantAddr {
+				t.Errorf("Addr = %q, want %q", srv.options.Addr, tt.wantAddr)
 			}
-			if srv.Options.RateLimit != tt.wantRate {
-				t.Errorf("RateLimit = %v, want %v", srv.Options.RateLimit, tt.wantRate)
+			if srv.options.RateLimit != tt.wantRate {
+				t.Errorf("RateLimit = %v, want %v", srv.options.RateLimit, tt.wantRate)
 			}
-			if srv.Options.Burst != tt.wantBurst {
-				t.Errorf("Burst = %d, want %d", srv.Options.Burst, tt.wantBurst)
+			if srv.options.Burst != tt.wantBurst {
+				t.Errorf("Burst = %d, want %d", srv.options.Burst, tt.wantBurst)
 			}
 		})
 	}
@@ -176,11 +176,11 @@ func TestNewServerIgnoresAmbientConfiguration(t *testing.T) {
 		"mcp_enabled": true,
 		"mcp_dev": true,
 		"server_header": "ambient-file",
-		"suppress_banner": false
+		"startup_banner": true
 	}`), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-	t.Setenv(paramConfigPath, path)
+	t.Setenv("HS_CONFIG_PATH", path)
 	t.Setenv(paramServerPort, "9092")
 	t.Setenv(paramMCPEnabled, "true")
 	t.Setenv(paramMCPDev, "true")
@@ -191,24 +191,24 @@ func TestNewServerIgnoresAmbientConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
-	t.Cleanup(func() { _ = srv.Stop() })
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
 
-	if srv.Options.Addr != ":8080" {
-		t.Fatalf("Addr = %q, want deterministic default :8080", srv.Options.Addr)
+	if srv.options.Addr != ":8080" {
+		t.Fatalf("Addr = %q, want deterministic default :8080", srv.options.Addr)
 	}
-	if srv.Options.MCPEnabled || srv.MCPEnabled() {
+	if srv.options.MCPEnabled || srv.MCPEnabled() {
 		t.Fatal("bare NewServer enabled MCP from ambient configuration")
 	}
-	if srv.Options.ServerHeader != "" {
-		t.Fatalf("ServerHeader = %q, want omitted by default", srv.Options.ServerHeader)
+	if srv.options.ServerHeader != "" {
+		t.Fatalf("ServerHeader = %q, want omitted by default", srv.options.ServerHeader)
 	}
-	if !srv.Options.SuppressBanner {
+	if srv.options.StartupBanner {
 		t.Fatal("startup banner enabled by ambient configuration")
 	}
 }
 
-func TestDefaultServerOptionsDisableFilesystemRoots(t *testing.T) {
-	options := DefaultServerOptions()
+func TestDefaultOptionsDisableFilesystemRoots(t *testing.T) {
+	options := DefaultOptions()
 	if options.StaticDir != "" || options.TemplateDir != "" {
 		t.Fatalf("default filesystem roots: static=%q template=%q, want both empty", options.StaticDir, options.TemplateDir)
 	}
@@ -225,9 +225,9 @@ func TestDefaultServerOptionsDisableFilesystemRoots(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
-	t.Cleanup(func() { _ = srv.Stop() })
-	if srv.Options.StaticDir != "" || srv.Options.TemplateDir != "" {
-		t.Fatalf("server filesystem roots: static=%q template=%q, want both empty", srv.Options.StaticDir, srv.Options.TemplateDir)
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
+	if srv.options.StaticDir != "" || srv.options.TemplateDir != "" {
+		t.Fatalf("server filesystem roots: static=%q template=%q, want both empty", srv.options.StaticDir, srv.options.TemplateDir)
 	}
 	if srv.staticRoot != nil || srv.templateRoot != nil {
 		t.Fatalf("bare NewServer opened ambient roots: static=%v template=%v", srv.staticRoot != nil, srv.templateRoot != nil)
@@ -235,7 +235,7 @@ func TestDefaultServerOptionsDisableFilesystemRoots(t *testing.T) {
 }
 
 func TestWithOptionsDefensivelyClones(t *testing.T) {
-	options := DefaultServerOptions()
+	options := DefaultOptions()
 	options.CORS = &CORSOptions{AllowedOrigins: []string{"https://before.example"}}
 	options.OnShutdownHooks = []func(context.Context) error{func(context.Context) error { return nil }}
 
@@ -243,14 +243,14 @@ func TestWithOptionsDefensivelyClones(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
-	t.Cleanup(func() { _ = srv.Stop() })
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
 
 	options.CORS.AllowedOrigins[0] = "https://after.example"
 	options.OnShutdownHooks[0] = nil
-	if got := srv.Options.CORS.AllowedOrigins[0]; got != "https://before.example" {
+	if got := srv.options.CORS.AllowedOrigins[0]; got != "https://before.example" {
 		t.Fatalf("CORS option aliased caller memory: %q", got)
 	}
-	if srv.Options.OnShutdownHooks[0] == nil {
+	if srv.options.OnShutdownHooks[0] == nil {
 		t.Fatal("shutdown hook slice aliased caller memory")
 	}
 }

@@ -1,17 +1,23 @@
 package main
 
 import (
+	"context"
 	_ "embed"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
 
-	serverpkg "github.com/osauer/hyperserve/pkg/server"
+	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
 )
 
 //go:embed demo.html
 var demoHTML []byte
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
 	srv, err := serverpkg.NewServer(
 		serverpkg.WithAddr(":8080"),
 	)
@@ -62,5 +68,5 @@ func main() {
 
 	log.Printf("Starting WebSocket echo server on :8080")
 	log.Printf("Open http://localhost:8080 in your browser")
-	log.Fatal(srv.Run())
+	log.Fatal(srv.Run(ctx))
 }

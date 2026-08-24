@@ -7,7 +7,7 @@ default, and a Distroless Dockerfile. The output compiles and `go test ./...` pa
 ## Install the CLI
 
 ```bash
-go install github.com/osauer/hyperserve/cmd/hyperserve-init@latest
+go install github.com/osauer/hyperserve/v2/cmd/hyperserve-init@latest
 ```
 
 ## Generate a Service

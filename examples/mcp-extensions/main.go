@@ -41,13 +41,15 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/osauer/hyperserve/pkg/mcp"
-	"github.com/osauer/hyperserve/pkg/server"
+	"github.com/osauer/hyperserve/v2/pkg/mcp"
+	"github.com/osauer/hyperserve/v2/pkg/server"
 )
 
 // Post is the domain object every tool works with.
@@ -220,6 +222,9 @@ func (t postResourceTemplate) Subscribe(ctx context.Context, uri string, _ map[s
 // =============================================================================
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
 	srv, err := server.NewServer(
 		server.WithAddr(":8080"),
 		server.WithMCPSupport("blog-mcp", "0.1.0"),
@@ -245,5 +250,5 @@ func main() {
 	}
 
 	log.Println("MCP server on :8080, endpoint /mcp")
-	log.Fatal(srv.Run())
+	log.Fatal(srv.Run(ctx))
 }

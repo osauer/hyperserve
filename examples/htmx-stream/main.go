@@ -9,13 +9,16 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"math/rand"
 	"net/http"
+	"os"
+	"os/signal"
 	"time"
 
-	serverpkg "github.com/osauer/hyperserve/pkg/server"
+	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
 )
 
 func numbersStreamHandler(w http.ResponseWriter, r *http.Request) {
@@ -67,20 +70,19 @@ func numbersStreamHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
 	// Initialize the server
-	srv, err := serverpkg.NewServer()
+	srv, err := serverpkg.NewServer(
+		serverpkg.WithTimeouts(0, 0, 0),
+		serverpkg.WithTemplateDir("./templates"),
+		serverpkg.WithStaticDir("./static"),
+	)
 	if err != nil {
 		panic(err)
 	}
-	// proper timeout settings for streaming
-	srv.Options.ReadTimeout = 0
-	srv.Options.WriteTimeout = 0
-	srv.Options.IdleTimeout = 0
-
-	// Configure template and static directories
-	srv.Options.TemplateDir = "./templates"
-	srv.Options.StaticDir = "./static"
-	if err := srv.HandleStaticChecked("/static/"); err != nil {
+	if err := srv.HandleStatic("/static/"); err != nil {
 		log.Fatalf("Static files unavailable: %v", err)
 	}
 
@@ -91,7 +93,7 @@ func main() {
 	srv.HandleTemplate("/", "index.html", nil)
 
 	// Run the srv
-	err = srv.Run()
+	err = srv.Run(ctx)
 	if err != nil {
 		fmt.Printf("Error running srv: %v", err)
 	}

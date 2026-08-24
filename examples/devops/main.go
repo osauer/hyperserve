@@ -2,24 +2,29 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
 	"slices"
 
-	"github.com/osauer/hyperserve/pkg/mcp"
-	_ "github.com/osauer/hyperserve/pkg/mcp/builtin" // register builtin preset hooks
-	serverpkg "github.com/osauer/hyperserve/pkg/server"
+	"github.com/osauer/hyperserve/v2/pkg/mcp"
+	_ "github.com/osauer/hyperserve/v2/pkg/mcp/builtin" // register builtin preset hooks
+	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
 )
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
 	// Check if we should use STDIO transport for MCP
 	useStdio := slices.Contains(os.Args[1:], "--mcp-stdio")
 
 	// Create server options
-	var opts []serverpkg.ServerOptionFunc
+	var opts []serverpkg.Option
 
 	// Configure MCP with appropriate transport
 	if useStdio {
@@ -59,20 +64,22 @@ func main() {
 
 	// Log startup information
 	slog.Info("Starting DevOps example server",
-		"debug_mode", srv.Options.DebugMode,
-		"log_level", srv.Options.LogLevel,
-		"mcp_enabled", srv.Options.MCPEnabled,
+		"debug_mode", srv.Options().DebugMode,
+		"log_level", srv.Options().LogLevel,
+		"mcp_enabled", srv.Options().MCPEnabled,
 	)
 
 	// Run the server
 	if useStdio {
 		log.Println("Starting in MCP STDIO mode...")
-		if err := srv.MCPHandler().RunStdioLoop(); err != nil {
+		if err := srv.RunStdio(); err != nil {
 			log.Fatal(err)
 		}
 	} else {
-		log.Printf("Starting server on %s", srv.Options.Addr)
-		log.Printf("MCP endpoint available at: http://localhost%s%s", srv.Options.Addr, srv.Options.MCPEndpoint)
-		srv.Run()
+		log.Printf("Starting server on %s", srv.Options().Addr)
+		log.Printf("MCP endpoint available at: http://localhost%s%s", srv.Options().Addr, srv.Options().MCPEndpoint)
+		if err := srv.Run(ctx); err != nil {
+			log.Fatal(err)
+		}
 	}
 }

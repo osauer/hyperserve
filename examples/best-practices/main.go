@@ -4,13 +4,17 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
 	"time"
 
-	serverpkg "github.com/osauer/hyperserve/pkg/server"
+	"github.com/osauer/hyperserve/v2/pkg/auth"
+	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
 )
 
 // AppData represents our application's template data
@@ -55,6 +59,9 @@ var (
 )
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
 	// Bind deployment environment explicitly, before application-owned capabilities.
 	// HS_PORT=9090 HS_RATE_LIMIT=50 HS_LOG_LEVEL=DEBUG ./best-practices
 	srv, err := serverpkg.NewServer(
@@ -64,8 +71,7 @@ func main() {
 		serverpkg.WithEnvironment(),       // Deployment overrides the baseline above.
 
 		// Application-owned capabilities and security policy
-		serverpkg.WithHealthServer(),                    // Health checks on :8081
-		serverpkg.WithAuthTokenValidator(validateToken), // Custom auth
+		serverpkg.WithHealthServer(), // Health checks on :8081
 		// Graceful shutdown timeout is configurable via timeouts
 
 		// Feature configuration
@@ -77,9 +83,13 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// BEST PRACTICE: Use middleware stacks for common patterns
-	srv.AddMiddlewareStack("/api", serverpkg.SecureAPI(srv))      // Auth + rate limiting
-	srv.AddMiddlewareStack("/", serverpkg.SecureWeb(srv.Options)) // Security headers
+	// BEST PRACTICE: compose named authentication with ordinary middleware.
+	verifier := auth.TokenVerifierFunc(verifyToken)
+	apiIdentity := auth.Bearer(verifier)
+	requireIdentity := auth.Require(apiIdentity)
+	srv.UsePrefix("/api", requireIdentity, serverpkg.RateLimitMiddleware(srv))
+	srv.UsePrefix("/mcp", requireIdentity)
+	srv.UsePrefix("/", serverpkg.SecureWeb(srv.Options())) // Security headers
 
 	// BEST PRACTICE: Register custom MCP tools properly
 	if srv.MCPEnabled() {
@@ -103,28 +113,29 @@ func main() {
 	srv.HandleFunc("/api/stream", handleSSEStream)
 
 	// Static files with proper caching headers
-	srv.AddMiddleware("/static/", serverpkg.HeadersMiddleware(srv.Options))
-	if err := srv.HandleStaticChecked("/static/"); err != nil {
+	srv.UsePrefix("/static/", serverpkg.HeadersMiddleware(srv.Options()))
+	if err := srv.HandleStatic("/static/"); err != nil {
 		log.Fatalf("Static files unavailable: %v", err)
 	}
 
-	// BEST PRACTICE: Let hyperserve handle graceful shutdown
-	// No need for custom signal handling!
+	// The application translates Ctrl+C into cancellation. HyperServe then
+	// drains and closes the resources it owns.
 	fmt.Println("Server starting on http://localhost:8080")
 	fmt.Println("Health checks on http://localhost:8081/healthz")
 	fmt.Println("MCP endpoint on http://localhost:8080/mcp")
 	fmt.Println("Press Ctrl+C for graceful shutdown")
 
-	// Run blocks and handles shutdown automatically
-	if err := srv.Run(); err != nil {
+	// Run blocks until the application context is cancelled or the server exits.
+	if err := srv.Run(ctx); err != nil {
 		log.Fatal(err)
 	}
 }
 
-// validateToken demonstrates custom auth validation
-func validateToken(token string) (bool, error) {
-	// In production, validate against your auth system
-	return token == "secret-token-123", nil
+func verifyToken(_ context.Context, token string) (auth.Principal, error) {
+	if token != "secret-token-123" {
+		return auth.Principal{}, auth.ErrUnauthenticated
+	}
+	return auth.Principal{Issuer: "best-practices", Subject: "demo-user"}, nil
 }
 
 // handleHome demonstrates a simple handler
@@ -164,7 +175,7 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
 
 // handleAPIData demonstrates a protected API endpoint
 func handleAPIData(w http.ResponseWriter, r *http.Request) {
-	// Auth is already validated by SecureAPI middleware stack
+	// The /api prefix middleware has already established a principal.
 	requestCount++
 
 	data := map[string]any{

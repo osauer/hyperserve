@@ -2,6 +2,7 @@ package server
 
 import (
 	"html/template"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -28,6 +29,7 @@ func TestTemplateHandlerRendersTemplate(t *testing.T) {
 	t.Parallel()
 	srv := &Server{
 		templates: template.Must(template.New("test").Parse("<html><body>{{.}}</body></html>")),
+		logger:    slog.Default(),
 	}
 	handler := srv.templateHandler("test", "Hello, World!")
 	req := httptest.NewRequest("GET", "/", nil)
@@ -45,6 +47,7 @@ func TestTemplateHandlerRendersTemplate(t *testing.T) {
 func TestTemplateHandlerReturnsErrorOnMissingTemplate(t *testing.T) {
 	srv := &Server{
 		templates: template.New("root"),
+		logger:    slog.Default(),
 	}
 	handler := srv.templateHandler("missing", "Hello, World!")
 	req := httptest.NewRequest("GET", "/", nil)

@@ -57,7 +57,7 @@ We will implement native MCP support in hyperserve with the following architectu
 ### 4. Configuration Integration
 
 - **Functional Options**: `WithMCPSupport(name, version, ...)`, `WithMCPEndpoint()`, etc.
-- **ServerOptions Fields**: MCP configuration in main options struct
+- **Options Fields**: MCP configuration in main options struct
 - **Default Values**: Sensible defaults following hyperserve patterns
 - **Environment Variables**: Support for env-based configuration
 
@@ -88,7 +88,7 @@ hyperserve/
 ### Configuration Schema
 
 ```go
-type ServerOptions struct {
+type Options struct {
     // ... existing fields ...
     MCPEnabled             bool     `json:"mcp_enabled,omitempty"`
     MCPEndpoint            string   `json:"mcp_endpoint,omitempty"`
@@ -141,7 +141,7 @@ func (t *MyTool) Execute(params map[string]any) (any, error) { /* ... */ }
 
 srv.RegisterMCPTool(&MyTool{})
 srv.RegisterMCPResourceTemplate(&MyResourceTemplate{})
-srv.Run()
+srv.Run(ctx)
 ```
 
 ## Rationale

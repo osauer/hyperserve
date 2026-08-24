@@ -2,7 +2,7 @@ package server
 
 // MCP (Model Context Protocol) glue.
 //
-// The MCP protocol itself lives in github.com/osauer/hyperserve/pkg/mcp. This
+// The MCP protocol itself lives in github.com/osauer/hyperserve/v2/pkg/mcp. This
 // file wires *Server up to *mcp.Handler: server options that flip MCP modes,
 // the discovery endpoint registration, and the thin Register* helpers that
 // delegate into the handler.
@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/osauer/hyperserve/pkg/mcp"
+	"github.com/osauer/hyperserve/v2/pkg/mcp"
 )
 
 // =============================================================================
@@ -71,7 +71,7 @@ func (srv *Server) MCPHandler() *mcp.Handler { return srv.mcpHandler }
 
 // MCPEnabled reports whether MCP support has been initialized for this server.
 func (srv *Server) MCPEnabled() bool {
-	return srv.Options.MCPEnabled && srv.mcpHandler != nil
+	return srv.options.MCPEnabled && srv.mcpHandler != nil
 }
 
 // RegisterMCPTool registers a custom MCP tool. Must be called after server
@@ -135,11 +135,11 @@ func (srv *Server) setupDiscoveryEndpoints() {
 
 	cfg := func() mcp.DiscoveryConfig {
 		return mcp.DiscoveryConfig{
-			MCPEndpoint: srv.Options.MCPEndpoint,
-			DefaultAddr: srv.Options.Addr,
-			Transport:   srv.Options.MCPTransport,
-			Policy:      srv.Options.MCPDiscoveryPolicy,
-			Filter:      srv.Options.MCPDiscoveryFilter,
+			MCPEndpoint: srv.options.MCPEndpoint,
+			DefaultAddr: srv.options.Addr,
+			Transport:   srv.options.MCPTransport,
+			Policy:      srv.options.MCPDiscoveryPolicy,
+			Filter:      srv.options.MCPDiscoveryFilter,
 		}
 	}
 
@@ -151,7 +151,7 @@ func (srv *Server) setupDiscoveryEndpoints() {
 	// is set unconditionally as defense in depth for caches that honor it.
 	setDiscoveryCacheHeaders := func(w http.ResponseWriter) {
 		w.Header().Set("Vary", "Authorization")
-		if srv.Options.MCPDiscoveryPolicy == mcp.DiscoveryAuthenticated {
+		if srv.options.MCPDiscoveryPolicy == mcp.DiscoveryAuthenticated {
 			w.Header().Set("Cache-Control", "private, max-age=60")
 			return
 		}
@@ -167,7 +167,7 @@ func (srv *Server) setupDiscoveryEndpoints() {
 		w.Header().Set("Content-Type", "application/json")
 		setDiscoveryCacheHeaders(w)
 		if err := json.NewEncoder(w).Encode(info); err != nil {
-			logger.Error("Failed to encode discovery info", "error", err)
+			srv.logger.Error("Failed to encode discovery info", "error", err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 		}
 	}
@@ -175,9 +175,9 @@ func (srv *Server) setupDiscoveryEndpoints() {
 	srv.registerRoute("/.well-known/mcp.json")
 	srv.mux.HandleFunc("/.well-known/mcp.json", writeDiscovery)
 
-	srv.registerRoute(srv.Options.MCPEndpoint + "/discover")
-	srv.mux.HandleFunc(srv.Options.MCPEndpoint+"/discover", writeDiscovery)
+	srv.registerRoute(srv.options.MCPEndpoint + "/discover")
+	srv.mux.HandleFunc(srv.options.MCPEndpoint+"/discover", writeDiscovery)
 
-	logger.Debug("MCP discovery endpoints registered",
-		"endpoints", []string{"/.well-known/mcp.json", srv.Options.MCPEndpoint + "/discover"})
+	srv.logger.Debug("MCP discovery endpoints registered",
+		"endpoints", []string{"/.well-known/mcp.json", srv.options.MCPEndpoint + "/discover"})
 }

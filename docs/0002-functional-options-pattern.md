@@ -11,7 +11,7 @@ HTTP servers require extensive configuration options:
 - Middleware configuration
 - Rate limiting parameters
 - Template directories
-- Authentication settings
+- Logging and protocol settings
 
 Traditional approaches include:
 1. **Config structs**: `NewServer(config ServerConfig)` - breaks on new fields
@@ -25,16 +25,16 @@ We need a pattern that supports optional configuration while maintaining backwar
 
 Use the functional options pattern with:
 ```go
-type ServerOptionFunc func(*ServerOptions) error
+type Option func(*Server) error
 
-func WithPort(port int) ServerOptionFunc {
-    return func(opts *ServerOptions) error {
-        opts.Port = port
-        return nil
-    }
+func WithAddr(addr string) Option {
+	return func(srv *Server) error {
+		srv.options.Addr = addr
+		return nil
+	}
 }
 
-func NewServer(options ...ServerOptionFunc) (*Server, error)
+func NewServer(options ...Option) (*Server, error)
 ```
 
 ## Consequences
@@ -50,7 +50,8 @@ func NewServer(options ...ServerOptionFunc) (*Server, error)
 ### Negative
 - **Verbosity**: More verbose than struct literals
 - **Runtime errors**: Invalid options only discovered at runtime
-- **No serialization**: Can't easily save/load configurations
+- **Separate serialization path**: Function options are not serializable;
+  `Options` plus `WithConfigFile` covers reviewed JSON configuration
 - **Discovery**: Users must browse documentation to find options
 
 ### Mitigation
@@ -67,15 +68,15 @@ srv, _ := server.NewServer()
 
 // Custom configuration
 srv, _ := server.NewServer(
-    server.WithPort(8080),
+	server.WithAddr(":8080"),
     server.WithRateLimit(100, 200),
     server.WithTLS("cert.pem", "key.pem"),
 )
 
 // Reusable option sets
-productionOpts := []server.ServerOptionFunc{
+productionOpts := []server.Option{
     server.WithFIPSMode(),
-    server.WithTimeouts(30*time.Second, 30*time.Second),
+	server.WithTimeouts(30*time.Second, 30*time.Second, 2*time.Minute),
     server.WithRateLimit(1000, 2000),
 }
 srv, _ := server.NewServer(productionOpts...)

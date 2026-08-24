@@ -19,12 +19,17 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
 	"time"
 
-	server "github.com/osauer/hyperserve/pkg/server"
+	server "github.com/osauer/hyperserve/v2/pkg/server"
 )
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
 	srv, err := server.NewServer(
 		server.WithAddr(":8080"),
 		server.WithHealthServer(),
@@ -54,7 +59,7 @@ func main() {
 	}
 
 	log.Println("starting on :8080 — /healthz live, /api/users 503 until ready")
-	if err := srv.Run(); err != nil {
+	if err := srv.Run(ctx); err != nil {
 		log.Fatalf("Run: %v", err)
 	}
 }

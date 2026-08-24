@@ -772,7 +772,7 @@ async function callMethod(method, params) {
 ### MCP Not Working
 1. Check logs for "MCP handler initialized"
 2. Verify endpoint (default: `/mcp`)
-3. Ensure tools/resources are registered before `Run()`
+3. Ensure tools/resources are registered before `Run(ctx)` or `RunStdio()`
 
 ### Claude Desktop Connection Issues
 1. Check `claude_desktop_config.json` syntax

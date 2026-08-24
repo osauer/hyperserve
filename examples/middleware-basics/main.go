@@ -1,16 +1,22 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
 	"time"
 
-	serverpkg "github.com/osauer/hyperserve/pkg/server"
+	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
 )
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
 	srv, err := serverpkg.NewServer(
 		serverpkg.WithRateLimit(5, 10),
 	)
@@ -20,11 +26,11 @@ func main() {
 
 	// NewServer already installs metrics, request logging, and panic recovery.
 	// Add only the policy this application needs on top of those defaults.
-	srv.AddMiddleware(serverpkg.GlobalMiddlewareRoute, exampleHeader)
-	srv.AddMiddlewareStack(serverpkg.GlobalMiddlewareRoute, serverpkg.SecureWeb(srv.Options))
+	srv.Use(exampleHeader)
+	srv.Use(serverpkg.SecureWeb(srv.Options()))
 
 	// Prefix middleware applies to /api and its descendants, but not /api2.
-	srv.AddMiddleware("/api", serverpkg.RateLimitMiddleware(srv))
+	srv.UsePrefix("/api", serverpkg.RateLimitMiddleware(srv))
 
 	srv.GET("/", func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintln(w, "Public route: security headers, no API rate limit")
@@ -49,17 +55,17 @@ func main() {
 	})
 
 	log.Println("middleware example listening on http://localhost:8080")
-	if err := srv.Run(); err != nil {
+	if err := srv.Run(ctx); err != nil {
 		log.Fatal(err)
 	}
 }
 
 // exampleHeader has the ordinary net/http wrapper shape used by HyperServe.
-func exampleHeader(next http.Handler) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+func exampleHeader(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Example-Middleware", "active")
 		next.ServeHTTP(w, r)
-	}
+	})
 }
 
 func writeJSON(w http.ResponseWriter, value any) {

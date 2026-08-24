@@ -33,7 +33,10 @@ and security work. That trade-off is deliberate and must remain visible.
 
 - `NewServer` is deterministic. File and environment configuration require
   explicit `WithConfigFile` or `WithEnvironment` options.
+- The application owns process signals and passes cancellation to `Run(ctx)`.
 - Security headers middleware is available but remains an application choice.
+- `pkg/auth` establishes issuer/subject identity; providers, sessions, roles,
+  and resource authorization remain application choices.
 - Rate limiting is opt-in per route, with a periodic cleanup ticker.
 - TLS defaults to 1.2+; `WithFIPSMode()` restricts to the FIPS-approved cipher list.
 
@@ -63,7 +66,7 @@ The main server struct (`Server`) handles:
 #### Middleware System
 Flexible middleware architecture supporting:
 - Pre and post-processing
-- Authentication and authorization
+- Authentication and application-owned authorization
 - Logging and metrics
 - Security headers
 - Rate limiting
@@ -118,7 +121,7 @@ Dependency direction is one-way: `pkg/mcp/builtin` → `pkg/server` + `pkg/mcp`;
 - **Standard library shapes.** Routing is `net/http.ServeMux`, handlers remain
   `http.Handler` values, TLS uses `crypto/tls`, and static-file access uses
   `os.Root`. WebSocket and JSON-RPC are maintained in-tree.
-- **Interfaces only where they earn it.** `MiddlewareFunc`, `mcp.Tool`,
+- **Interfaces only where they earn it.** `auth.Authenticator`, `mcp.Tool`,
   `mcp.Resource`, `mcp.Transport`, and `mcp.Extension` have multiple
   implementations or are extension points. Single-implementation interfaces are
   avoided.
@@ -130,7 +133,8 @@ Dependency direction is one-way: `pkg/mcp/builtin` → `pkg/server` + `pkg/mcp`;
 ## Security
 
 - TLS 1.2+ default; `WithFIPSMode()` restricts to the FIPS-approved cipher list.
-- Security-header middleware (`SecureWeb`, `SecureAPI`) available out of the box; off by default.
+- Security headers, bearer extraction, and identity requirements are separate
+  opt-in middleware; application authorization stays outside the library.
 - Rate limiting is per-route and per-client, with a periodic cleanup ticker.
 - Static-file serving uses `os.Root` and fails closed if the configured root
   cannot be opened.

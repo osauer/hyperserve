@@ -13,13 +13,13 @@ variable or working-directory file could enable listeners, MCP, CORS, or other
 capabilities without appearing at the call site.
 
 Applications also need two distinct forms of ownership. Some want a complete,
-reviewed `ServerOptions` snapshot; others deliberately delegate selected values
+reviewed `Options` snapshot; others deliberately delegate selected values
 to a config file or process environment.
 
 ## Decision
 
 `NewServer` starts from deterministic built-in defaults and applies
-`ServerOptionFunc` values from left to right. It does not bind external
+`Option` values from left to right. It does not bind external
 configuration implicitly.
 
 - `WithOptions` replaces the current snapshot with a defensive copy.
@@ -29,8 +29,8 @@ configuration implicitly.
 - Later options win, so applications can place deployment-owned inputs before
   invariants such as `WithAddr` or `WithMCPSupport`.
 
-`NewServerOptions` remains as a deprecated migration bridge for code that needs
-the former ambient loading behavior.
+The former ambient-loading constructor is removed in v2. Callers must name the
+file or environment source they intend to trust.
 
 ## Consequences
 

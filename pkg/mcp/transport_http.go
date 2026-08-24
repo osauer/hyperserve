@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	jsonrpc "github.com/osauer/hyperserve/pkg/jsonrpc"
+	jsonrpc "github.com/osauer/hyperserve/v2/pkg/jsonrpc"
 )
 
 // httpTransport implements Transport for HTTP-based communication.

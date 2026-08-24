@@ -1,19 +1,20 @@
 package server
 
-import "log/slog"
+import (
+	"errors"
+	"log/slog"
+)
 
-var logger = slog.Default()
-
-// DefaultLogger returns the logger used by the server package.
-func DefaultLogger() *slog.Logger {
-	return logger
-}
-
-// SetDefaultLogger overrides the logger used by the server package.
-func SetDefaultLogger(l *slog.Logger) {
-	if l == nil {
-		logger = slog.Default()
-		return
+// WithLogger gives one Server its logger without changing slog's process-wide
+// default. Configure the handler's level in the application when supplying a
+// custom logger.
+func WithLogger(l *slog.Logger) Option {
+	return func(srv *Server) error {
+		if l == nil {
+			return errors.New("hyperserve: nil logger")
+		}
+		srv.logger = l
+		srv.customLogger = true
+		return nil
 	}
-	logger = l
 }
