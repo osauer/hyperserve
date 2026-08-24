@@ -1,16 +1,18 @@
 # Production Deployment Guide
 
-_Last updated: 2026-05-24 07:21 CEST (v1 line)._
+_Last updated: 2026-08-24 (v1 line)._
 
 How to put HyperServe behind a reverse proxy without getting bitten.
 
 ## Topology
 
-Two HTTP servers ship in one binary: the main server (default `:8080`)
-and an optional health server (default `:9080`, enabled via
-`WithHealthServer()`). Bind the health port to an interface your
-ingress does not expose. Its endpoints are for the orchestrator
-(Kubernetes probes, target-group health checks), not for end users.
+A common deployment terminates TLS at a reverse proxy, then sends plaintext
+HTTP over a private hop to HyperServe. Two HTTP servers can run in the same
+binary: the main server (default `:8080`) and an optional health server
+(default `:9080`, enabled via `WithHealthServer()`). Bind both to interfaces
+appropriate for your network, and do not expose the health port through the
+public ingress. Its endpoints are for the orchestrator (Kubernetes probes,
+target-group health checks), not for end users.
 
 ```
 clients → CDN/WAF → reverse proxy (nginx/envoy/Caddy) → HyperServe :8080
@@ -18,13 +20,21 @@ clients → CDN/WAF → reverse proxy (nginx/envoy/Caddy) → HyperServe :8080
 ```
 
 ```go
-srv, _ := server.NewServer(
-    server.WithAddr(":8080"),
+srv, err := server.NewServer(
+    // This example assumes the proxy runs on the same host. Use a private
+    // interface instead when the proxy reaches HyperServe over a VPC network.
+    server.WithAddr("127.0.0.1:8080"),
     server.WithHealthServer(),                 // /healthz/, /readyz/, /livez/ on :9080
-    server.WithHealthAddr(":9080"),            // override if needed
-    server.WithTLS("cert.pem", "key.pem"),     // or terminate TLS at the proxy
+    server.WithHealthAddr("127.0.0.1:9080"),
 )
+if err != nil {
+    log.Fatal(err)
+}
 ```
+
+In this topology, the reverse proxy owns the certificates and the
+client-facing TLS connection. Do not also enable direct TLS on HyperServe's
+private listener.
 
 ## Reverse proxy and CDN
 
@@ -81,17 +91,34 @@ suites, no static IVs. The exact cipher list lives in
 not supported. If you need them for legacy clients, terminate at the
 proxy.
 
+For direct TLS, enable it explicitly:
+
+```go
+srv, err := server.NewServer(
+    server.WithTLS("cert.pem", "key.pem"),
+)
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+Direct TLS listens on `ServerOptions.TLSAddr` (`:8443` by default), not the
+plaintext `Addr`. `NewServer` confirms that both files exist; `Run` and
+`RunContext` load and validate the certificate/key pair before opening the
+listener, so a missing, unreadable, or mismatched pair stops startup.
+
 ### HSTS
 
-HSTS is sent only over TLS:
+When direct TLS is enabled, `SecureWeb` and `HeadersMiddleware` add:
 
 ```
 Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
 ```
 
-Plaintext responses ship no HSTS header. Clients ignore HSTS over HTTP
-by spec, and sending it both ways was a v0.32.0 bug. To preload your
-domain, the header above is what hstspreload.org wants. Submit there.
+In the proxy-terminated topology above, HyperServe TLS remains disabled, so
+HyperServe does not add this header; configure it at the proxy instead. Before
+using `includeSubDomains` and `preload`, make sure every subdomain is ready for
+permanent HTTPS.
 
 ## MCP security model
 

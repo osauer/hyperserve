@@ -29,6 +29,11 @@ HyperServe requires Go 1.27.
 go get github.com/osauer/hyperserve@latest
 ```
 
+Public package APIs on the v1 module line follow
+[semantic versioning](./docs/API_STABILITY.md).
+See the [examples](./examples/) for runnable variants and the
+[production guide](./docs/PRODUCTION.md) before deployment.
+
 ```go
 package main
 
@@ -49,10 +54,7 @@ type Greeting struct {
 }
 
 func main() {
-    srv, err := server.NewServer(
-        // Health checks listen on :9080, separate from public traffic on :8080.
-        server.WithHealthServer(),
-    )
+    srv, err := server.NewServer()
     if err != nil {
         log.Fatal(err)
     }
@@ -82,9 +84,15 @@ go run .
 Then, from another terminal:
 
 ```sh
-curl -i http://localhost:8080/greetings \
+curl -sS http://localhost:8080/greetings \
   -H 'Content-Type: application/json' \
   --data '{"name":"Ada"}'
+```
+
+Expected response:
+
+```json
+{"message":"Hello, Ada!"}
 ```
 
 `NewServer` installs request logging, request metrics, and panic recovery.
