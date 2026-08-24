@@ -34,6 +34,65 @@ func BenchmarkBaseline(b *testing.B) {
 	}
 }
 
+// BenchmarkConcurrentRequestPath measures the same request path under the
+// parallel scheduling used by Go HTTP servers. The two sub-benchmarks keep a
+// minimal handler separate from a representative production middleware stack
+// so comparisons can distinguish framework routing from middleware cost.
+func BenchmarkConcurrentRequestPath(b *testing.B) {
+	tests := []struct {
+		name       string
+		middleware func(*Server, http.Handler) http.Handler
+	}{
+		{
+			name: "Minimal",
+			middleware: func(_ *Server, next http.Handler) http.Handler {
+				return next
+			},
+		},
+		{
+			name: "MiddlewareStack",
+			middleware: func(srv *Server, next http.Handler) http.Handler {
+				return MetricsMiddleware(srv)(
+					RecoveryMiddleware(
+						HeadersMiddleware(srv.Options)(next),
+					),
+				)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		b.Run(tt.name, func(b *testing.B) {
+			srv, err := NewServer(WithAddr(":0"))
+			if err != nil {
+				b.Fatal(err)
+			}
+			b.Cleanup(func() { _ = srv.Stop() })
+
+			srv.HandleFunc("/benchmark", func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte("OK"))
+			})
+			handler := tt.middleware(srv, srv.mux)
+
+			probe := httptest.NewRecorder()
+			handler.ServeHTTP(probe, httptest.NewRequest(http.MethodGet, "/benchmark", nil))
+			if probe.Code != http.StatusOK {
+				b.Fatalf("probe status = %d, want %d", probe.Code, http.StatusOK)
+			}
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			b.RunParallel(func(pb *testing.PB) {
+				req := httptest.NewRequest(http.MethodGet, "/benchmark", nil)
+				for pb.Next() {
+					w := httptest.NewRecorder()
+					handler.ServeHTTP(w, req)
+				}
+			})
+		})
+	}
+}
+
 // BenchmarkSecureAPI measures a typical secure API setup with multiple middleware
 func BenchmarkSecureAPI(b *testing.B) {
 	srv, err := NewServer(
