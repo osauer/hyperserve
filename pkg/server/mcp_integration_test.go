@@ -58,6 +58,7 @@ func TestMCPOptimizationsIntegration(t *testing.T) {
 	// Create server with MCP support
 	srv, err := NewServer(
 		WithMCPSupport("test-server", "1.0.0"),
+		WithMCPToolCallTimeout(20*time.Millisecond),
 	)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
@@ -80,13 +81,13 @@ func TestMCPOptimizationsIntegration(t *testing.T) {
 
 	// Test context cancellation via timeout
 	t.Run("tool_execution_with_timeout", func(t *testing.T) {
-		t.Skip("Skipping timeout test - 30 second timeout is too long for integration tests")
-		// Create a slow tool that takes longer than 30 seconds
-		slowTool := &mockTool{
+		cancelled := make(chan struct{})
+		slowTool := &testContextTool{
 			name: "slow_tool",
-			executeFunc: func(params map[string]any) (any, error) {
-				time.Sleep(35 * time.Second) // Longer than default timeout
-				return "should timeout", nil
+			executeFunc: func(ctx context.Context, _ map[string]any) (any, error) {
+				<-ctx.Done()
+				close(cancelled)
+				return nil, ctx.Err()
 			},
 		}
 		srv.RegisterMCPTool(slowTool)
@@ -102,19 +103,43 @@ func TestMCPOptimizationsIntegration(t *testing.T) {
 			"id": 1,
 		}
 
-		body, _ := json.Marshal(request)
+		body, err := json.Marshal(request)
+		if err != nil {
+			t.Fatalf("marshal request: %v", err)
+		}
 		req := httptest.NewRequest("POST", "/mcp", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 
+		started := time.Now()
 		srv.mux.ServeHTTP(rec, req)
+		if elapsed := time.Since(started); elapsed > time.Second {
+			t.Fatalf("tool timeout took %v, want under 1s", elapsed)
+		}
 
-		var response map[string]any
-		json.Unmarshal(rec.Body.Bytes(), &response)
+		var response struct {
+			Error *struct {
+				Code int `json:"code"`
+				Data any `json:"data"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
 
-		// Should have error due to timeout
-		if response["error"] == nil {
-			t.Error("Expected timeout error")
+		if response.Error == nil {
+			t.Fatalf("response = %s, want timeout error", rec.Body.String())
+		}
+		if got := response.Error.Code; got != -32603 {
+			t.Errorf("error code = %d, want -32603", got)
+		}
+		if got := response.Error.Data; got != "tool execution failed: context deadline exceeded" {
+			t.Errorf("error data = %v, want context deadline", got)
+		}
+		select {
+		case <-cancelled:
+		default:
+			t.Error("tool did not observe timeout cancellation")
 		}
 	})
 
