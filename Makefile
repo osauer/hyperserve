@@ -10,7 +10,7 @@ LDFLAGS := -ldflags "-X github.com/osauer/hyperserve/pkg/server.Version=$(VERSIO
 MAIN_BRANCH ?= main
 RELEASE_TEST_JOBS ?= 2
 
-.PHONY: build install test test-race fuzz-smoke clean version help check check-examples check-canonical-examples check-compatibility-examples mcp-conformance vet fmt modernize modernize-check staticcheck govulncheck govulncheck-tools changelog-lint changelog-stub release-notes release-publish release-smoke release
+.PHONY: build install test test-race fuzz-smoke benchmark-load clean version help check check-examples check-canonical-examples check-compatibility-examples mcp-conformance vet fmt modernize modernize-check staticcheck govulncheck govulncheck-tools changelog-lint changelog-stub release-notes release-publish release-smoke release
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets:\n"} \
@@ -51,6 +51,9 @@ fuzz-smoke: ## Short fuzz pass over every Fuzz* target (15s each).
 	go test -run=^$$ -fuzz=FuzzWebSocketFrameParse -fuzztime=15s ./pkg/websocket; \
 	go test -run=^$$ -fuzz=FuzzCORSOriginMatch     -fuzztime=15s ./pkg/server; \
 	go test -run=^$$ -fuzz=FuzzValidateEmail       -fuzztime=15s ./pkg/server
+
+benchmark-load: ## Run reproducible loopback load profiles (BENCH_* variables tune the workload).
+	./benchmarks/run_benchmarks.sh
 
 clean:
 	rm -rf bin hyperserve
