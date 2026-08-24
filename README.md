@@ -38,20 +38,12 @@ See the [examples](./examples/) for runnable variants and the
 package main
 
 import (
-    "context"
     "fmt"
     "log"
+    "net/http"
 
     "github.com/osauer/hyperserve/pkg/server"
 )
-
-type GreetRequest struct {
-    Name string `json:"name" validate:"required,min=2"`
-}
-
-type Greeting struct {
-    Message string `json:"message"`
-}
 
 func main() {
     srv, err := server.NewServer()
@@ -59,16 +51,13 @@ func main() {
         log.Fatal(err)
     }
 
-    // JSONHandler limits and decodes the body, validates GreetRequest, and
-    // turns binding or application errors into JSON responses.
-    srv.POST("/greetings", server.JSONHandler(
-        func(_ context.Context, in GreetRequest) (Greeting, error) {
-            return Greeting{Message: fmt.Sprintf("Hello, %s!", in.Name)}, nil
-        },
-    ))
+    // Routes use Go's method-aware ServeMux patterns, and handlers remain
+    // ordinary net/http functions—there is no framework-specific context.
+    srv.GET("/hello/{name}", func(w http.ResponseWriter, r *http.Request) {
+        fmt.Fprintf(w, "Hello, %s!\n", r.PathValue("name"))
+    })
 
-    // Run handles process signals and waits for active requests before stopping.
-    // Applications that already own cancellation can use RunContext instead.
+    // Run owns signal handling and graceful shutdown for a standalone service.
     if err := srv.Run(); err != nil {
         log.Fatal(err)
     }
@@ -84,20 +73,23 @@ go run .
 Then, from another terminal:
 
 ```sh
-curl -sS http://localhost:8080/greetings \
-  -H 'Content-Type: application/json' \
-  --data '{"name":"Ada"}'
+curl -sS http://localhost:8080/hello/Ada
 ```
 
 Expected response:
 
-```json
-{"message":"Hello, Ada!"}
+```text
+Hello, Ada!
 ```
 
-`NewServer` installs request logging, request metrics, and panic recovery.
-`JSONHandler` returns a structured `400` for invalid input and a generic `500`
-for unexpected application errors.
+That is the basic shape: keep standard `net/http` handlers while HyperServe
+applies request logging, request metrics, and panic recovery and owns the
+server lifecycle. Applications that already own cancellation can use
+`RunContext` instead.
+
+For typed request bodies, validation, and JSON responses, continue with the
+[binding example](./examples/binding/). Those helpers are optional; they do not
+replace Go's handler or request types.
 
 ## Why use it?
 
