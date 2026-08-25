@@ -581,7 +581,7 @@ func WithDeferredInitStopOnFailure(stop bool) Option {
 	}
 }
 
-// WithOnShutdown registers a function to be called when the server receives a shutdown signal.
+// WithOnShutdown registers a function to be called when the server begins shutdown.
 // Multiple hooks can be registered and are executed sequentially in the order they were added.
 // Hooks are called before the HTTP server shutdown begins, allowing applications to cleanly
 // stop their own goroutines and release resources.

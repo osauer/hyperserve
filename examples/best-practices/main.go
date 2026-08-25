@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/osauer/hyperserve/v2/pkg/auth"
@@ -59,7 +60,9 @@ var (
 )
 
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	// The executable chooses its shutdown signals. HyperServe follows the
+	// resulting application context without taking ownership of the process.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	// Bind deployment environment explicitly, before application-owned capabilities.
@@ -72,7 +75,6 @@ func main() {
 
 		// Application-owned capabilities and security policy
 		serverpkg.WithHealthServer(), // Health checks on :8081
-		// Graceful shutdown timeout is configurable via timeouts
 
 		// Feature configuration
 		serverpkg.WithMCPSupport("best-practices", "1.0.0"), // Enable MCP
@@ -87,9 +89,9 @@ func main() {
 	verifier := auth.TokenVerifierFunc(verifyToken)
 	apiIdentity := auth.Bearer(verifier)
 	requireIdentity := auth.Require(apiIdentity)
+	srv.Use(serverpkg.SecureWeb(srv.Options()))
 	srv.UsePrefix("/api", requireIdentity, serverpkg.RateLimitMiddleware(srv))
 	srv.UsePrefix("/mcp", requireIdentity)
-	srv.UsePrefix("/", serverpkg.SecureWeb(srv.Options())) // Security headers
 
 	// BEST PRACTICE: Register custom MCP tools properly
 	if srv.MCPEnabled() {
@@ -118,8 +120,6 @@ func main() {
 		log.Fatalf("Static files unavailable: %v", err)
 	}
 
-	// The application translates Ctrl+C into cancellation. HyperServe then
-	// drains and closes the resources it owns.
 	fmt.Println("Server starting on http://localhost:8080")
 	fmt.Println("Health checks on http://localhost:8081/healthz")
 	fmt.Println("MCP endpoint on http://localhost:8080/mcp")
@@ -153,7 +153,7 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
     <p>This example demonstrates proper usage of hyperserve's built-in features.</p>
     <h2>Features in Use:</h2>
     <ul>
-        <li>✅ Automatic graceful shutdown (try Ctrl+C)</li>
+        <li>✅ Context-driven graceful shutdown (try Ctrl+C)</li>
         <li>✅ Built-in request logging (check console)</li>
         <li>✅ Rate limiting (100 req/s)</li>
         <li>✅ Health checks (<a href="http://localhost:8081/healthz">/healthz</a>)</li>

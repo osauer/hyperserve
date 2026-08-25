@@ -60,8 +60,8 @@ func main() {
 	// Apply middleware stacks
 	// Metrics, request logging, and recovery are already applied by NewServer.
 
-	// SecureWeb adds security headers for web routes
-	srv.UsePrefix("/", serverpkg.SecureWeb(srv.Options()))
+	// SecureWeb adds security headers to every route.
+	srv.Use(serverpkg.SecureWeb(srv.Options()))
 
 	verifier := auth.TokenVerifierFunc(verifyToken)
 	apiIdentity := auth.Bearer(verifier)

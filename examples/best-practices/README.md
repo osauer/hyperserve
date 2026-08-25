@@ -6,7 +6,7 @@ templates, static files, SSE, and MCP.
 
 The useful patterns are about ownership:
 
-- the application turns Ctrl+C into context cancellation;
+- the application turns Ctrl+C or `SIGTERM` into context cancellation;
 - HyperServe drains and closes the server resources it starts;
 - deployment configuration is read only through `WithEnvironment`;
 - authentication is composed from named pieces, and application handlers keep
@@ -29,3 +29,7 @@ curl -H "Authorization: Bearer secret-token-123" \
 
 The example token verifier is deliberately local and tiny. For a federated
 provider, use the [OpenID Connect example](../auth/) instead.
+
+The context at the top of `main` describes the lifetime of the complete
+service. A larger host can supply that parent context instead. Request handlers
+still use `r.Context()` for the lifetime of one HTTP request.

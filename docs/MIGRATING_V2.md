@@ -30,6 +30,13 @@ if err := srv.Run(ctx); err != nil {
 }
 ```
 
+The `signal.NotifyContext` call belongs in a standalone application's `main`;
+it is not required setup for HyperServe. If a service runner or a larger
+program already supplies an application context, pass that context to `Run`
+instead, or use it as the parent passed to `signal.NotifyContext`. HyperServe
+observes the context for shutdown but does not copy its values into request
+contexts. Handlers continue to use `r.Context()`.
+
 Use `RunStdio()` for MCP standard input/output and `Shutdown(ctx)` for an
 explicit caller-owned shutdown deadline.
 

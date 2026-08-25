@@ -385,6 +385,8 @@ func validateMCPProtocolVersion(options *Options) error {
 // Run starts the HTTP/HTTPS server and blocks until ctx requests a
 // graceful shutdown, the server exits, or deferred initialization fails. It
 // does not subscribe to process signals; the application owns the lifecycle.
+// The context is a shutdown trigger; its values are not installed as HTTP
+// request values. Use middleware for request-scoped data.
 // Cancellation is a normal shutdown trigger and returns nil when shutdown
 // succeeds. Run returns an error for MCP stdio transport because a context
 // cannot portably interrupt its blocking stdin read; use RunStdio instead.

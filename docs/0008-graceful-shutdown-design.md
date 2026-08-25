@@ -7,7 +7,7 @@
 ## Context
 
 Production servers need graceful shutdown to:
-- Complete in-flight requests before terminating
+- Give in-flight requests time to complete before terminating
 - Close database connections cleanly
 - Flush buffered logs and metrics
 - Notify load balancers before disappearing
@@ -23,9 +23,22 @@ Challenges include:
 
 Implement context-based graceful shutdown:
 - Use the context passed to `Run` for cancellation propagation
+- Leave process-signal policy with the application
 - Let an explicit `Shutdown` caller choose its deadline
 - Coordinate shutdown of both main and health servers
 - Clean up all resources (rate limiters, templates, etc.)
+
+The ownership boundary is deliberately small:
+
+| Owner | Responsibility |
+| --- | --- |
+| Application entry point | Chooses the parent context and which process signals cancel it |
+| HyperServe | Observes `Run(ctx)` and drains the listeners, workers, and roots it started |
+| Request handler | Uses `r.Context()` for one request's cancellation and values |
+
+The context passed to `Run` is a shutdown trigger. HyperServe does not install
+its values as the base context for HTTP requests; applications should add
+request-scoped data through middleware.
 
 ```go
 // Shutdown sequence:
@@ -38,9 +51,9 @@ Implement context-based graceful shutdown:
 ## Consequences
 
 ### Positive
-- **No dropped requests**: In-flight requests complete normally
+- **Orderly draining**: In-flight requests get a bounded opportunity to finish
 - **Clean termination**: Resources properly released
-- **Predictable behavior**: The application controls the deadline
+- **Explicit deadlines**: An application coordinator can bound `Shutdown(ctx)`
 - **Kubernetes-friendly**: Works with termination grace periods
 - **Testable**: Can verify shutdown behavior
 
@@ -59,7 +72,11 @@ Implement context-based graceful shutdown:
 ## Implementation Details
 
 ```go
-ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+ctx, stop := signal.NotifyContext(
+    context.Background(),
+    os.Interrupt,
+    syscall.SIGTERM,
+)
 defer stop()
 
 if err := srv.Run(ctx); err != nil {
@@ -67,25 +84,33 @@ if err := srv.Run(ctx); err != nil {
 }
 ```
 
+`context.Background()` is the root in a standalone executable. When another
+component already owns the application lifetime, pass its context to `Run`, or
+use it as the parent passed to `signal.NotifyContext`. The returned `stop`
+function unregisters the signal behavior and releases its resources.
+
 ## Examples
 
+For the usual application-owned lifetime, cancel the context passed to `Run`:
+
 ```go
-// The application owns appCtx and cancels it when its complete process
-// lifecycle should stop. HyperServe drains requests and releases resources
-// before Run returns.
+// The application owns appCtx and cancels it when the complete process should
+// stop. HyperServe drains requests and releases its resources before Run returns.
 srv, _ := server.NewServer()
 if err := srv.Run(appCtx); err != nil {
     log.Error("Server stopped", "error", err)
 }
+```
 
+When another component coordinates shutdown directly, it can choose the
+deadline:
+
+```go
 shutdownCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 defer cancel()
 if err := srv.Shutdown(shutdownCtx); err != nil {
     log.Error("shutdown", "error", err)
 }
-
-// Kubernetes pod termination
-// Set terminationGracePeriodSeconds > shutdown timeout
 ```
 
 ## Kubernetes Integration
@@ -103,13 +128,12 @@ spec:
           preStop:
             exec:
               command: ["/bin/sh", "-c", "sleep 5"]
-        env:
-        - name: HS_SHUTDOWN_TIMEOUT
-          value: "45s"
 ```
 
-This ensures:
-1. Kubernetes removes pod from service endpoints
-2. 5-second sleep allows load balancer updates
-3. 45-second shutdown timeout for requests
-4. 60-second pod termination grace period as safety net
+The pod grace period covers both the `preStop` hook and application shutdown.
+The short pause gives routing changes time to reach load balancers. Kubernetes
+then sends `SIGTERM`, which cancels the application context; `Run` uses its
+bounded internal cleanup budget to drain the server. The 60-second pod budget
+leaves room for both phases before Kubernetes forces termination. See the
+[Kubernetes pod termination flow](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#pod-termination-flow)
+for the ordering and grace-period rules.

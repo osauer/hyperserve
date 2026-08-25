@@ -1,6 +1,6 @@
 # Production Deployment Guide
 
-_Last updated: 2026-08-24 (v2 line)._
+_Last updated: 2026-08-25 (v2 line)._
 
 How to put HyperServe behind a reverse proxy without getting bitten.
 
@@ -35,6 +35,50 @@ if err != nil {
 In this topology, the reverse proxy owns the certificates and the
 client-facing TLS connection. Do not also enable direct TLS on HyperServe's
 private listener.
+
+## Process lifetime and shutdown
+
+The executable, not HyperServe, decides which operating-system signals stop
+the service. A typical Unix service turns Ctrl+C and `SIGTERM` into context
+cancellation at the edge of `main`:
+
+```go
+ctx, stop := signal.NotifyContext(
+    context.Background(),
+    os.Interrupt,
+    syscall.SIGTERM,
+)
+defer stop()
+
+if err := srv.Run(ctx); err != nil {
+    log.Fatal(err)
+}
+```
+
+`signal.NotifyContext` returns a child of the context passed as its first
+argument. The child is cancelled when the parent is cancelled, one of the
+listed signals arrives, or `stop` is called. Calling `stop` also releases the
+signal registration, which is why it belongs in a `defer`.
+
+HyperServe only observes that context as a lifetime signal. It does not install
+signal handlers or copy context values into HTTP requests. A larger program can
+pass its existing application context to `Run`, allowing one cancellation to
+stop the HTTP server alongside its database workers, consumers, and other
+services. Request handlers still use `r.Context()` for the lifetime and values
+of one request.
+
+Cancellation through `Run` uses HyperServe's bounded cleanup path. When an
+external coordinator must choose a particular deadline, give that deadline to
+`Shutdown` explicitly:
+
+```go
+shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+defer cancel()
+
+if err := srv.Shutdown(shutdownCtx); err != nil {
+    log.Printf("graceful shutdown: %v", err)
+}
+```
 
 ## Reverse proxy and CDN
 

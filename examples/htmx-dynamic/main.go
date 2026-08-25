@@ -30,8 +30,8 @@ func main() {
 		log.Fatalf("Error initializing server: %v", err)
 	}
 
-	// Middleware: Add security headers for all routes
-	srv.UsePrefix("/", serverpkg.SecureWeb(srv.Options()))
+	// Add security headers to every route.
+	srv.Use(serverpkg.SecureWeb(srv.Options()))
 
 	// Static content route (e.g., CSS, JS)
 	if err := srv.HandleStatic("/static/"); err != nil {

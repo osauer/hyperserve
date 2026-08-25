@@ -12,10 +12,11 @@ templates and static files, Server-Sent Events, WebSockets, and optional Model
 Context Protocol (MCP).
 
 Most Go services start comfortably with a mux and a few handlers. Later they
-need probes, signal handling, request limits, validation, streaming, or another
-listener. You can wire those pieces separately. HyperServe is for applications
-that would rather keep them in one server with one configuration and shutdown
-path, without taking on a framework-specific router or request context.
+need probes, coordinated shutdown, request limits, validation, streaming, or
+another listener. You can wire those pieces separately. HyperServe is for
+applications that would rather keep them in one server with one configuration
+and shutdown path, without taking on a framework-specific router or request
+context.
 
 For a small service with a handful of routes, plain `net/http` is usually the
 better choice. HyperServe also does not provide an ORM, a frontend framework,
@@ -52,6 +53,8 @@ import (
 )
 
 func main() {
+    // This executable turns Ctrl+C into cancellation. HyperServe follows ctx;
+    // it does not install process-signal handlers of its own.
     ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
     defer stop()
 
@@ -94,8 +97,8 @@ Hello, Ada!
 
 That is the basic shape: keep standard `net/http` handlers while HyperServe
 applies request logging, request metrics, and panic recovery. Cancelling the
-context stops the listeners, workers, filesystem roots, and shutdown hooks
-owned by that server.
+application context stops the listeners, workers, filesystem roots, and
+shutdown hooks owned by that server.
 
 For typed request bodies, validation, and JSON responses, continue with the
 [binding example](./examples/binding/). Those helpers are optional; they do not
@@ -205,6 +208,12 @@ signal should stop one server, several servers, or a larger application.
 `RunStdio()` is the explicit entry point for MCP over standard input/output.
 `Shutdown(ctx)` is available when another component coordinates the deadline.
 
+In a standalone `main`, `context.Background()` is a natural root. If a service
+runner or a larger application already provides a parent context, pass that to
+`Run`, or use it as the parent of `signal.NotifyContext`. The context passed to
+`Run` controls the server's lifetime; it is not copied into requests. Handlers
+continue to use `r.Context()` for request cancellation and request-scoped data.
+
 `WithHealthServer` puts health, readiness, and liveness on a separate
 listener. `WithDeferredInit` keeps readiness false while a database, cache, or
 other dependency starts.
@@ -222,18 +231,20 @@ srv, err := server.NewServer(
 )
 ```
 
-Use `DefaultOptions` with `WithOptions` when the embedding application
-wants to bind one reviewed configuration snapshot. The
-[configuration example](./examples/configuration/) covers the precedence rules.
+`NewServer()` already applies HyperServe's defaults, so most applications pass
+only the options they want to change. `DefaultOptions()` with `WithOptions` is
+for an embedding application that deliberately wants to inspect, modify, and
+bind one complete configuration snapshot. The [configuration
+example](./examples/configuration/) covers the precedence rules.
 
 ## Security
 
 Browser security headers are opt-in:
 
 ```go
-// Browser headers apply to this route prefix. TLS, sessions, and authorization
+// Browser headers apply to every route. TLS, sessions, and authorization
 // remain separate application decisions.
-srv.UsePrefix("/", server.SecureWeb(srv.Options()))
+srv.Use(server.SecureWeb(srv.Options()))
 ```
 
 Authentication composes from small, named pieces:
@@ -244,6 +255,9 @@ bearerIdentity := auth.Bearer(verifier)
 requireIdentity := auth.Require(bearerIdentity)
 srv.UsePrefix("/api", requireIdentity, server.RateLimitMiddleware(srv))
 ```
+
+`Use` applies middleware to every request. `UsePrefix` reserves application
+policy for one path tree, such as `/api` and its descendants.
 
 `SecureWeb` emits a Content Security Policy and other defensive browser
 headers, applies configured CORS policy, and emits HSTS when HyperServe serves

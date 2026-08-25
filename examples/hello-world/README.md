@@ -8,6 +8,7 @@ Ctrl+C shutdown rather than hiding process-signal ownership in the library.
 - Creating a basic HyperServe server
 - Handling HTTP requests with a simple handler function
 - Returning a text response
+- Connecting server lifetime to application cancellation
 
 ## Running the Example
 
@@ -31,6 +32,8 @@ Or open http://localhost:8080 in your web browser.
 ## Code Breakdown
 
 ```go
+// This executable owns Ctrl+C. HyperServe follows ctx and cleans up the
+// server resources it started.
 ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 defer stop()
 
@@ -39,18 +42,21 @@ if err != nil {
 	log.Fatal(err)
 }
 
-// Register a handler for the root path
-srv.HandleFunc("/", handler)
+srv.HandleFunc("/", hello)
 
-// Run blocks until Ctrl+C cancels ctx.
 if err := srv.Run(ctx); err != nil {
 	log.Fatal(err)
 }
 ```
 
-The extra context lines are ordinary Go lifecycle plumbing. They make it clear
-that the application owns process signals while HyperServe owns cleanup of the
-listeners and workers it starts.
+The context lines are ordinary Go lifecycle plumbing. `signal.NotifyContext`
+creates a child of `context.Background()` and cancels it when Ctrl+C arrives.
+The deferred `stop` releases the signal registration when `main` returns.
+
+Here `context.Background()` is the root because this small program owns the
+whole process. If a larger application already gives you a context, pass it to
+`srv.Run` or use it as the parent of `signal.NotifyContext`. This is the
+server's lifetime context; handlers use `r.Context()` for each request.
 
 ## What's Next?
 
