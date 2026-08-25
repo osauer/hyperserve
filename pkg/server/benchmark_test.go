@@ -5,16 +5,21 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/osauer/hyperserve/v2/pkg/auth"
 	"github.com/osauer/hyperserve/v2/pkg/mcp"
 )
+
+var benchmarkDurationSink time.Duration
 
 // BenchmarkBaseline measures the raw performance of a minimal HyperServe handler
 func BenchmarkBaseline(b *testing.B) {
@@ -94,6 +99,174 @@ func BenchmarkConcurrentRequestPath(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkMiddlewareDispatch isolates HyperServe's middleware selection and
+// composition from httptest.ResponseRecorder allocations. The middleware is
+// deliberately inert: this benchmark measures dispatch machinery, not the
+// work performed by a particular policy.
+func BenchmarkMiddlewareDispatch(b *testing.B) {
+	passThrough := Middleware(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r)
+		})
+	})
+	stack := func(count int) MiddlewareStack {
+		ret := make(MiddlewareStack, count)
+		for i := range ret {
+			ret[i] = passThrough
+		}
+		return ret
+	}
+
+	tests := []struct {
+		name      string
+		path      string
+		configure func(*middlewareRegistry)
+	}{
+		{
+			name:      "NoMiddleware",
+			path:      "/api/admin/resource",
+			configure: func(*middlewareRegistry) {},
+		},
+		{
+			name: "Global3",
+			path: "/api/admin/resource",
+			configure: func(registry *middlewareRegistry) {
+				registry.Add(globalMiddlewareRoute, stack(3))
+			},
+		},
+		{
+			name: "Nested6",
+			path: "/api/admin/resource",
+			configure: func(registry *middlewareRegistry) {
+				registry.Add("/", stack(2))
+				registry.Add("/api", stack(2))
+				registry.Add("/api/admin", stack(2))
+			},
+		},
+		{
+			name: "PrefixMiss6",
+			path: "/api/admin/resource",
+			configure: func(registry *middlewareRegistry) {
+				registry.Add("/other", stack(6))
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		b.Run(tt.name, func(b *testing.B) {
+			registry := newMiddlewareRegistry(nil)
+			tt.configure(registry)
+
+			mux := http.NewServeMux()
+			mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusNoContent)
+			})
+			handler := registry.applyToMux(mux)
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			writer := benchmarkResponseWriter{}
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				handler.ServeHTTP(writer, req)
+			}
+		})
+	}
+}
+
+// BenchmarkDefaultMiddlewareDispatch measures the real default metrics,
+// WARN-filtered request logging, and recovery stack.
+func BenchmarkDefaultMiddlewareDispatch(b *testing.B) {
+	srv, err := NewServer()
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.Cleanup(srv.stopCleanup)
+
+	srv.HandleFunc("/minimal", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	handler := srv.Handler()
+	req := httptest.NewRequest(http.MethodGet, "/minimal", nil)
+	writer := benchmarkResponseWriter{}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		handler.ServeHTTP(writer, req)
+	}
+}
+
+// BenchmarkDefaultMiddlewareComponents keeps routing, metrics, disabled
+// request logging, recovery, and the compiled Run path independently visible.
+// This prevents a future change from hiding one expensive layer inside the
+// combined default-stack number.
+func BenchmarkDefaultMiddlewareComponents(b *testing.B) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{
+		Level: slog.LevelError,
+	}))
+	srv := &Server{logger: logger}
+	base := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux := http.NewServeMux()
+	mux.Handle("/minimal", base)
+	counters := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv.totalRequests.Add(1)
+		base.ServeHTTP(w, r)
+		srv.totalResponseTime.Add(1)
+	})
+	timing := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		base.ServeHTTP(w, r)
+		benchmarkDurationSink = time.Since(start)
+	})
+
+	tests := []struct {
+		name    string
+		handler http.Handler
+	}{
+		{name: "Handler", handler: base},
+		{name: "ServeMuxExact", handler: mux},
+		{name: "MetricsCounters", handler: counters},
+		{name: "MetricsTiming", handler: timing},
+		{name: "Metrics", handler: MetricsMiddleware(srv)(base)},
+		{name: "RequestLoggerDisabled", handler: requestLoggerMiddleware(logger)(base)},
+		{name: "Recovery", handler: recoveryMiddleware(logger)(base)},
+		{
+			name: "DefaultStack",
+			handler: applyMiddlewareStack(
+				defaultMiddleware(srv),
+				base,
+			),
+		},
+		{
+			name: "CompiledDefaultMux",
+			handler: newMiddlewareRegistry(
+				defaultMiddleware(srv),
+			).compile(mux),
+		},
+	}
+
+	for _, tt := range tests {
+		b.Run(tt.name, func(b *testing.B) {
+			req := httptest.NewRequest(http.MethodGet, "/minimal", nil)
+			writer := benchmarkResponseWriter{}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				tt.handler.ServeHTTP(writer, req)
+			}
+		})
+	}
+}
+
+type benchmarkResponseWriter struct{}
+
+func (benchmarkResponseWriter) Header() http.Header         { return nil }
+func (benchmarkResponseWriter) WriteHeader(int)             {}
+func (benchmarkResponseWriter) Write(p []byte) (int, error) { return len(p), nil }
 
 // BenchmarkAuthenticatedAPI measures a typical protected API middleware chain.
 func BenchmarkAuthenticatedAPI(b *testing.B) {

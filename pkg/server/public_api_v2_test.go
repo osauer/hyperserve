@@ -158,3 +158,33 @@ func TestLogLevelDoesNotChangeProcessDefault(t *testing.T) {
 		t.Fatalf("LogLevel = %q, want ERROR", srv.Options().LogLevel)
 	}
 }
+
+func TestDefaultLogLevelIsWarn(t *testing.T) {
+	srv, err := NewServer()
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	defer srv.stopCleanup()
+
+	if got := srv.Options().LogLevel; got != "WARN" {
+		t.Fatalf("LogLevel = %q, want WARN", got)
+	}
+	if srv.logger.Enabled(context.Background(), slog.LevelInfo) {
+		t.Fatal("default logger enabled INFO")
+	}
+	if !srv.logger.Enabled(context.Background(), slog.LevelWarn) {
+		t.Fatal("default logger disabled WARN")
+	}
+}
+
+func TestInfoLogLevelRemainsAvailable(t *testing.T) {
+	srv, err := NewServer(WithLogLevel("INFO"))
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	defer srv.stopCleanup()
+
+	if !srv.logger.Enabled(context.Background(), slog.LevelInfo) {
+		t.Fatal("WithLogLevel(INFO) did not enable INFO")
+	}
+}

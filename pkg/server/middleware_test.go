@@ -1,9 +1,13 @@
 package server
 
 import (
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -394,5 +398,169 @@ func TestMiddlewareRootPrefixMatches(t *testing.T) {
 				t.Errorf("path %q: root middleware fired %d times, want 1", path, hits)
 			}
 		})
+	}
+}
+
+func TestMiddlewarePlanCompilesOnceAndPreservesOrder(t *testing.T) {
+	t.Parallel()
+
+	registry := newMiddlewareRegistry(nil)
+	constructs := make(map[string]int)
+	var trace []string
+	record := func(name string) Middleware {
+		return func(next http.Handler) http.Handler {
+			constructs[name]++
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				trace = append(trace, "enter "+name)
+				next.ServeHTTP(w, r)
+				trace = append(trace, "exit "+name)
+			})
+		}
+	}
+
+	registry.Add(globalMiddlewareRoute, MiddlewareStack{record("global")})
+	registry.Add("/", MiddlewareStack{record("root")})
+	registry.Add("/api", MiddlewareStack{record("api")})
+	registry.Add("/api/admin", MiddlewareStack{record("admin")})
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		trace = append(trace, "handler")
+		w.WriteHeader(http.StatusNoContent)
+	})
+	handler := registry.applyToMux(mux)
+
+	for range 2 {
+		handler.ServeHTTP(
+			httptest.NewRecorder(),
+			httptest.NewRequest(http.MethodGet, "/api/admin/resource", nil),
+		)
+	}
+
+	for _, name := range []string{"global", "root", "api", "admin"} {
+		if constructs[name] != 1 {
+			t.Errorf("%s middleware constructed %d times, want 1", name, constructs[name])
+		}
+	}
+
+	wantOneRequest := []string{
+		"enter global",
+		"enter root",
+		"enter api",
+		"enter admin",
+		"handler",
+		"exit admin",
+		"exit api",
+		"exit root",
+		"exit global",
+	}
+	want := append(append([]string(nil), wantOneRequest...), wantOneRequest...)
+	if strings.Join(trace, "|") != strings.Join(want, "|") {
+		t.Fatalf("middleware trace = %v, want %v", trace, want)
+	}
+}
+
+func TestMiddlewareRegisteredAfterHandlerConstructionBeforeServing(t *testing.T) {
+	t.Parallel()
+
+	registry := newMiddlewareRegistry(nil)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	handler := registry.applyToMux(mux)
+
+	var hits int
+	registry.Add("/api", MiddlewareStack{countingMW(&hits)})
+	handler.ServeHTTP(
+		httptest.NewRecorder(),
+		httptest.NewRequest(http.MethodGet, "/api/resource", nil),
+	)
+
+	if hits != 1 {
+		t.Fatalf("middleware registered before serving fired %d times, want 1", hits)
+	}
+}
+
+func TestMiddlewarePlanCompilationSharedByConcurrentFirstRequests(t *testing.T) {
+	t.Parallel()
+
+	registry := newMiddlewareRegistry(nil)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	handler := registry.applyToMux(mux)
+
+	var constructs atomic.Int64
+	var hits atomic.Int64
+	registry.Add("/api", MiddlewareStack{func(next http.Handler) http.Handler {
+		constructs.Add(1)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hits.Add(1)
+			next.ServeHTTP(w, r)
+		})
+	}})
+
+	const requests = 32
+	var wg sync.WaitGroup
+	for range requests {
+		wg.Go(func() {
+			handler.ServeHTTP(
+				httptest.NewRecorder(),
+				httptest.NewRequest(http.MethodGet, "/api/resource", nil),
+			)
+		})
+	}
+	wg.Wait()
+
+	if got := constructs.Load(); got != 1 {
+		t.Fatalf("middleware constructed %d times, want 1", got)
+	}
+	if got := hits.Load(); got != requests {
+		t.Fatalf("middleware handled %d requests, want %d", got, requests)
+	}
+}
+
+func TestMiddlewareRegistrationAfterServingPanics(t *testing.T) {
+	t.Parallel()
+
+	registry := newMiddlewareRegistry(nil)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	handler := registry.applyToMux(mux)
+	handler.ServeHTTP(
+		httptest.NewRecorder(),
+		httptest.NewRequest(http.MethodGet, "/", nil),
+	)
+
+	defer func() {
+		got := recover()
+		if got != "hyperserve: middleware registered after serving started" {
+			t.Fatalf("panic = %v, want clear configuration-freeze error", got)
+		}
+	}()
+	registry.Add(globalMiddlewareRoute, MiddlewareStack{countingMW(new(int))})
+}
+
+func TestRequestLoggerDisabledPassesThroughResponseWriter(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{
+		Level: slog.LevelError,
+	}))
+	underlying := httptest.NewRecorder()
+	var received http.ResponseWriter
+	handler := requestLoggerMiddleware(logger)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		received = w
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	handler.ServeHTTP(underlying, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	if received != underlying {
+		t.Fatalf("disabled request logger passed %T, want original %T", received, underlying)
 	}
 }

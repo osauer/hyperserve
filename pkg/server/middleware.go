@@ -18,6 +18,7 @@ independent of server configuration.
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -25,6 +26,8 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -52,6 +55,27 @@ const globalMiddlewareRoute = "*"
 type middlewareRegistry struct {
 	middleware   map[string]MiddlewareStack
 	sortedRoutes []string
+	frozen       atomic.Bool
+}
+
+// middlewareDispatcher delays compilation until the first request. That keeps
+// Handler construction compatible with middleware registered before serving,
+// while sync.Once makes the resulting request plan immutable.
+type middlewareDispatcher struct {
+	registry *middlewareRegistry
+	mux      *http.ServeMux
+	once     sync.Once
+	handler  http.Handler
+}
+
+// compiledMiddlewareNode is one prefix in the immutable dispatch tree. Its
+// middleware wraps the node exactly once; ServeHTTP selects the most-specific
+// matching child or falls through to the standard library mux.
+type compiledMiddlewareNode struct {
+	prefix   string
+	children []*compiledMiddlewareNode
+	fallback http.Handler
+	handler  http.Handler
 }
 
 // newMiddlewareRegistry creates a new registry with optional global middleware.
@@ -66,46 +90,64 @@ func newMiddlewareRegistry(globalMiddleware MiddlewareStack) *middlewareRegistry
 	return ret
 }
 
-// applyToMux returns an http.Handler that chains the global stack ("*") with
-// every route-specific stack whose key is a path-segment prefix of the
-// request path. "Path-segment prefix" means the key matches at a `/`
-// boundary: a key of `/api` matches `/api`, `/api/`, and `/api/foo`, but
-// not `/api2/foo` or `/apifoo`. The previous `strings.HasPrefix`-only
-// check made the latter two fire the `/api` middleware too — a real but
-// rare correctness bug, fixed here ahead of the v1.0 freeze.
-//
-// The route ordering (ascending length, ties alphabetical) is fixed at
-// Add() time so the request path does no sorting and allocates no key
-// slice. Only the per-middleware closures (intrinsic to the design)
-// allocate per request.
+// applyToMux returns a dispatcher that compiles middleware on its first request
+// and is backed by the standard library mux. Prefix matching remains
+// segment-aware: `/api` matches `/api/users`, not `/apiv2`.
 func (mwr *middlewareRegistry) applyToMux(mux *http.ServeMux) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := r.URL.Path
-		finalHandler := http.Handler(mux)
+	return &middlewareDispatcher{registry: mwr, mux: mux}
+}
 
-		// Walk routes from longest to shortest so deeper prefixes wrap
-		// closest to the mux. sortedRoutes is ascending, so we iterate in
-		// reverse; the inner stack also wraps in reverse so handler[0]
-		// is the outermost middleware in its stack.
-		for _, key := range slices.Backward(mwr.sortedRoutes) {
+func (mwr *middlewareRegistry) compile(mux *http.ServeMux) http.Handler {
+	mwr.frozen.Store(true)
+	root := &compiledMiddlewareNode{fallback: mux}
+	nodes := make([]*compiledMiddlewareNode, 0, len(mwr.sortedRoutes))
 
-			if !pathPrefixMatches(path, key) {
-				continue
-			}
-			stack := mwr.middleware[key]
-			for _, s := range slices.Backward(stack) {
-				finalHandler = s(finalHandler)
+	// Every node attaches to its nearest registered prefix. The resulting tree
+	// means a middleware factory is invoked once for its registration site, so
+	// state in standard third-party middleware is shared across child paths.
+	for _, prefix := range mwr.sortedRoutes {
+		parent := root
+		for _, candidate := range nodes {
+			if pathPrefixMatches(prefix, candidate.prefix) {
+				parent = candidate
 			}
 		}
 
-		// Global stack wraps everything (outermost).
-		global := mwr.middleware[globalMiddlewareRoute]
-		for _, g := range slices.Backward(global) {
-			finalHandler = g(finalHandler)
+		node := &compiledMiddlewareNode{
+			prefix:   prefix,
+			fallback: mux,
 		}
+		node.handler = applyMiddlewareStack(mwr.middleware[prefix], node)
+		parent.children = append(parent.children, node)
+		nodes = append(nodes, node)
+	}
 
-		finalHandler.ServeHTTP(w, r)
+	root.handler = applyMiddlewareStack(mwr.middleware[globalMiddlewareRoute], root)
+	return root.handler
+}
+
+func applyMiddlewareStack(stack MiddlewareStack, next http.Handler) http.Handler {
+	for _, middleware := range slices.Backward(stack) {
+		next = middleware(next)
+	}
+	return next
+}
+
+func (d *middlewareDispatcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	d.once.Do(func() {
+		d.handler = d.registry.compile(d.mux)
 	})
+	d.handler.ServeHTTP(w, r)
+}
+
+func (node *compiledMiddlewareNode) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	for _, child := range slices.Backward(node.children) {
+		if pathPrefixMatches(r.URL.Path, child.prefix) {
+			child.handler.ServeHTTP(w, r)
+			return
+		}
+	}
+	node.fallback.ServeHTTP(w, r)
 }
 
 // pathPrefixMatches reports whether `key` is a path-segment prefix of
@@ -149,6 +191,9 @@ func pathPrefixMatches(path, key string) bool {
 
 // Add registers a middleware stack for one internal route key.
 func (mwr *middlewareRegistry) Add(route string, middleware MiddlewareStack) {
+	if mwr.frozen.Load() {
+		panic("hyperserve: middleware registered after serving started")
+	}
 	if existing, exists := mwr.middleware[route]; exists {
 		// Append to existing middleware for this route
 		mwr.middleware[route] = append(existing, middleware...)
@@ -242,6 +287,13 @@ func RequestLoggerMiddleware(next http.Handler) http.Handler {
 func requestLoggerMiddleware(logger *slog.Logger) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Logger.Info uses context.Background internally, so use the same
+			// context for the fast-path decision to preserve custom-handler
+			// Enabled semantics.
+			if !logger.Enabled(context.Background(), slog.LevelInfo) {
+				next.ServeHTTP(w, r)
+				return
+			}
 			lrw := &loggingResponseWriter{w, http.StatusOK, 0}
 			ip, _, _ := net.SplitHostPort(r.RemoteAddr)
 			start := time.Now()

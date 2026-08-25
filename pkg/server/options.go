@@ -49,7 +49,7 @@ Example configuration file (options.json):
 	  "run_health_server": true,
 	  "server_header": "example-service",
 	  "debug_mode": false,
-	  "log_level": "INFO"
+	  "log_level": "WARN"
 	}
 */
 
@@ -174,7 +174,7 @@ var defaultOptions = Options{
 	// CSP defaults
 	CSPWebWorkerSupport: false, // Disabled by default - users must opt-in
 	// Logging defaults
-	LogLevel:  "INFO",
+	LogLevel:  "WARN",
 	DebugMode: false,
 	// Identification and banner output are opt-in for library consumers.
 	ServerHeader:  "",

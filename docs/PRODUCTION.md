@@ -367,7 +367,7 @@ required by default; endpoints are public until you wire something.
 
 ## Logging
 
-`log/slog` is the default. Plain text, stderr, INFO. For JSON in
+`log/slog` is the default. Plain text, stderr, WARN. For JSON in
 production:
 
 ```go

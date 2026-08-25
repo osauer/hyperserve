@@ -259,20 +259,20 @@ func (srv *Server) applyConfiguredLogLevel() {
 	if srv.customLogger {
 		return
 	}
-	level := slog.LevelInfo
+	level := slog.LevelWarn
 	if srv.options.DebugMode {
 		level = slog.LevelDebug
 	} else {
 		switch srv.options.LogLevel {
-		case "", "INFO":
+		case "", "WARN":
 		case "DEBUG":
 			level = slog.LevelDebug
-		case "WARN":
-			level = slog.LevelWarn
+		case "INFO":
+			level = slog.LevelInfo
 		case "ERROR":
 			level = slog.LevelError
 		default:
-			srv.logger.Warn("Unknown log level, using INFO", "level", srv.options.LogLevel)
+			srv.logger.Warn("Unknown log level, using WARN", "level", srv.options.LogLevel)
 		}
 	}
 	srv.logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
@@ -445,7 +445,10 @@ func (srv *Server) run(triggerCtx context.Context) error {
 	srv.deferred.ctx = lifecycleCtx
 	srv.deferred.cancel = lifecycleCancel
 
-	baseHandler := srv.middleware.applyToMux(srv.mux)
+	// Run is the explicit configuration boundary, so it can serve the immutable
+	// plan directly. Handler keeps a lazy wrapper because applications may call
+	// Handler before finishing registration, as long as they do so before serve.
+	baseHandler := srv.middleware.compile(srv.mux)
 	if srv.deferred.init != nil {
 		baseHandler = srv.bootstrapReadinessHandler(baseHandler)
 	}
@@ -604,7 +607,7 @@ func (srv *Server) tlsConfig() *tls.Config {
 
 // Use registers middleware for every request. Middleware is applied in the
 // order provided, with the first item outermost. Register middleware before
-// calling Run or serving Handler concurrently.
+// calling Run or serving Handler; registration after serving starts panics.
 func (srv *Server) Use(middleware ...Middleware) {
 	srv.middleware.Add(globalMiddlewareRoute, middleware)
 	srv.logger.Debug("Middleware registered", "scope", "global", "count", len(middleware))
@@ -612,7 +615,8 @@ func (srv *Server) Use(middleware ...Middleware) {
 
 // UsePrefix registers middleware for a URL path and its child paths at a
 // slash boundary. For example, "/api" matches "/api/users" but not "/apiv2".
-// Register middleware before calling Run or serving Handler concurrently.
+// Register middleware before calling Run or serving Handler; registration
+// after serving starts panics.
 func (srv *Server) UsePrefix(prefix string, middleware ...Middleware) {
 	srv.middleware.Add(prefix, middleware)
 	srv.logger.Debug("Middleware registered", "scope", prefix, "count", len(middleware))
@@ -1178,6 +1182,9 @@ func (srv *Server) hasRoute(pattern string) bool {
 //	    fmt.Fprintln(w, "OK")
 //	})
 
+// Handler returns an ordinary http.Handler. Middleware registration remains
+// open until the handler serves its first request, then its compiled plan and
+// the server's middleware configuration are frozen.
 func (srv *Server) Handler() http.Handler {
 	return srv.middleware.applyToMux(srv.mux)
 }
