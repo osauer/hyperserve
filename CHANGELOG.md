@@ -24,6 +24,31 @@ Entries tier by audience:
 Shape is enforced by `make changelog-lint RELEASE_VERSION=vX.Y.Z`; scaffold a
 new entry with `make changelog-stub RELEASE_VERSION=vX.Y.Z`.
 
+## [2.0.1] - 2026-08-25 07:41 CEST
+
+Generated projects now include the dependency checksums needed to build
+without modifying their module files.
+
+### What's new
+
+- `hyperserve-init` now creates a complete `go.sum`, so a fresh generated
+  project passes `go test -mod=readonly` immediately.
+
+### Fixed
+
+- Downloaded the generated project's full module graph during scaffolding
+  instead of asking the first build to repair missing HyperServe checksums.
+- Strengthened the release smoke gate to require a non-empty generated
+  `go.sum` before accepting a release candidate.
+
+### Verification
+
+- `go test ./...`
+- `make check`
+- `make test-race`
+- `make release-smoke RELEASE_VERSION=v2.0.1`
+- fresh public-proxy scaffold generation and `go test -mod=readonly ./...`
+
 ## [2.0.0] - 2026-08-25 07:37 CEST
 
 HyperServe v2 combines the planned v1.7 cleanup with the breaking API changes

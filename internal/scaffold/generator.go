@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"text/template"
@@ -18,9 +19,10 @@ import (
 // latestStableVersion is intentionally advanced with each release candidate:
 // generated projects must depend on the version whose docs and examples they
 // were created from, rather than a pseudo-version of the local checkout.
-const latestStableVersion = "v2.0.0"
+const latestStableVersion = "v2.0.1"
 
-// Generate scaffolds a new HyperServe project and returns the absolute output directory.
+// Generate scaffolds a new HyperServe project, downloads its complete module
+// graph to create go.sum, and returns the absolute output directory.
 func Generate(opts Options) (string, error) {
 	if err := opts.normalize(); err != nil {
 		return "", err
@@ -60,8 +62,26 @@ func Generate(opts Options) (string, error) {
 	if err := renderTemplates(opts.OutputDir, data); err != nil {
 		return "", err
 	}
+	if err := downloadModuleGraph(opts.OutputDir); err != nil {
+		return "", err
+	}
 
 	return opts.OutputDir, nil
+}
+
+func downloadModuleGraph(dest string) error {
+	cmd := exec.Command("go", "mod", "download", "all")
+	cmd.Dir = dest
+	cmd.Env = append(os.Environ(), "GOWORK=off")
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		return nil
+	}
+	detail := strings.TrimSpace(string(output))
+	if detail == "" {
+		return fmt.Errorf("download generated module graph: %w", err)
+	}
+	return fmt.Errorf("download generated module graph: %w: %s", err, detail)
 }
 
 type templateData struct {

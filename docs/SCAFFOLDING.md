@@ -1,8 +1,11 @@
 # HyperServe Scaffolding
 
 `hyperserve-init` generates a runnable HyperServe service: `cmd/server`, a config
-loader, security headers + rate limit middleware applied per route, MCP enabled by
-default, and a Distroless Dockerfile. The output compiles and `go test ./...` passes.
+loader, security headers and rate-limit middleware applied per route, optional
+MCP, and a Distroless Dockerfile. The output compiles and `go test ./...` passes.
+Generation downloads the complete module graph and writes `go.sum`; it therefore
+needs network access unless the modules are already cached or a local replacement
+is used.
 
 ## Install the CLI
 
@@ -50,7 +53,9 @@ go run ./cmd/server
 ## Testing the Scaffold
 
 - `go test ./internal/scaffold` runs the generator integration test, which verifies the CLI builds a compilable project and that `go test ./...` succeeds inside the scaffolded tree.
-- The test suite uses `--local-replace` to avoid network fetches; you can mirror that locally via `hyperserve-init --local-replace $(pwd)` when running from the repository root.
+- The test suite uses `--local-replace` to avoid fetching HyperServe itself; you
+  can mirror that locally via `hyperserve-init --local-replace $(pwd)` when
+  running from the repository root.
 
 ## Next Templates
 

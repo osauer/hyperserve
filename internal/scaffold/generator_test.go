@@ -29,6 +29,7 @@ func TestGenerateCreatesProject(t *testing.T) {
 	}
 
 	assertExists(t, dest, "go.mod")
+	assertExists(t, dest, "go.sum")
 	assertExists(t, dest, "cmd/server/main.go")
 	assertExists(t, dest, "internal/app/server.go")
 	assertExists(t, dest, "configs/default.json")
@@ -51,6 +52,14 @@ func TestGenerateCreatesProject(t *testing.T) {
 	}
 	if !strings.Contains(content, "go 1.27") {
 		t.Fatalf("go.mod missing Go 1.27 floor: %s", content)
+	}
+
+	goSum, err := os.ReadFile(filepath.Join(dest, "go.sum"))
+	if err != nil {
+		t.Fatalf("read go.sum: %v", err)
+	}
+	if !strings.Contains(string(goSum), "golang.org/x/time v0.15.0") {
+		t.Fatalf("go.sum missing runtime dependency checksum: %s", goSum)
 	}
 
 	dockerfile, err := os.ReadFile(filepath.Join(dest, "Dockerfile"))

@@ -113,6 +113,7 @@ release-smoke: ## Run the full local release gate before tagging
 		trap 'rm -rf "$$tmp"' EXIT; \
 		go run ./cmd/hyperserve-init --module example.com/hyperserve-release-smoke --out "$$tmp/app" --local-replace "$$(pwd)" >/dev/null; \
 		grep -Fq 'github.com/osauer/hyperserve/v2 $(RELEASE_VERSION)' "$$tmp/app/go.mod" || { echo "release-smoke: scaffold does not require $(RELEASE_VERSION)" >&2; exit 1; }; \
+		test -s "$$tmp/app/go.sum" || { echo "release-smoke: scaffold did not create go.sum" >&2; exit 1; }; \
 		grep -Fq 'go 1.27' "$$tmp/app/go.mod" || { echo "release-smoke: scaffold does not use Go 1.27" >&2; exit 1; }; \
 		grep -Fq 'FROM golang:1.27 AS builder' "$$tmp/app/Dockerfile" || { echo "release-smoke: scaffold Dockerfile does not use Go 1.27" >&2; exit 1; }; \
 		(cd "$$tmp/app" && GOWORK=off go test -mod=readonly ./...)

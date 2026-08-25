@@ -69,6 +69,5 @@ func main() {
 	fmt.Printf("✅ Generated HyperServe project at %s\n", rel)
 	fmt.Println("Next steps:")
 	fmt.Printf("  cd %s\n", rel)
-	fmt.Println("  go mod tidy")
 	fmt.Println("  go run ./cmd/server")
 }
