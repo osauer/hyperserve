@@ -1,6 +1,6 @@
-HyperServe is a small, library-first Go HTTP framework with in-process MCP for
-agentic workloads: production API servers, SSE transports, WebSocket flows, and
-assistant-inspectable services without a sidecar.
+HyperServe is a Go HTTP server library with in-process MCP for production APIs,
+SSE transports, WebSocket flows, and assistant-inspectable services without a
+sidecar.
 
 ## What's new in __VERSION__
 
@@ -17,14 +17,16 @@ Library imports stay under:
 
 ~~~go
 github.com/osauer/hyperserve/v2/pkg/server
+github.com/osauer/hyperserve/v2/pkg/auth
 github.com/osauer/hyperserve/v2/pkg/mcp
 github.com/osauer/hyperserve/v2/pkg/jsonrpc
 github.com/osauer/hyperserve/v2/pkg/websocket
 ~~~
 
-See the [README](https://github.com/osauer/hyperserve#readme), [API stability
-policy](https://github.com/osauer/hyperserve/blob/main/docs/API_STABILITY.md),
-and [production guide](https://github.com/osauer/hyperserve/blob/main/docs/PRODUCTION.md)
+See the [README](https://github.com/osauer/hyperserve/tree/__VERSION__#readme),
+[v2 migration guide](https://github.com/osauer/hyperserve/blob/__VERSION__/docs/MIGRATING_V2.md),
+[API stability policy](https://github.com/osauer/hyperserve/blob/__VERSION__/docs/API_STABILITY.md),
+and [production guide](https://github.com/osauer/hyperserve/blob/__VERSION__/docs/PRODUCTION.md)
 for the supported v2 surface.
 
 ---

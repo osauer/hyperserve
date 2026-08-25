@@ -24,7 +24,7 @@ Entries tier by audience:
 Shape is enforced by `make changelog-lint RELEASE_VERSION=vX.Y.Z`; scaffold a
 new entry with `make changelog-stub RELEASE_VERSION=vX.Y.Z`.
 
-## [2.0.0] - Unreleased
+## [2.0.0] - 2026-08-25 07:37 CEST
 
 HyperServe v2 combines the planned v1.7 cleanup with the breaking API changes
 that require a new Go module path, so applications migrate once rather than
@@ -71,7 +71,7 @@ through a temporary compatibility layer.
   `HandleStatic`; raw `Mux`, `DefaultMiddleware`, and `EnsureTrailingSlash`
   are also removed in favor of `Handler`, automatic defaults, and standard
   library path handling. Direct replacements are documented in
-  [Migrating to v2](./docs/MIGRATING_V2.md).
+  [Migrating to v2](https://github.com/osauer/hyperserve/blob/v2.0.0/docs/MIGRATING_V2.md).
 
 ### Fixed
 
@@ -86,6 +86,7 @@ through a temporary compatibility layer.
 - `make check`
 - `make test-race`
 - `make fuzz-smoke`
+- `make release-smoke RELEASE_VERSION=v2.0.0`
 
 ## [1.6.1] - 2026-08-24 11:38 CEST
 
