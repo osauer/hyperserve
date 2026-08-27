@@ -10,7 +10,7 @@ LDFLAGS := -ldflags "-X github.com/osauer/hyperserve/v2/pkg/server.Version=$(VER
 MAIN_BRANCH ?= main
 RELEASE_TEST_JOBS ?= 2
 
-.PHONY: build install test test-race fuzz-smoke benchmark-load clean version help check check-docs check-examples check-canonical-examples check-compatibility-examples mcp-conformance vet fmt modernize modernize-check staticcheck govulncheck govulncheck-tools changelog-lint changelog-stub release-notes release-publish release-smoke release
+.PHONY: build install test test-race fuzz-smoke benchmark-load clean version help check check-docs check-examples check-canonical-examples check-compatibility-examples mcp-conformance vet fmt modernize modernize-check staticcheck govulncheck govulncheck-tools changelog-lint changelog-stub release-notes release-ci release-gate-test release-publish release-smoke release
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets:\n"} \
@@ -83,6 +83,13 @@ release-notes: ## Render GitHub Release notes from CHANGELOG.md for RELEASE_VERS
 	@$(MAKE) --no-print-directory changelog-lint RELEASE_VERSION=$(RELEASE_VERSION) >&2
 	@RELEASE_VERSION=$(RELEASE_VERSION) ./scripts/release-notes.sh
 
+release-ci: ## Wait for and verify the push CI run for RELEASE_SHA (defaults to HEAD)
+	@sha="$${RELEASE_SHA:-$$(git rev-parse HEAD)}"; \
+		RELEASE_SHA="$$sha" ./scripts/wait-exact-sha-ci.sh
+
+release-gate-test: ## Exercise the exact-SHA CI gate with deterministic fixtures
+	@./scripts/wait-exact-sha-ci_test.sh
+
 release-publish: ## Create GitHub Release page from CHANGELOG.md — RELEASE_VERSION required
 	@if [ -z "$(RELEASE_VERSION)" ]; then \
 		echo "release-publish: RELEASE_VERSION is required, e.g. make release-publish RELEASE_VERSION=v1.2.3" >&2; \
@@ -94,6 +101,18 @@ release-publish: ## Create GitHub Release page from CHANGELOG.md — RELEASE_VER
 		echo "release-publish: tag $(RELEASE_VERSION) is not on origin; run make release or push the tag first" >&2; \
 		exit 1; \
 	fi
+	@remote_sha=$$(git ls-remote --tags origin 'refs/tags/$(RELEASE_VERSION)^{}' | awk 'NR == 1 { print $$1 }'); \
+	if [ -z "$$remote_sha" ]; then \
+		echo "release-publish: origin/$(RELEASE_VERSION) is not an annotated tag" >&2; \
+		exit 1; \
+	fi; \
+	local_sha=$$(git rev-list -n 1 $(RELEASE_VERSION) 2>/dev/null || true); \
+	if [ -z "$$local_sha" ] || [ "$$local_sha" != "$$remote_sha" ]; then \
+		echo "release-publish: local and remote $(RELEASE_VERSION) do not resolve to the same commit" >&2; \
+		echo "                 fetch and verify the immutable tag before recovery" >&2; \
+		exit 1; \
+	fi; \
+	$(MAKE) --no-print-directory release-ci RELEASE_SHA="$$remote_sha"
 	@notes=$$(mktemp -t hyperserve-release-notes.XXXXXX) && \
 		trap 'rm -f $$notes' EXIT && \
 		RELEASE_VERSION=$(RELEASE_VERSION) ./scripts/release-notes.sh > "$$notes" && \
@@ -155,6 +174,8 @@ release: ## Tag, push, and publish a release: make release RELEASE_VERSION=vX.Y.
 	fi
 	$(MAKE) changelog-lint RELEASE_VERSION=$(RELEASE_VERSION)
 	$(MAKE) release-smoke RELEASE_VERSION=$(RELEASE_VERSION)
+	@sha=$$(git rev-parse HEAD); \
+		$(MAKE) --no-print-directory release-ci RELEASE_SHA="$$sha"
 	@msg="$${MESSAGE:-HyperServe $(RELEASE_VERSION)}"; \
 		git tag -a $(RELEASE_VERSION) -m "$$msg"
 	git push origin $(MAIN_BRANCH)
@@ -173,7 +194,7 @@ release: ## Tag, push, and publish a release: make release RELEASE_VERSION=vX.Y.
 # tells you the exact command if missing. Modernize is different — it's
 # pinned via the `tool` directive in tools/go.mod and invoked from that module, so it
 # auto-downloads on first use and stays reproducible across machines/CI.
-check: vet staticcheck govulncheck govulncheck-tools modernize-check check-docs check-examples check-canonical-examples check-compatibility-examples mcp-conformance ## gofmt + vet + staticcheck + govulncheck + modernize-check + docs/example gates
+check: vet staticcheck govulncheck govulncheck-tools modernize-check check-docs check-examples check-canonical-examples check-compatibility-examples mcp-conformance release-gate-test ## gofmt + vet + staticcheck + govulncheck + modernize-check + docs/example gates
 	@# gofmt over tracked + untracked-but-not-gitignored .go files. Same
 	@# pattern as ibkr — `git ls-files` respects .gitignore so this skips
 	@# /dist, agent worktrees, etc. The intermediate exists-check filters
