@@ -10,7 +10,7 @@ import (
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	hyperservemcp "github.com/osauer/hyperserve/v2/pkg/mcp"
+	hyperservemcp "github.com/osauer/hyperserve/v2/mcp"
 )
 
 type echoTool struct{}

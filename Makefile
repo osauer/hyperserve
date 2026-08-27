@@ -4,8 +4,8 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 BUILD_HASH ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_TIME ?= $(shell date -u +"%Y-%m-%d_%H:%M:%S_UTC" || echo "unknown")
 
-# Stamped into pkg/server.Version/BuildHash/BuildTime via -X.
-LDFLAGS := -ldflags "-X github.com/osauer/hyperserve/v2/pkg/server.Version=$(VERSION) -X github.com/osauer/hyperserve/v2/pkg/server.BuildHash=$(BUILD_HASH) -X github.com/osauer/hyperserve/v2/pkg/server.BuildTime=$(BUILD_TIME)"
+# Stamped into the root package's Version/BuildHash/BuildTime via -X.
+LDFLAGS := -ldflags "-X github.com/osauer/hyperserve/v2.Version=$(VERSION) -X github.com/osauer/hyperserve/v2.BuildHash=$(BUILD_HASH) -X github.com/osauer/hyperserve/v2.BuildTime=$(BUILD_TIME)"
 
 MAIN_BRANCH ?= main
 RELEASE_TEST_JOBS ?= 2
@@ -46,11 +46,11 @@ test-race: ## Run the full test suite under the race detector.
 # one will surface a discovered crash as a non-zero make exit.
 fuzz-smoke: ## Short fuzz pass over every Fuzz* target (15s each).
 	@set -e; \
-	go test -run=^$$ -fuzz=FuzzJSONRPCParse        -fuzztime=15s ./pkg/jsonrpc; \
-	go test -run=^$$ -fuzz=FuzzMCPStreamableHTTP  -fuzztime=15s ./pkg/mcp; \
-	go test -run=^$$ -fuzz=FuzzWebSocketFrameParse -fuzztime=15s ./pkg/websocket; \
-	go test -run=^$$ -fuzz=FuzzCORSOriginMatch     -fuzztime=15s ./pkg/server; \
-	go test -run=^$$ -fuzz=FuzzValidateEmail       -fuzztime=15s ./pkg/server
+	go test -run=^$$ -fuzz=FuzzJSONRPCParse         -fuzztime=15s ./jsonrpc; \
+	go test -run=^$$ -fuzz=FuzzMCPStreamableHTTP   -fuzztime=15s ./mcp; \
+	go test -run=^$$ -fuzz=FuzzWebSocketFrameParse -fuzztime=15s ./websocket; \
+	go test -run=^$$ -fuzz=FuzzCORSOriginMatch     -fuzztime=15s .; \
+	go test -run=^$$ -fuzz=FuzzValidateEmail       -fuzztime=15s .
 
 benchmark-load: ## Run reproducible loopback load profiles (BENCH_* variables tune the workload).
 	./benchmarks/run_benchmarks.sh

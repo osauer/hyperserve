@@ -1,0 +1,146 @@
+package builtin
+
+import (
+	"log/slog"
+
+	"github.com/osauer/hyperserve/v2"
+	"github.com/osauer/hyperserve/v2/mcp"
+)
+
+// init wires the builtin presets into the root package's auto-registration flow.
+// Importing this package, commonly as a blank import, activates the hooks that
+// hyperserve.New uses for MCPDev and MCPObservability presets.
+func init() {
+	hyperserve.SetBuiltinPresetHooks(
+		registerBuiltinTools,
+		registerStandardResources,
+		registerObservabilityResources,
+		registerDeveloperPreset,
+	)
+}
+
+// registerBuiltinTools registers the general-purpose tools (calculator plus
+// sandboxed file tools when MCPFileToolRoot is configured) under the
+// "hyperserve" namespace. File tools require a non-empty
+// Options.MCPFileToolRoot — if unset, they are skipped with a warning rather
+// than silently registered against the host filesystem.
+//
+// The http_request tool that previously shipped here was removed: it allowed
+// any unauthenticated MCP client to make outbound HTTP calls from the server
+// process (SSRF / cloud metadata exfil). If you need outbound HTTP, register
+// a domain-allowlisted tool from your own code.
+func registerBuiltinTools(srv *hyperserve.Server) {
+	h := srv.MCPHandler()
+	if h == nil {
+		return
+	}
+	options := srv.Options()
+	if options.MCPFileToolRoot != "" {
+		if fileReadTool, err := NewFileReadTool(options.MCPFileToolRoot); err != nil {
+			logger.Warn("Failed to create file read tool", "error", err)
+		} else {
+			h.RegisterToolInNamespace(fileReadTool, "hyperserve")
+		}
+		if listDirTool, err := NewListDirectoryTool(options.MCPFileToolRoot); err != nil {
+			logger.Warn("Failed to create list directory tool", "error", err)
+		} else {
+			h.RegisterToolInNamespace(listDirTool, "hyperserve")
+		}
+	} else {
+		logger.Warn("Builtin file tools (read_file, list_directory) not registered: no sandbox root configured",
+			"fix", "set WithMCPFileToolRoot(\"/path/to/safe/dir\") to enable")
+	}
+	h.RegisterToolInNamespace(NewCalculatorTool(), "hyperserve")
+}
+
+// registerStandardResources installs the standard built-in resources:
+// generic config, metrics, system runtime info, and a recent-log buffer.
+func registerStandardResources(srv *hyperserve.Server) {
+	h := srv.MCPHandler()
+	if h == nil {
+		return
+	}
+	options := srv.Options()
+	h.RegisterResource(NewConfigResource(options))
+	h.RegisterResource(NewMetricsResource(srv))
+	h.RegisterResource(NewSystemResource())
+	logResource := NewServerLogResource(options.MCPLogResourceSize)
+	h.RegisterResource(logResource)
+	wireLogResource(h, logResource)
+}
+
+// registerObservability wires the minimal "observability" preset onto an MCP
+// handler:
+//   - config://server/current
+//   - health://server/status
+//   - logs://server/recent
+//
+// The log resource wraps this MCP handler's logger so /recent reflects MCP
+// activity without capturing unrelated application logs. MCPObservability is
+// a production preset, so this is not gated on DebugMode.
+func registerObservability(srv *hyperserve.Server, handler *mcp.Handler) {
+	if handler == nil {
+		logger.Warn("Cannot register observability MCP resources: MCP handler not initialized")
+		return
+	}
+
+	handler.RegisterResource(NewServerConfigResource(srv))
+	handler.RegisterResource(NewServerHealthResource(srv))
+
+	logResource := NewServerLogResource(srv.Options().MCPLogResourceSize)
+	handler.RegisterResource(logResource)
+	wireLogResource(handler, logResource)
+
+	handler.Logger().Info("Observability MCP resources registered",
+		"resources", []string{"config://server/current", "health://server/status", "logs://server/recent"})
+}
+
+func registerObservabilityResources(srv *hyperserve.Server) {
+	registerObservability(srv, srv.MCPHandler())
+}
+
+// registerDeveloper wires the developer preset onto an MCP handler:
+//   - tools: server_control, route_inspector, dev_guide
+//   - resources: logs://server/stream, routes://server/all
+//
+// The request_debugger tool that previously shipped here was removed: it
+// captured every request's headers (including Authorization, Cookie, API
+// keys) into a process-wide store readable by any MCP caller. If you need
+// request inspection in development, wire a per-route handler that scrubs
+// credentials before logging.
+func registerDeveloper(srv *hyperserve.Server, handler *mcp.Handler) {
+	if handler == nil {
+		logger.Warn("Cannot register developer MCP tools: MCP handler not initialized")
+		return
+	}
+
+	handler.RegisterToolInNamespace(NewServerControlTool(srv), "hyperserve")
+	handler.RegisterToolInNamespace(NewRouteInspectorTool(srv), "hyperserve")
+	handler.RegisterToolInNamespace(NewDevGuideTool(srv), "hyperserve")
+
+	logResource := NewServerLogResource(1000)
+	handler.RegisterResource(&StreamingLogResource{ServerLogResource: logResource})
+	wireLogResource(handler, logResource)
+	handler.RegisterResource(NewRouteListResource(srv))
+
+	handler.Logger().Info("Developer MCP tools registered",
+		"tools", []string{
+			"mcp__hyperserve__server_control",
+			"mcp__hyperserve__route_inspector",
+			"mcp__hyperserve__dev_guide",
+		},
+		"resources", []string{"logs://server/stream", "routes://server/all"},
+	)
+}
+
+func registerDeveloperPreset(srv *hyperserve.Server) {
+	registerDeveloper(srv, srv.MCPHandler())
+}
+
+func wireLogResource(handler *mcp.Handler, logResource *ServerLogResource) {
+	if handler == nil || logResource == nil {
+		return
+	}
+	logResource.handler = handler.Logger().Handler()
+	handler.SetLogger(slog.New(logResource))
+}
