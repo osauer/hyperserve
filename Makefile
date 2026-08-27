@@ -178,7 +178,7 @@ release: ## Tag, push, and publish a release: make release RELEASE_VERSION=vX.Y.
 		$(MAKE) --no-print-directory release-ci RELEASE_SHA="$$sha"
 	@msg="$${MESSAGE:-HyperServe $(RELEASE_VERSION)}"; \
 		git tag -a $(RELEASE_VERSION) -m "$$msg"
-	git push origin $(MAIN_BRANCH)
+	git push origin HEAD:$(MAIN_BRANCH)
 	git push origin $(RELEASE_VERSION)
 	@msg="$${MESSAGE:-HyperServe $(RELEASE_VERSION)}"; \
 		$(MAKE) release-publish RELEASE_VERSION=$(RELEASE_VERSION) MESSAGE="$$msg"
