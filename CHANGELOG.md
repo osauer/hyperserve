@@ -1,9 +1,11 @@
 # Changelog
 
-All notable changes to this project are documented here. HyperServe adheres to
-[Semantic Versioning](https://semver.org/spec/v2.0.0.html) from the v1 line
-forward, and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
-categories (Added / Changed / Deprecated / Removed / Fixed / Security).
+All notable changes to this project are documented here. HyperServe normally
+follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The dated
+v2.1.0 entry records one explicitly controlled in-place compatibility reset;
+later breaking changes again require a new major module path. Release entries
+follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories
+(Added / Changed / Deprecated / Removed / Fixed / Security).
 
 Entries tier by audience:
 
@@ -23,6 +25,68 @@ Entries tier by audience:
 
 Shape is enforced by `make changelog-lint RELEASE_VERSION=vX.Y.Z`; scaffold a
 new entry with `make changelog-stub RELEASE_VERSION=vX.Y.Z`.
+
+## [2.1.0] - 2026-08-27 19:58 CEST
+
+HyperServe now has one canonical branded root API, concern-specific public
+packages, and an application-owned rate-limit gate. This is a controlled
+breaking reset inside the existing `/v2` module path; read the v2.1 migration
+guide before upgrading, or pin v2.0.3 to roll back.
+
+### What's new
+
+- **Breaking (Go library):** move the central `Server` to
+  `github.com/osauer/hyperserve/v2`, rename its constructor to `New`, and move
+  every public concern package out of `pkg/` without compatibility facades.
+- Replace server-owned throttling with the bounded standalone `ratelimit`
+  middleware, including explicit transport-peer identity and opt-in trusted
+  `X-Forwarded-For` processing.
+- Require the exact pushed candidate SHA and every required GitHub Actions job
+  to succeed before release tagging or publication.
+
+### Added
+
+- Added `ratelimit.New(Config)`, finite client storage, opportunistic expiry,
+  shared-or-isolated quota namespaces, schedule-derived retry headers, and
+  `TrustedProxyClientKey` for validated proxy ranges.
+- Added the v2.1 migration guide, ADR-0014, canonical-package documentation,
+  current-authority doc checks, and deterministic release-gate fixtures.
+
+### Changed
+
+- Moved `auth`, `jsonrpc`, `mcp`, `mcp/builtin`, and `websocket` to root-level
+  import paths while preserving the cycle-free MCP builtin hook boundary.
+- Updated every current example, benchmark, generated project, package comment,
+  and release-facing document to the canonical API. Generated applications now
+  construct and mount their own rate-limit gate.
+- Changed the scaffold's canonical application-owned burst variable to
+  `HS_RATE_BURST`; present `HS_BURST_LIMIT` input fails startup with migration
+  guidance.
+
+### Removed
+
+- Removed `NewServer`, all public `pkg/...` packages, `RateLimit`,
+  `WithRateLimit`, `RateLimitMiddleware`, `ClientLimiterCount`, server-owned
+  limiter state, and the limiter cleanup goroutine.
+
+### Fixed
+
+- Retired `rate_limit`, `burst`, `HS_RATE_LIMIT`, and `HS_BURST_LIMIT` server
+  configuration now fails visibly instead of silently disabling throttling.
+- Corrected the MCP basic example so its configured limit is a real middleware
+  gate in front of `/mcp` rather than inert values.
+
+### Verification
+
+- canonical package graph and stale-surface scans
+- `go test ./...`
+- `go test -race ./...`
+- `go test -race ./ratelimit`
+- standalone authentication example with `GOWORK=off -mod=readonly`
+- fresh generated project with `GOWORK=off -mod=readonly`
+- `make check`, `make fuzz-smoke`, MCP conformance, and v2.1.0 release smoke
+- exact-candidate Canary race/check/test witness
+- exact-SHA GitHub Actions push run before tag creation
 
 ## [2.0.3] - 2026-08-27 08:38 CEST
 
