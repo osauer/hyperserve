@@ -242,10 +242,17 @@ example](./examples/configuration/) covers the precedence rules.
 Browser security headers are opt-in:
 
 ```go
-// Browser headers apply to every route. TLS, sessions, and authorization
-// remain separate application decisions.
+// Build browser headers from this server's configuration, then apply them to
+// every route. TLS, sessions, and authorization remain separate decisions.
 srv.Use(server.SecureWeb(srv.Options()))
 ```
+
+Here, `server` is the imported HyperServe package and `srv` is the configured
+`*server.Server` created by `server.NewServer`. `SecureWeb` accepts the
+defensive snapshot returned by `srv.Options()` because its headers depend on
+that server's TLS, CSP, CORS, and optional `Server` header settings. Keeping the
+snapshot explicit also leaves the result as ordinary, reusable `net/http`
+middleware rather than coupling it to mutable server state.
 
 Authentication composes from small, named pieces:
 
@@ -261,7 +268,8 @@ policy for one path tree, such as `/api` and its descendants.
 
 `SecureWeb` emits a Content Security Policy and other defensive browser
 headers, applies configured CORS policy, and emits HSTS when HyperServe serves
-TLS. `auth.Require` validates credentials and stores an issuer/subject
+TLS. Construct it after passing all options to `server.NewServer`, as shown
+above. `auth.Require` validates credentials and stores an issuer/subject
 principal on the request. It does not define users, roles, sessions, login
 redirects, or resource authorization. The
 [federated authentication example](./examples/auth/) connects that seam to an

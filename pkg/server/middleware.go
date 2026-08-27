@@ -242,6 +242,8 @@ func defaultMiddleware(server *Server) MiddlewareStack {
 }
 
 // SecureWeb returns security-header middleware for browser-facing routes.
+// Pass the Options snapshot from the Server whose TLS, CSP, CORS, and optional
+// Server header policy should be applied.
 func SecureWeb(options Options) Middleware {
 	return HeadersMiddleware(options)
 }

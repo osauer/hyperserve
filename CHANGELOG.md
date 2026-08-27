@@ -24,6 +24,44 @@ Entries tier by audience:
 Shape is enforced by `make changelog-lint RELEASE_VERSION=vX.Y.Z`; scaffold a
 new entry with `make changelog-stub RELEASE_VERSION=vX.Y.Z`.
 
+## [2.0.2] - 2026-08-27 07:13 CEST
+
+Request handling now compiles configured middleware once before serving, and
+the default logger stays quiet unless an application opts into INFO or DEBUG.
+
+### What's new
+
+- Middleware-heavy routes perform less request-time work and allocate fewer
+  objects without changing standard `net/http` handler or routing APIs.
+- New servers and generated projects now default to WARN logging; INFO and
+  DEBUG request logs remain explicit opt-ins.
+
+### Changed
+
+- Compile global and path-prefix middleware into an immutable dispatch plan,
+  preserving registration order, shared prefix state, and path-boundary
+  matching while invoking each middleware constructor once.
+- Freeze middleware registration when the first request reaches `Handler()`;
+  registration after `Handler()` construction but before serving remains
+  supported, while registration after serving begins fails immediately.
+- Skip response capture, address parsing, and timing when INFO request logging
+  is disabled.
+- Generated projects now start on HyperServe v2.0.2.
+
+### Documentation
+
+- Clarified why `SecureWeb` takes a server option snapshot and distinguished
+  the imported `server` package from a configured `srv` instance.
+
+### Verification
+
+- `go test ./...`
+- `make check`
+- `make test-race`
+- `make release-smoke RELEASE_VERSION=v2.0.2`
+- focused middleware benchmarks and repeated loopback load profiles
+- exact-SHA, race-enabled, read-only Canary consumer witness
+
 ## [2.0.1] - 2026-08-25 07:41 CEST
 
 Generated projects now include the dependency checksums needed to build
