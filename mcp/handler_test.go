@@ -55,16 +55,16 @@ func TestHandlerToolPanicPreservesIdentity(t *testing.T) {
 		{
 			name: "plain Tool",
 			tool: func(value any) Tool {
-				return &panickingTool{stubTool: stubTool{name: "boom"}, panicValue: value}
+				return &panickingTool{name: "boom", panicValue: value}
 			},
 		},
 		{
 			name: "ToolWithContext",
 			tool: func(value any) Tool {
-				return &contextPanickingTool{panickingTool: panickingTool{
-					stubTool:   stubTool{name: "boom"},
+				return &contextPanickingTool{
+					name:       "boom",
 					panicValue: value,
-				}}
+				}
 			},
 		},
 	}

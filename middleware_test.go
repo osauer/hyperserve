@@ -23,7 +23,6 @@ func TestUsePrefixRejectsPathsThatCannotMatchURLPath(t *testing.T) {
 		"/api//admin",
 		"/api%2Fadmin",
 	} {
-		prefix := prefix
 		t.Run(prefix, func(t *testing.T) {
 			t.Parallel()
 			defer func() {

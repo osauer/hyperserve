@@ -93,7 +93,7 @@ func markdownAnchors(t *testing.T, path string) map[string]bool {
 	seen := make(map[string]int)
 	inFence := false
 	fence := ""
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
 			marker := trimmed[:3]
