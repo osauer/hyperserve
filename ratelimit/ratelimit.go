@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -310,10 +311,7 @@ func writeTooManyRequests(w http.ResponseWriter, retryAfter time.Duration, messa
 }
 
 func retryAfterSeconds(delay time.Duration) string {
-	seconds := int64(math.Ceil(delay.Seconds()))
-	if seconds < 1 {
-		seconds = 1
-	}
+	seconds := max(int64(math.Ceil(delay.Seconds())), 1)
 	return strconv.FormatInt(seconds, 10)
 }
 
@@ -369,9 +367,9 @@ func TrustedProxyClientKey(proxyRanges []netip.Prefix) (KeyFunc, error) {
 		if err != nil {
 			return "", err
 		}
-		for i := len(hops) - 1; i >= 0; i-- {
-			if !addressInPrefixes(hops[i], trusted) {
-				return hops[i].String(), nil
+		for _, hop := range slices.Backward(hops) {
+			if !addressInPrefixes(hop, trusted) {
+				return hop.String(), nil
 			}
 		}
 		return "", errors.New("ratelimit: X-Forwarded-For contains no untrusted client hop")
@@ -399,7 +397,7 @@ func normalizeProxyRanges(proxyRanges []netip.Prefix) ([]netip.Prefix, error) {
 func parseForwardedFor(values []string) ([]netip.Addr, error) {
 	hops := make([]netip.Addr, 0, len(values))
 	for _, value := range values {
-		for _, rawHop := range strings.Split(value, ",") {
+		for rawHop := range strings.SplitSeq(value, ",") {
 			if len(hops) == maxForwardedForHops {
 				return nil, fmt.Errorf("ratelimit: X-Forwarded-For exceeds %d hops", maxForwardedForHops)
 			}

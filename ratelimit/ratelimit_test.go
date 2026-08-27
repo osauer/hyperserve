@@ -575,7 +575,7 @@ func TestConcurrentQuotaDecisionsAreAtomic(t *testing.T) {
 	start := make(chan struct{})
 	var workers sync.WaitGroup
 	workers.Add(requests)
-	for i := 0; i < requests; i++ {
+	for i := range requests {
 		go func(port int) {
 			defer workers.Done()
 			<-start
@@ -619,7 +619,7 @@ func TestConcurrentCapacityRemainsBounded(t *testing.T) {
 	start := make(chan struct{})
 	var workers sync.WaitGroup
 	workers.Add(requests)
-	for i := 0; i < requests; i++ {
+	for i := range requests {
 		go func(client int) {
 			defer workers.Done()
 			<-start

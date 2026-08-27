@@ -54,7 +54,7 @@ func TestAPIRateLimitIsPrefixScoped(t *testing.T) {
 	}
 	handler := app.Handler()
 
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		request := httptest.NewRequest(http.MethodGet, "/api/data", nil)
 		recorder := httptest.NewRecorder()
 		handler.ServeHTTP(recorder, request)

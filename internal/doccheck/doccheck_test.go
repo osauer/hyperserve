@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -203,13 +204,7 @@ func TestHistoricalAuthorityExemptions(t *testing.T) {
 		t.Error("ADR-0014 establishes the current architecture and must be scanned")
 	}
 
-	foundCurrentADR := false
-	for _, relative := range currentAuthorityFiles(t, repoRoot(t)) {
-		if relative == "docs/0014-root-package-and-concern-subpackages.md" {
-			foundCurrentADR = true
-			break
-		}
-	}
+	foundCurrentADR := slices.Contains(currentAuthorityFiles(t, repoRoot(t)), "docs/0014-root-package-and-concern-subpackages.md")
 	if !foundCurrentADR {
 		t.Error("ADR-0014 is not included in current-authority scanning")
 	}
