@@ -1,11 +1,11 @@
 // Package validate implements the tag-driven struct validator used by
-// pkg/server (HTTP request binding) and pkg/mcp (typed-tool argument
-// binding). It lives in internal/ so both packages can import it without
-// creating a cycle between pkg/server and pkg/mcp.
+// the root hyperserve package (HTTP request binding) and mcp (typed-tool
+// argument binding). It lives in internal/ so both packages can import it
+// without creating a cycle between hyperserve and mcp.
 //
 // The exported surface — Validate, ValidationError, FieldError — is
-// re-exposed by pkg/server via type aliases for callers that consume the
-// validator through the public server API.
+// re-exposed by the root package via type aliases for callers that consume
+// the validator through HyperServe's public API.
 //
 // Supported `validate` tag verbs:
 //

@@ -24,28 +24,28 @@ import (
 	"os/signal"
 	"time"
 
-	server "github.com/osauer/hyperserve/v2/pkg/server"
+	"github.com/osauer/hyperserve/v2"
 )
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	srv, err := server.NewServer(
-		server.WithAddr(":8080"),
-		server.WithHealthServer(),
-		server.WithHealthAddr(":9080"),
+	app, err := hyperserve.New(
+		hyperserve.WithAddr(":8080"),
+		hyperserve.WithHealthServer(),
+		hyperserve.WithHealthAddr(":9080"),
 
 		// The listeners are up while this runs. Health stays 200, readiness and
 		// application traffic stay 503.
-		server.WithDeferredInit(func(ctx context.Context, _ *server.Server) error {
+		hyperserve.WithDeferredInit(func(ctx context.Context, _ *hyperserve.Server) error {
 			log.Println("[bootstrap] warming caches...")
 			return warmCaches(ctx)
 		}),
 
 		// Hook runs after deferred init succeeds, before the server flips to
 		// ready. Routes registered here only become reachable once ready.
-		server.WithOnReady(func(_ context.Context, app *server.Server) error {
+		hyperserve.WithOnReady(func(_ context.Context, app *hyperserve.Server) error {
 			app.HandleFunc("/api/users", usersHandler)
 			log.Println("[ready] /api/users registered")
 			return nil
@@ -54,14 +54,14 @@ func main() {
 		// Optional: keep the listener up even if bootstrap fails, so an
 		// operator can inspect health and call CompleteDeferredInit
 		// manually after fixing the underlying issue.
-		server.WithDeferredInitStopOnFailure(false),
+		hyperserve.WithDeferredInitStopOnFailure(false),
 	)
 	if err != nil {
-		log.Fatalf("NewServer: %v", err)
+		log.Fatalf("hyperserve.New: %v", err)
 	}
 
 	log.Println("application on :8080; health and readiness on :9080")
-	if err := srv.Run(ctx); err != nil {
+	if err := app.Run(ctx); err != nil {
 		log.Fatalf("Run: %v", err)
 	}
 }

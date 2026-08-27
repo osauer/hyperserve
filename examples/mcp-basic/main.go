@@ -19,9 +19,10 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/osauer/hyperserve/v2/pkg/mcp"
-	_ "github.com/osauer/hyperserve/v2/pkg/mcp/builtin" // wire built-in tool/resource hooks
-	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
+	"github.com/osauer/hyperserve/v2"
+	"github.com/osauer/hyperserve/v2/mcp"
+	_ "github.com/osauer/hyperserve/v2/mcp/builtin" // wire built-in tool/resource hooks
+	"github.com/osauer/hyperserve/v2/ratelimit"
 )
 
 // TimestampTool returns the current time in a caller-selected format.
@@ -81,37 +82,44 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	srv, err := serverpkg.NewServer(
-		serverpkg.WithAddr(":8080"),
-		serverpkg.WithRateLimit(50, 100),
-		serverpkg.WithEnvironment(), // Deployment may override address, endpoint, and rate.
+	app, err := hyperserve.New(
+		hyperserve.WithAddr(":8080"),
+		hyperserve.WithEnvironment(), // Deployment may override address and endpoint.
 
 		// Keep application-owned MCP capabilities explicit and later in the chain.
-		serverpkg.WithMCPSupport("mcp-basic", "1.0.0"),
-		serverpkg.WithMCPBuiltinTools(true),
-		serverpkg.WithMCPBuiltinResources(true),
+		hyperserve.WithMCPSupport("mcp-basic", "1.0.0"),
+		hyperserve.WithMCPBuiltinTools(true),
+		hyperserve.WithMCPBuiltinResources(true),
 		// Confine builtin file tools to ./sandbox via os.Root. Without this,
 		// file tools refuse to construct.
-		serverpkg.WithMCPFileToolRoot("examples/mcp-basic/sandbox"),
-		serverpkg.WithTemplateDir("examples/mcp-basic/templates"),
+		hyperserve.WithMCPFileToolRoot("examples/mcp-basic/sandbox"),
+		hyperserve.WithTemplateDir("examples/mcp-basic/templates"),
 	)
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	if err := srv.RegisterMCPTool(TimestampTool{}); err != nil {
+	mcpGate, err := ratelimit.New(ratelimit.Config{
+		RequestsPerSecond: 50,
+		Burst:             100,
+	})
+	if err != nil {
 		log.Fatal(err)
 	}
-	if err := srv.RegisterMCPResource(&ServerStatusResource{start: time.Now()}); err != nil {
+	app.UsePrefix("/mcp", mcpGate)
+
+	if err := app.RegisterMCPTool(TimestampTool{}); err != nil {
+		log.Fatal(err)
+	}
+	if err := app.RegisterMCPResource(&ServerStatusResource{start: time.Now()}); err != nil {
 		log.Fatal(err)
 	}
 
 	// Template-rendered dashboard. Data func runs on every request.
 	start := time.Now()
-	if err := srv.HandleFuncDynamic("/", "index.html", func(r *http.Request) any {
+	if err := app.HandleFuncDynamic("/", "index.html", func(r *http.Request) any {
 		return map[string]any{
-			"MCPEndpoint": srv.Options().MCPEndpoint,
-			"SandboxDir":  srv.Options().MCPFileToolRoot,
+			"MCPEndpoint": app.Options().MCPEndpoint,
+			"SandboxDir":  app.Options().MCPFileToolRoot,
 			"Uptime":      time.Since(start).Round(time.Second).String(),
 		}
 	}); err != nil {
@@ -121,7 +129,7 @@ func main() {
 	log.Println("mcp-basic listening on http://localhost:8080")
 	log.Println("MCP endpoint: http://localhost:8080/mcp (POST JSON-RPC)")
 	log.Println("Dashboard:    http://localhost:8080/")
-	if err := srv.Run(ctx); err != nil {
+	if err := app.Run(ctx); err != nil {
 		log.Fatal(err)
 	}
 }

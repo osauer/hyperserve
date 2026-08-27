@@ -13,8 +13,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/osauer/hyperserve/v2/pkg/auth"
-	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
+	"github.com/osauer/hyperserve/v2"
+	"github.com/osauer/hyperserve/v2/auth"
+	"github.com/osauer/hyperserve/v2/ratelimit"
 )
 
 // AppData represents our application's template data
@@ -65,20 +66,19 @@ func main() {
 	defer stop()
 
 	// Bind deployment environment explicitly, before application-owned capabilities.
-	// HS_PORT=9090 HS_RATE_LIMIT=50 HS_LOG_LEVEL=DEBUG ./best-practices
-	srv, err := serverpkg.NewServer(
+	// HS_PORT=9090 HS_LOG_LEVEL=DEBUG ./best-practices
+	app, err := hyperserve.New(
 		// Basic configuration
-		serverpkg.WithAddr(":8080"),
-		serverpkg.WithRateLimit(100, 200), // 100 req/s, burst 200
-		serverpkg.WithEnvironment(),       // Deployment overrides the baseline above.
+		hyperserve.WithAddr(":8080"),
+		hyperserve.WithEnvironment(), // Deployment overrides the baseline above.
 
 		// Application-owned capabilities and security policy
-		serverpkg.WithHealthServer(),
-		serverpkg.WithHealthAddr(":9080"),
+		hyperserve.WithHealthServer(),
+		hyperserve.WithHealthAddr(":9080"),
 
 		// Feature configuration
-		serverpkg.WithMCPSupport("best-practices", "1.0.0"), // Enable MCP
-		serverpkg.WithTemplateDir("./templates"),            // Template support
+		hyperserve.WithMCPSupport("best-practices", "1.0.0"), // Enable MCP
+		hyperserve.WithTemplateDir("./templates"),            // Template support
 	)
 	if err != nil {
 		log.Fatal(err)
@@ -88,19 +88,26 @@ func main() {
 	verifier := auth.TokenVerifierFunc(verifyToken)
 	apiIdentity := auth.Bearer(verifier)
 	requireIdentity := auth.Require(apiIdentity)
-	srv.Use(serverpkg.HeadersMiddleware(srv.Options()))
-	srv.UsePrefix("/api", requireIdentity, serverpkg.RateLimitMiddleware(srv))
-	srv.UsePrefix("/mcp", requireIdentity)
+	apiGate, err := ratelimit.New(ratelimit.Config{
+		RequestsPerSecond: 100,
+		Burst:             200,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	app.Use(hyperserve.HeadersMiddleware(app.Options()))
+	app.UsePrefix("/api", requireIdentity, apiGate)
+	app.UsePrefix("/mcp", requireIdentity)
 
-	if srv.MCPEnabled() {
-		if err := srv.RegisterMCPTool(&CustomTool{}); err != nil {
+	if app.MCPEnabled() {
+		if err := app.RegisterMCPTool(&CustomTool{}); err != nil {
 			log.Printf("Warning: Failed to register custom MCP tool: %v", err)
 		}
 	}
 
 	// Web routes
-	srv.GET("/", handleHome)
-	srv.HandleFuncDynamic("/about", "about.html", func(r *http.Request) any {
+	app.GET("/", handleHome)
+	app.HandleFuncDynamic("/about", "about.html", func(r *http.Request) any {
 		return AppData{
 			Title:     "About",
 			Message:   "Composition reference",
@@ -109,8 +116,8 @@ func main() {
 	})
 
 	// API routes
-	srv.GET("/api/data", handleAPIData)
-	srv.GET("/api/stream", handleSSEStream)
+	app.GET("/api/data", handleAPIData)
+	app.GET("/api/stream", handleSSEStream)
 
 	fmt.Println("Server starting on http://localhost:8080")
 	fmt.Println("Health checks on http://localhost:9080/healthz/")
@@ -118,7 +125,7 @@ func main() {
 	fmt.Println("Press Ctrl+C for graceful shutdown")
 
 	// Run blocks until the application context is cancelled or the server exits.
-	if err := srv.Run(ctx); err != nil {
+	if err := app.Run(ctx); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -197,7 +204,7 @@ func handleSSEStream(w http.ResponseWriter, r *http.Request) {
 				"time":     time.Now().Format(time.RFC3339),
 				"requests": requestCount.Load(),
 			}
-			msg := serverpkg.NewSSEMessage(data)
+			msg := hyperserve.NewSSEMessage(data)
 			msg.Event = "time-update"
 			fmt.Fprint(w, msg)
 			flusher.Flush()

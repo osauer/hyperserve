@@ -33,6 +33,7 @@ func TestGenerateCreatesProject(t *testing.T) {
 	assertExists(t, dest, "cmd/server/main.go")
 	assertExists(t, dest, "internal/app/server.go")
 	assertExists(t, dest, "internal/app/server_test.go")
+	assertExists(t, dest, "internal/app/config_test.go")
 	assertExists(t, dest, "configs/default.json")
 	assertExists(t, dest, "Dockerfile")
 
@@ -54,6 +55,9 @@ func TestGenerateCreatesProject(t *testing.T) {
 	if !strings.Contains(content, "go 1.27") {
 		t.Fatalf("go.mod missing Go 1.27 floor: %s", content)
 	}
+	if !strings.Contains(content, "golang.org/x/time v0.15.0 // indirect") {
+		t.Fatalf("go.mod does not record HyperServe's limiter dependency as indirect: %s", content)
+	}
 
 	goSum, err := os.ReadFile(filepath.Join(dest, "go.sum"))
 	if err != nil {
@@ -71,11 +75,65 @@ func TestGenerateCreatesProject(t *testing.T) {
 	if strings.Contains(serverContent, "RequestLoggerMiddleware") {
 		t.Fatal("generated server registers HyperServe's default request logger twice")
 	}
-	if !strings.Contains(serverContent, "srv.Use(server.HeadersMiddleware(srv.Options()))") {
+	if !strings.Contains(serverContent, "app.Use(hyperserve.HeadersMiddleware(app.Options()))") {
 		t.Fatal("generated server does not apply headers to the global middleware scope")
+	}
+	for _, required := range []string{
+		`"github.com/osauer/hyperserve/v2"`,
+		`"github.com/osauer/hyperserve/v2/ratelimit"`,
+		"app, err := hyperserve.New(opts...)",
+		"gate, err := ratelimit.New(ratelimit.Config{",
+		"RequestsPerSecond: float64(cfg.RateLimit)",
+		"Burst:             cfg.RateBurst",
+		`app.UsePrefix("/api", gate)`,
+	} {
+		if !strings.Contains(serverContent, required) {
+			t.Errorf("generated server missing %q", required)
+		}
+	}
+	for _, retired := range []string{
+		"github.com/osauer/hyperserve/v2/pkg/",
+		"golang.org/x/time/rate",
+		"server.NewServer",
+		"WithRateLimit",
+		"RateLimitMiddleware",
+	} {
+		if strings.Contains(serverContent, retired) {
+			t.Errorf("generated server contains retired surface %q", retired)
+		}
 	}
 	if strings.Contains(serverContent, "WithMCPBuiltin") {
 		t.Fatal("generated server enables MCP capabilities without an authorization policy")
+	}
+
+	configSource, err := os.ReadFile(filepath.Join(dest, "internal/app/config.go"))
+	if err != nil {
+		t.Fatalf("read generated config: %v", err)
+	}
+	if !strings.Contains(string(configSource), `os.Getenv("HS_RATE_BURST")`) {
+		t.Fatal("generated config does not read canonical HS_RATE_BURST")
+	}
+	if !strings.Contains(string(configSource), `os.LookupEnv("HS_BURST_LIMIT")`) {
+		t.Fatal("generated config does not reject presence of retired HS_BURST_LIMIT")
+	}
+	if strings.Contains(string(configSource), `os.Getenv("HS_BURST_LIMIT")`) {
+		t.Fatal("generated config checks retired HS_BURST_LIMIT by value instead of presence")
+	}
+	for _, required := range []string{"HS_BURST_LIMIT is retired", "use HS_RATE_BURST"} {
+		if !strings.Contains(string(configSource), required) {
+			t.Fatalf("generated config's retired-variable error does not contain %q", required)
+		}
+	}
+
+	readme, err := os.ReadFile(filepath.Join(dest, "README.md"))
+	if err != nil {
+		t.Fatalf("read generated README: %v", err)
+	}
+	if !strings.Contains(string(readme), "`HS_RATE_BURST=200`") {
+		t.Fatal("generated README does not document canonical HS_RATE_BURST")
+	}
+	if !strings.Contains(string(readme), "`HS_BURST_LIMIT` is retired") {
+		t.Fatal("generated README does not explain that retired HS_BURST_LIMIT fails startup")
 	}
 
 	dockerfile, err := os.ReadFile(filepath.Join(dest, "Dockerfile"))

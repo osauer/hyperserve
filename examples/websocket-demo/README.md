@@ -5,17 +5,17 @@ server and its dependency-free WebSocket package:
 
 - the route remains an ordinary HTTP handler;
 - same-origin browser upgrades are allowed by default;
-- `srv.WebSocketUpgrader()` records successful upgrades in server telemetry;
+- `app.WebSocketUpgrader()` records successful upgrades in server telemetry;
 - aggregate message memory is bounded, including fragmented messages;
 - reads and writes use the request context.
 
 The core setup is intentionally small:
 
 ```go
-upgrader := srv.WebSocketUpgrader()
+upgrader := app.WebSocketUpgrader()
 upgrader.MaxMessageSize = 512 << 10 // 512 KiB across all fragments
 
-srv.GET("/ws/echo", func(w http.ResponseWriter, r *http.Request) {
+app.GET("/ws/echo", func(w http.ResponseWriter, r *http.Request) {
     conn, err := upgrader.Upgrade(w, r, nil)
     if err != nil {
         return

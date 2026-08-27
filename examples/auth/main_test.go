@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/coreos/go-oidc/v3/oidc"
-	"github.com/osauer/hyperserve/v2/pkg/auth"
+	"github.com/osauer/hyperserve/v2/auth"
 )
 
 type fakeIDTokenVerifier struct {
@@ -51,15 +51,15 @@ func (staticTokenVerifier) VerifyToken(context.Context, string) (auth.Principal,
 }
 
 func TestProtectedRouteReceivesPrincipal(t *testing.T) {
-	srv, err := newServer("127.0.0.1:0", staticTokenVerifier{})
+	app, err := newApp("127.0.0.1:0", staticTokenVerifier{})
 	if err != nil {
-		t.Fatalf("newServer: %v", err)
+		t.Fatalf("newApp: %v", err)
 	}
 
 	request := httptest.NewRequest(http.MethodGet, "/api/me", nil)
 	request.Header.Set("Authorization", "Bearer token")
 	recorder := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(recorder, request)
+	app.Handler().ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %q", recorder.Code, recorder.Body.String())

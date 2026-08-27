@@ -27,7 +27,7 @@ ext := mcp.NewExtension("blog").
 	WithResourceTemplate(postResourceTemplate{store: store}).
 	Build()
 
-if err := srv.RegisterMCPExtension(ext); err != nil {
+if err := app.RegisterMCPExtension(ext); err != nil {
 	log.Fatal(err)
 }
 ```

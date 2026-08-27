@@ -14,7 +14,9 @@ func TestGeneratedRoutesUseConfiguredMiddleware(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
-	RegisterMiddleware(srv)
+	if err := RegisterMiddleware(srv, cfg); err != nil {
+		t.Fatalf("RegisterMiddleware: %v", err)
+	}
 	RegisterRoutes(srv, cfg)
 
 	for _, path := range []string{"/", "/api/v1/status"} {
@@ -30,5 +32,50 @@ func TestGeneratedRoutesUseConfiguredMiddleware(t *testing.T) {
 				t.Fatalf("X-Content-Type-Options = %q, want nosniff", got)
 			}
 		})
+	}
+}
+
+func TestGeneratedAPIRoutesUseRateLimitGate(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.EnableMCP = false
+	cfg.RateLimit = 1
+	cfg.RateBurst = 1
+
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	if err := RegisterMiddleware(srv, cfg); err != nil {
+		t.Fatalf("RegisterMiddleware: %v", err)
+	}
+	RegisterRoutes(srv, cfg)
+
+	for attempt, want := range []int{http.StatusOK, http.StatusTooManyRequests} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
+		recorder := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(recorder, req)
+		if recorder.Code != want {
+			t.Fatalf("attempt %d status = %d, want %d", attempt+1, recorder.Code, want)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	recorder := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("root status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+}
+
+func TestGeneratedRateLimitConfigMustBeValid(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.RateLimit = 0
+
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	if err := RegisterMiddleware(srv, cfg); err == nil {
+		t.Fatal("RegisterMiddleware accepted a zero request rate")
 	}
 }

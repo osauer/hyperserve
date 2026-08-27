@@ -1,0 +1,58 @@
+package app
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestRateBurstEnvironmentOverride(t *testing.T) {
+	unsetEnv(t, "HS_BURST_LIMIT")
+	t.Setenv("HS_RATE_BURST", "123")
+
+	cfg := DefaultConfig()
+	if err := applyEnvOverrides(&cfg); err != nil {
+		t.Fatalf("applyEnvOverrides returned error: %v", err)
+	}
+	if cfg.RateBurst != 123 {
+		t.Fatalf("RateBurst = %d, want 123 from HS_RATE_BURST", cfg.RateBurst)
+	}
+}
+
+func TestRetiredBurstEnvironmentFailsVisibly(t *testing.T) {
+	for _, value := range []string{"", "999"} {
+		t.Run("value="+value, func(t *testing.T) {
+			t.Setenv("HS_BURST_LIMIT", value)
+
+			_, err := LoadConfig(filepath.Join(t.TempDir(), "missing.json"))
+			if err == nil {
+				t.Fatal("LoadConfig succeeded with retired HS_BURST_LIMIT present")
+			}
+			for _, required := range []string{"HS_BURST_LIMIT", "HS_RATE_BURST"} {
+				if !strings.Contains(err.Error(), required) {
+					t.Fatalf("LoadConfig error %q does not name %s", err, required)
+				}
+			}
+		})
+	}
+}
+
+func unsetEnv(t *testing.T, key string) {
+	t.Helper()
+	value, present := os.LookupEnv(key)
+	if err := os.Unsetenv(key); err != nil {
+		t.Fatalf("unset %s: %v", key, err)
+	}
+	t.Cleanup(func() {
+		if present {
+			if err := os.Setenv(key, value); err != nil {
+				t.Errorf("restore %s: %v", key, err)
+			}
+			return
+		}
+		if err := os.Unsetenv(key); err != nil {
+			t.Errorf("restore absent %s: %v", key, err)
+		}
+	})
+}

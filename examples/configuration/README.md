@@ -1,45 +1,41 @@
 # Configuration precedence
 
-HyperServe starts from deterministic defaults. An application may then bind a
-JSON file, process environment, or a complete `Options` value explicitly.
-This example answers the important question: when the same field appears in
+HyperServe starts from deterministic defaults. An application may explicitly
+bind a JSON file, the process environment, or a complete `Options` value. This
+example answers the useful question: when the same server field appears in
 several places, which value wins?
 
-Options apply from left to right; later options win:
+Server options apply from left to right; later options win:
 
-1. `NewServer` begins with deterministic defaults.
-2. `WithConfigFile` overlays the fields present in the chosen JSON file.
+1. `hyperserve.New` begins with deterministic defaults.
+2. `WithConfigFile` overlays fields from the chosen JSON file.
 3. `WithEnvironment` overlays its supported environment variables.
 4. Functional options placed last establish application-owned values.
 
 Put deployment-owned sources first and application invariants last. A bare
-`NewServer()` never reads `options.json`, `HS_CONFIG_PATH`, or `HS_*`.
+`hyperserve.New()` never reads `options.json`, `HS_CONFIG_PATH`, or `HS_*`.
 
 ## The demonstrated conflict
 
-The example intentionally gives the address three values:
+The example gives the listen address three values:
 
-| Source | Address | Rate | Burst |
-|---|---:|---:|---:|
-| JSON file | `:8084` | 75 | 150 |
-| Environment | `:8085` | — | — |
-| Functional options | `:8086` | 10 | 20 |
-
-The application names both external sources, then applies its fixed values:
+| Source | Address |
+|---|---:|
+| JSON file | `:8084` |
+| Environment | `:8085` |
+| Functional option | `:8086` |
 
 ```go
-srv, err := server.NewServer(
-	server.WithConfigFile("options.json"), // Baseline chosen by the application.
-	server.WithEnvironment(),              // Deployment may override the baseline.
-	server.WithAddr(":8086"),
-	server.WithRateLimit(10, 20),
+app, err := hyperserve.New(
+	hyperserve.WithConfigFile("options.json"), // Application chooses the file.
+	hyperserve.WithEnvironment(),              // Deployment may override it.
+	hyperserve.WithAddr(":8086"),               // Application invariant wins.
 )
-// Address is :8086 because the application invariant runs last.
 ```
 
 Run it from the repository root:
 
-```bash
+```sh
 go run ./examples/configuration
 ```
 
@@ -48,51 +44,60 @@ Expected values:
 ```text
 After defaults, file, and environment:
   address: :8085
-  rate:    75 requests/second
-  burst:   150
 
-After programmatic options:
+After the application-owned address option:
   address: :8086
-  rate:    10 requests/second
-  burst:   20
+  /api gate: 10 requests/second, burst 20
 ```
 
-## Configuration forms
+## Rate limiting is application policy
 
-Pass a chosen path to `WithConfigFile`:
+Middleware is a request wrapper. To limit a path, create a gate and then place
+that gate in front of the path:
+
+```go
+apiPolicy := ratelimit.Config{
+	RequestsPerSecond: 10,
+	Burst:             20,
+}
+apiGate, err := ratelimit.New(apiPolicy)
+if err != nil {
+	log.Fatal(err)
+}
+app.UsePrefix("/api", apiGate)
+```
+
+One gate owns one quota namespace. Reuse it when paths should share quotas;
+call `ratelimit.New` again when they should be isolated.
+
+### Migrating retired limiter settings
+
+Old server-owned `rate_limit` and `burst` JSON fields are rejected with a
+migration error instead of being ignored. `WithEnvironment` likewise rejects
+retired `HS_RATE_LIMIT` and `HS_BURST_LIMIT` variables when they are present.
+Move those values into application configuration and translate them explicitly
+to `ratelimit.Config`.
+
+## Server configuration forms
+
+A server JSON file can contain supported fields such as:
 
 ```json
 {
   "addr": ":8080",
-  "rate_limit": 100,
-  "burst": 200,
   "read_timeout": 30000000000
 }
 ```
 
 Durations in JSON are nanoseconds because they map to Go `time.Duration`.
-Pass `WithEnvironment()` to bind supported process variables:
+`WithEnvironment()` can bind deployment values such as `HS_PORT`:
 
-```bash
+```sh
 export HS_PORT=8080
-export HS_RATE_LIMIT=100
-export HS_BURST_LIMIT=200
 ```
 
 Timeouts do not have environment bindings; keep them in JSON or set them with
 `WithTimeouts` so their units and ownership remain visible in code.
 
-Prefer functional options after external sources when a value must not be
-changed by deployment configuration:
-
-```go
-srv, err := server.NewServer(
-	server.WithConfigFile(configPath),
-	server.WithEnvironment(),
-	server.WithAddr(":8080"),
-	server.WithTimeouts(30*time.Second, 30*time.Second, 2*time.Minute),
-)
-```
-
-See [`pkg/server/options.go`](../../pkg/server/options.go) for the complete JSON
-fields, environment variables, and functional options.
+See [`options.go`](../../options.go) for the complete server configuration
+surface.

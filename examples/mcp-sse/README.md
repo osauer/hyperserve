@@ -7,7 +7,7 @@ should use the standards-compliant POST transport documented in
 [MCP_GUIDE.md](../../docs/MCP_GUIDE.md).
 
 The server in this example opts in with
-`server.WithMCPLegacyRoutedSSE(true)`. Normal HyperServe MCP servers do not
+`hyperserve.WithMCPLegacyRoutedSSE(true)`. Normal HyperServe MCP servers do not
 expose this transport.
 
 ## Running

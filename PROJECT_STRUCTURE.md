@@ -2,67 +2,83 @@
 
 ## Directory layout
 
-```
+```text
 hyperserve/
-├── .github/workflows/    # CI/CD
-├── benchmarks/           # Go benchmarks and the standard-library loopback load harness
+├── *.go                   # Root hyperserve package and tests
+├── auth/                  # Provider-neutral authentication and principals
+├── jsonrpc/               # JSON-RPC 2.0 engine
+├── mcp/                   # MCP protocol surface
+│   └── builtin/           # Opt-in built-in MCP tools and resources
+├── ratelimit/             # Bounded HTTP rate-limit middleware
+├── websocket/             # RFC 6455 server and client
 ├── cmd/
-│   └── hyperserve-init/  # Project scaffolding CLI
-├── docs/                 # ADRs and guides
-├── examples/             # Self-contained `go run .` examples
+│   └── hyperserve-init/   # Project scaffolding CLI
 ├── internal/
-│   ├── scaffold/         # Templates and generator backing hyperserve-init
-│   └── validate/         # Struct-tag validator used by pkg/server.Validate
-├── pkg/
-│   ├── auth/             # Provider-neutral request authentication and principals
-│   ├── jsonrpc/          # JSON-RPC 2.0 engine
-│   ├── mcp/              # MCP protocol surface (Handler, transports, discovery, namespaces)
-│   ├── mcp/builtin/      # Opt-in built-in MCP tools and resources
-│   ├── server/           # HTTP server, middleware, deferred-init lifecycle, MCP wiring
-│   └── websocket/        # RFC 6455 WebSocket implementation
+│   ├── scaffold/          # Templates and generator behind hyperserve-init
+│   ├── doccheck/          # Current-document and example assertions
+│   └── validate/          # Struct-tag validator shared by root and MCP
+├── examples/              # Self-contained runnable examples
+├── benchmarks/            # Loopback load harness
+├── docs/                  # ADRs, migration guides, and focused references
+├── scripts/               # Release and repository checks
+├── tools/                 # Separate developer-tool module
 └── go.{mod,sum}
 ```
 
 ## Public packages
 
-- `pkg/server` — HTTP server, middleware registry, deferred-init lifecycle, MCP wiring options.
-- `pkg/auth` — Provider-neutral request authentication; applications keep
-  sessions and authorization.
-- `pkg/mcp` — Standalone MCP protocol surface. No dependency on `pkg/server`.
-- `pkg/mcp/builtin` — Optional built-in MCP tools (Calculator + sandboxed FileRead / ListDirectory when `WithMCPFileToolRoot` is set) and resources (Config, Metrics, System, ServerLog, ServerHealth). Blank-import to wire the `WithMCPBuiltinTools/Resources(true)` and `MCPDev()` / `MCPObservability()` presets. The previously-bundled `HTTPRequest` tool was removed (SSRF surface); `RequestDebuggerTool` was removed (credential capture).
-- `pkg/websocket` — WebSocket server upgrader, outbound client, framing, and origin checks.
-- `pkg/jsonrpc` — Standalone JSON-RPC 2.0 engine used by `pkg/mcp`.
+| Directory | Import path | Responsibility |
+|---|---|---|
+| repository root | `github.com/osauer/hyperserve/v2` | HTTP server, middleware, lifecycle, typed input, pages, SSE, and MCP wiring |
+| `auth/` | `github.com/osauer/hyperserve/v2/auth` | Authentication boundary and stable principals |
+| `jsonrpc/` | `github.com/osauer/hyperserve/v2/jsonrpc` | Standalone JSON-RPC 2.0 |
+| `mcp/` | `github.com/osauer/hyperserve/v2/mcp` | MCP handler, transports, discovery, tools, and resources |
+| `mcp/builtin/` | `github.com/osauer/hyperserve/v2/mcp/builtin` | Opt-in built-in tools and resources |
+| `ratelimit/` | `github.com/osauer/hyperserve/v2/ratelimit` | Bounded rate-limit middleware and trusted-proxy client keys |
+| `websocket/` | `github.com/osauer/hyperserve/v2/websocket` | WebSocket upgrade, framing, connections, and outbound dialing |
 
-## Import paths
+Canonical imports:
 
 ```go
 import (
-    auth     "github.com/osauer/hyperserve/v2/pkg/auth"
-    server   "github.com/osauer/hyperserve/v2/pkg/server"
-    mcp      "github.com/osauer/hyperserve/v2/pkg/mcp"
-    builtin  "github.com/osauer/hyperserve/v2/pkg/mcp/builtin"   // blank-import if you use builtin presets
-    ws       "github.com/osauer/hyperserve/v2/pkg/websocket"
-    jsonrpc  "github.com/osauer/hyperserve/v2/pkg/jsonrpc"
+    "github.com/osauer/hyperserve/v2"
+    "github.com/osauer/hyperserve/v2/auth"
+    "github.com/osauer/hyperserve/v2/jsonrpc"
+    "github.com/osauer/hyperserve/v2/mcp"
+    _ "github.com/osauer/hyperserve/v2/mcp/builtin" // only when builtin presets are enabled
+    "github.com/osauer/hyperserve/v2/ratelimit"
+    "github.com/osauer/hyperserve/v2/websocket"
 )
 ```
 
-## Root files
+There are no public `pkg/...` forwarding packages. The root package does not
+import `mcp/builtin` or `ratelimit`; see
+[Architecture](./ARCHITECTURE.md) for the cycle-free dependency graph.
 
-- `go.mod` / `go.sum` — Shipped module + single external dependency (`golang.org/x/time`).
-- `tools/go.mod` / `tools/go.sum` — Developer-only modernization and official
-  MCP SDK conformance dependency graph.
-- `Makefile` — `build` / `install` / `test` / `check` (runs `vet`, `staticcheck`, `modernize`, `govulncheck`).
-- `README.md` — Overview and Quick Start.
-- `ARCHITECTURE.md` — Design notes for the layered package layout.
-- `CHANGELOG.md` — Release history.
-- `CONTRIBUTING.md` — Contribution guidelines.
+## Repository authority
 
-## Building & testing
+- `go.mod` and `go.sum` define the shipped module and its single external
+  runtime dependency.
+- `tools/go.mod` and `tools/go.sum` isolate modernization and MCP
+  conformance dependencies from applications.
+- `Makefile` is the canonical local check, build, and release entry point.
+- `README.md` is the adoption and first-run path.
+- `docs/API_STABILITY.md` defines the compatibility promise.
+- `CHANGELOG.md` records release history; historical entries retain the API
+  names that were correct when published.
 
-```bash
-make build         # builds cmd/hyperserve-init with version ldflags
-make test          # go test -v ./...
-make check          # vet + staticcheck + modernize + govulncheck
-go test -bench=. ./pkg/server   # in-process benchmarks
-make benchmark-load # reproducible loopback load profiles
+## Building and testing
+
+```sh
+make build
+make test
+make test-race
+make fuzz-smoke
+make check
+go test -run '^$' -bench . -benchmem .
+make benchmark-load
 ```
+
+`make check` covers formatting, vetting, static analysis, vulnerability
+checks, documentation/example assertions, MCP conformance, and the exact-SHA
+release-gate fixtures.

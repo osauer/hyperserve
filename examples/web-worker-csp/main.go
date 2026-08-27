@@ -7,7 +7,7 @@ import (
 	"os"
 	"os/signal"
 
-	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
+	"github.com/osauer/hyperserve/v2"
 )
 
 func main() {
@@ -15,24 +15,24 @@ func main() {
 	defer stop()
 
 	// Create server with Web Worker support enabled
-	srv, err := serverpkg.NewServer(
-		serverpkg.WithAddr(":8080"),
-		serverpkg.WithCSPWebWorkerSupport(), // Enable blob: URLs for Web Workers
+	app, err := hyperserve.New(
+		hyperserve.WithAddr(":8080"),
+		hyperserve.WithCSPWebWorkerSupport(), // Enable blob: URLs for Web Workers
 	)
 	if err != nil {
 		panic(err)
 	}
 
 	// Apply security headers with Web Worker support
-	srv.Use(serverpkg.HeadersMiddleware(srv.Options()))
+	app.Use(hyperserve.HeadersMiddleware(app.Options()))
 
 	// Serve static files (HTML, JS, CSS)
-	if err := srv.HandleStatic("/static/"); err != nil {
+	if err := app.HandleStatic("/static/"); err != nil {
 		panic(err)
 	}
 
 	// Main page
-	srv.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	app.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		html := `<!DOCTYPE html>
 <html>
 <head>
@@ -63,7 +63,7 @@ func main() {
         
         <h3>How it works:</h3>
         <ul>
-            <li>Server started with <code>serverpkg.WithCSPWebWorkerSupport()</code></li>
+            <li>Server started with <code>hyperserve.WithCSPWebWorkerSupport()</code></li>
             <li>CSP header includes: <code>worker-src 'self' blob:</code></li>
             <li>Web Workers can be created using blob: URLs</li>
             <li>Required for libraries like Tone.js, PDF.js, etc.</li>
@@ -208,7 +208,7 @@ func main() {
 	})
 
 	// API endpoint to show CSP headers
-	srv.HandleFunc("/csp-info", func(w http.ResponseWriter, r *http.Request) {
+	app.HandleFunc("/csp-info", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, `{"message": "CSP headers are sent with this response"}`)
 	})
@@ -220,5 +220,5 @@ func main() {
 	fmt.Println("")
 	fmt.Println("Press Ctrl+C to stop the server")
 
-	srv.Run(ctx)
+	app.Run(ctx)
 }

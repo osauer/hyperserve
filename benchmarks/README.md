@@ -4,11 +4,14 @@ HyperServe has two comparison tools. Neither is a production capacity claim.
 
 ## In-process benchmarks
 
-The Go benchmarks in `pkg/server/benchmark_test.go` cover serial and concurrent
-request paths, middleware, static files, JSON, and MCP operations:
+The Go benchmarks in the root [`benchmark_test.go`](../benchmark_test.go) cover
+serial and concurrent request paths, middleware, static files, JSON, and MCP
+operations. The standalone limiter has its own middleware and entry-footprint
+benchmarks:
 
 ```sh
-go test -run '^$' -bench . -benchmem ./pkg/server
+go test -run '^$' -bench . -benchmem .
+go test -run '^$' -bench . -benchmem ./ratelimit
 ```
 
 Use `-count=5` when comparing revisions so one noisy sample does not drive a

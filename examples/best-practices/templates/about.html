@@ -43,8 +43,8 @@
     </div>
 
     <h2>How It Works</h2>
-    <p>This page is rendered using hyperserve's built-in template support:</p>
-    <pre><code>srv.HandleTemplateFunc("/about", "about.html", func(r *http.Request) any {
+    <p>This page is rendered using HyperServe's built-in template support:</p>
+    <pre><code>app.HandleFuncDynamic("/about", "about.html", func(r *http.Request) any {
     return AppData{
         Title:     "About",
         Message:   "Best practices example",

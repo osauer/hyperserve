@@ -8,7 +8,7 @@ import (
 	"os"
 	"os/signal"
 
-	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
+	"github.com/osauer/hyperserve/v2"
 )
 
 func main() {
@@ -17,17 +17,17 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	srv, err := serverpkg.NewServer()
+	app, err := hyperserve.New()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	srv.HandleFunc("/", hello)
+	app.HandleFunc("/", hello)
 
 	log.Println("Starting server on http://localhost:8080")
 	log.Println("Press Ctrl+C to stop")
 
-	if err := srv.Run(ctx); err != nil {
+	if err := app.Run(ctx); err != nil {
 		log.Fatal(err)
 	}
 }

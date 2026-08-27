@@ -1,157 +1,157 @@
 # HyperServe Architecture
 
-## Design Philosophy
+HyperServe is an integrated HTTP boundary built on `net/http`. The root
+`hyperserve` package coordinates routing, middleware, configuration,
+readiness, and lifecycle. Concern-specific public packages remain independently
+usable where coupling them to `Server` would blur ownership.
 
-HyperServe is an integrated server boundary built on `net/http`. It preserves
-standard routes and handler shapes while keeping lifecycle, request binding,
-security middleware, observability, WebSocket, JSON-RPC, and optional MCP in one
-module.
+The package layout is established by
+[ADR-0014](./docs/0014-root-package-and-concern-subpackages.md).
 
-The runtime module has one external dependency, `golang.org/x/time`. WebSocket,
-JSON-RPC, and MCP are implemented in-tree. Callers therefore assemble fewer
-packages, while HyperServe takes responsibility for more protocol conformance
-and security work. That trade-off is deliberate and must remain visible.
+## Design principles
 
-## Core Principles
+### Standard-library shapes
 
-### 1. Small Runtime Graph
+- Routes use `http.ServeMux` patterns and handlers remain `http.Handler`
+  values.
+- Middleware is `func(http.Handler) http.Handler`; third-party wrappers need
+  no adapter.
+- TLS uses `crypto/tls`, cancellation uses `context.Context`, and static
+  files are confined with `os.Root`.
+- WebSocket and JSON-RPC are implemented in this repository.
 
-- `golang.org/x/time` for the rate-limiter token bucket.
-- Everything else uses the Go standard library.
-- `tools/go.mod` owns `golang.org/x/tools`, the official MCP SDK conformance
-  dependency, and their transitive graphs, keeping developer tooling out of
-  the shipped module graph.
+### Caller-owned authority
 
-### 2. Standard Library Shapes
+- `hyperserve.New` is deterministic. Files and environment affect
+  construction only through explicit `WithConfigFile` and `WithEnvironment`
+  options.
+- The application owns signals and the root context. `Run(ctx)` follows that
+  context; handlers use `r.Context()`.
+- Authentication establishes identity. Sessions, roles, resource
+  authorization, and identity-provider setup remain application policy.
+- Browser headers, rate limiting, MCP, filesystem roots, and health listeners
+  are explicit capabilities.
 
-- `net/http` owns routing and handler contracts; `crypto/tls` owns TLS; `os.Root`
-  confines static-file access.
-- WebSocket and JSON-RPC are implemented in-tree against the standard library.
-- Applications can use ordinary `http.Handler` middleware without an adapter.
+### Small shipped graph
 
-### 3. Caller-Owned Authority
+The runtime module has one external dependency:
+`golang.org/x/time/rate`, used only by the `ratelimit` package. Developer
+tools and the official MCP conformance dependency live in `tools/go.mod` and
+do not enter an application's runtime graph.
 
-- `NewServer` is deterministic. File and environment configuration require
-  explicit `WithConfigFile` or `WithEnvironment` options.
-- The application owns process signals and passes cancellation to `Run(ctx)`.
-- Security headers middleware is available but remains an application choice.
-- `pkg/auth` establishes issuer/subject identity; providers, sessions, roles,
-  and resource authorization remain application choices.
-- Rate limiting is opt-in per route, with a periodic cleanup ticker.
-- TLS defaults to 1.2+; `WithFIPSMode()` restricts to the FIPS-approved cipher list.
+This reduces dependency assembly for callers, but it also means HyperServe owns
+more protocol and security code. Repository tests and conformance checks are
+part of that trade-off.
 
-### 4. MCP Is First-Class and Optional
+## Public package graph
 
-- The MCP implementation lives in `pkg/mcp`; HTTP and WebSocket users do not
-  need to enable it.
-- Services that do enable MCP can mount it in the same process without changing
-  their existing `net/http` handlers.
-- Current Streamable HTTP uses finite JSON responses and request-scoped SSE
-  for `subscriptions/listen`; stdio shares the same handler. Proprietary routed
-  SSE is default-off deprecated compatibility behavior.
-- Built-in tools and resources are opt-in (`WithMCPBuiltinTools(true)`); they are
-  demonstrations, not an authorization policy.
+The canonical public packages are:
 
-## Architecture Overview
+- `github.com/osauer/hyperserve/v2` — HTTP server, middleware, lifecycle,
+  binding, templates, static files, SSE, and MCP wiring.
+- `github.com/osauer/hyperserve/v2/auth` — provider-neutral authentication
+  and request principals.
+- `github.com/osauer/hyperserve/v2/jsonrpc` — standalone JSON-RPC 2.0.
+- `github.com/osauer/hyperserve/v2/mcp` — MCP handler, transports, discovery,
+  tools, resources, and namespaces.
+- `github.com/osauer/hyperserve/v2/mcp/builtin` — opt-in built-in tools and
+  resources.
+- `github.com/osauer/hyperserve/v2/ratelimit` — bounded HTTP rate-limit
+  middleware.
+- `github.com/osauer/hyperserve/v2/websocket` — RFC 6455 server and client.
 
-### Core Components
+The load-bearing dependency direction is:
 
-#### Server
-The main server struct (`Server`) handles:
-- HTTP request routing and handling
-- WebSocket connections
-- Middleware chain execution
-- Configuration management
+```text
+hyperserve root ──> mcp ──> jsonrpc
+       │
+       └──────────> websocket
 
-#### Middleware System
-Flexible middleware architecture supporting:
-- Pre and post-processing
-- Authentication and application-owned authorization
-- Logging and metrics
-- Security headers
-- Rate limiting
+mcp/builtin ──> hyperserve root + mcp
 
-#### MCP (Model Context Protocol)
-Native MCP implementation providing:
-- Tool registration and execution
-- Resource management
-- Streamable HTTP (JSON plus request-scoped SSE) and stdio transports
-- Discovery endpoints
-- Namespace isolation
-
-#### WebSocket Support
-RFC 6455 implementation featuring:
-- Outbound `ws` and `wss` client dialing
-- Binary and text message support
-- Automatic ping/pong handling
-- Configurable timeouts
-
-### Package Layout
-
-- `pkg/server` — HTTP server, middleware registry, deferred-init lifecycle, MCP wiring options.
-- `pkg/mcp` — MCP protocol surface. Standalone — no dependency on `pkg/server`.
-- `pkg/mcp/builtin` — Opt-in built-in MCP tools and resources. Depends on both
-  `pkg/server` (for `*Server` access) and `pkg/mcp`.
-- `pkg/websocket` — WebSocket server upgrader, outbound client, low-level framing, origin checks.
-- `pkg/jsonrpc` — Standalone JSON-RPC 2.0 engine used by `pkg/mcp`.
-
-Dependency direction is one-way: `pkg/mcp/builtin` → `pkg/server` + `pkg/mcp`;
-`pkg/server` → `pkg/mcp`; `pkg/mcp` → `pkg/jsonrpc`. No cycles.
-
-### Directory Structure
-
-```
-/
-├── cmd/              # Command-line applications
-├── internal/scaffold # Templates backing hyperserve-init
-├── pkg/              # Public Go packages
-│   ├── server/       # HTTP server, middleware, deferred-init, MCP wiring
-│   ├── mcp/          # MCP protocol (handler, transports, discovery, namespaces)
-│   │   └── builtin/  # Opt-in built-in MCP tools and resources
-│   ├── websocket/    # RFC 6455 WebSocket implementation
-│   └── jsonrpc/      # JSON-RPC 2.0 engine
-├── examples/         # Self-contained `go run .` examples
-├── docs/             # ADRs and guides
-├── benchmarks/       # Benchmark methodology and supporting material
-└── go.{mod,sum}
+ratelimit ──> standard library + golang.org/x/time/rate
+auth      ──> standard library
 ```
 
-## Key Design Decisions
+The root package does not import `mcp/builtin` or `ratelimit`. Builtins
+avoid an import cycle by registering hooks from `mcp/builtin.init`; an
+application enabling builtins must explicitly import that package, commonly
+with a blank import.
 
-- **Standard library shapes.** Routing is `net/http.ServeMux`, handlers remain
-  `http.Handler` values, TLS uses `crypto/tls`, and static-file access uses
-  `os.Root`. WebSocket and JSON-RPC are maintained in-tree.
-- **Interfaces only where they earn it.** `auth.Authenticator`, `mcp.Tool`,
-  `mcp.Resource`, `mcp.Transport`, and `mcp.Extension` have multiple
-  implementations or are extension points. Single-implementation interfaces are
-  avoided.
-- **Context-aware end-to-end.** Handlers, middleware, deferred initialization,
-  shutdown hooks, and MCP tool execution all thread `context.Context`.
-- **Errors returned, not panicked.** Recovery middleware catches caller panics;
-  HyperServe does not use panics for control flow.
+## HTTP server boundary
 
-## Security
+`Server` owns:
 
-- TLS 1.2+ default; `WithFIPSMode()` restricts to the FIPS-approved cipher list.
-- Security headers, bearer extraction, and identity requirements are separate
-  opt-in middleware; application authorization stays outside the library.
-- Rate limiting is per-route and per-client, with a periodic cleanup ticker.
-- Static-file serving uses `os.Root` and fails closed if the configured root
-  cannot be opened.
-- The MCP discovery filter (`WithMCPDiscoveryFilter`) gates only discovery
-  visibility. Authorization middleware must protect the MCP endpoint itself.
+- main and optional health listeners;
+- the `ServeMux`, route registry, and compiled middleware plan;
+- readiness and deferred-initialization state;
+- server-local logging and request/WebSocket metrics;
+- template and static-root handles opened by explicit configuration;
+- the optional MCP handler it constructs.
 
-## Performance Evidence
+`Server` does not own process signals, application goroutines, application
+authorization, sessions, reconnection policy, or rate-limit quota state.
 
-Repository microbenchmarks are comparison tools, not universal throughput
-claims. Results must identify the commit, Go version, host, command, and workload
-that produced them. See [Performance and benchmarking](./docs/PERFORMANCE.md).
+Construction starts with `DefaultOptions()`, applies options left to right,
+normalizes the final snapshot, and then creates only the resources required by
+that snapshot. Constructing a server starts no limiter cleanup goroutine.
 
-## Roadmap
+## Middleware and rate limiting
 
-See [ROADMAP.md](./docs/ROADMAP.md) and the issue tracker.
+The middleware registry stores global wrappers and segment-aware path-prefix
+wrappers. The first registered wrapper is the outermost one. `UsePrefix("/api",
+...)` matches `/api` and `/api/users`, not `/apiv2`.
 
-## Contributing
+Rate limiting is a separate gate:
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for the local workflow. Run `make check`
-before opening a pull request.
+1. `ratelimit.New(Config)` validates a policy and returns middleware.
+2. The application places that middleware with `Use` or `UsePrefix`.
+3. Reusing the same returned value shares one quota namespace; separate
+   `New` calls isolate quotas.
+
+The gate keys clients by normalized transport peer unless the application
+explicitly installs `TrustedProxyClientKey` with validated proxy prefixes.
+State is finite, stale entries are pruned opportunistically, and no background
+goroutine or `Close` method exists.
+
+## MCP boundary
+
+MCP is optional. The root package constructs `mcp.Handler` only after MCP is
+enabled. The protocol package remains independently testable and depends on
+`jsonrpc`, not on the root server.
+
+Current Streamable HTTP uses finite JSON responses and request-scoped SSE for
+`subscriptions/listen`; stdio uses the same handler. The proprietary routed
+SSE transport is deprecated, disabled by default, and exists only for
+HyperServe-specific compatibility.
+
+Discovery filtering controls visibility, not authorization. Authentication and
+authorization middleware must protect the MCP endpoint itself. Built-in tools
+and resources are demonstrations and operations aids, not an authorization
+policy.
+
+## Security boundaries
+
+- TLS defaults to 1.2 or newer. `WithFIPSMode` narrows TLS primitives; it does
+  not by itself make a deployment FIPS 140-3 compliant.
+- Static-file serving fails closed when its configured `os.Root` cannot be
+  opened.
+- The default limiter identity ignores forwarding headers. Trusted proxy
+  parsing is an explicit application decision.
+- WebSocket origin checks and MCP browser-origin validation are protocol
+  defenses, not user authentication.
+- Long-lived handlers and protocol operations must observe their supplied
+  contexts and deadlines.
+
+See [Production](./docs/PRODUCTION.md) and
+[Security](./SECURITY.md) for deployment guidance.
+
+## Evidence and change control
+
+Repository benchmarks compare revisions under a recorded workload; they are not
+universal throughput claims. See [Performance](./docs/PERFORMANCE.md).
+
+Package-boundary or lifecycle changes require an ADR update, tests at the
+changed boundary, and a consumer witness where public behavior is involved.
+Run `make check`, `make test-race`, and `make fuzz-smoke` before proposing
+such a change.

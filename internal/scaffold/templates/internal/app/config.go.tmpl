@@ -59,11 +59,16 @@ func LoadConfig(path string) (Config, error) {
 		return Config{}, fmt.Errorf("stat config: %w", err)
 	}
 
-	applyEnvOverrides(&cfg)
+	if err := applyEnvOverrides(&cfg); err != nil {
+		return Config{}, fmt.Errorf("apply environment overrides: %w", err)
+	}
 	return cfg, nil
 }
 
-func applyEnvOverrides(cfg *Config) {
+func applyEnvOverrides(cfg *Config) error {
+	if _, present := os.LookupEnv("HS_BURST_LIMIT"); present {
+		return errors.New("HS_BURST_LIMIT is retired; use HS_RATE_BURST for the application-owned rate-limit burst")
+	}
 	if addr := os.Getenv("SERVER_ADDR"); addr != "" {
 		cfg.Addr = addr
 	}
@@ -86,4 +91,5 @@ func applyEnvOverrides(cfg *Config) {
 	if lvl := os.Getenv("HS_LOG_LEVEL"); lvl != "" {
 		cfg.LogLevel = lvl
 	}
+	return nil
 }

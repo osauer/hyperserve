@@ -1,62 +1,92 @@
-# HyperServe Scaffolding
+# Scaffolding
 
-`hyperserve-init` generates a runnable HyperServe service: `cmd/server`, a config
-loader, security headers and rate-limit middleware applied per route, optional
-MCP, and a Distroless Dockerfile. The output compiles and `go test ./...` passes.
-Generation downloads the complete module graph and writes `go.sum`; it therefore
-needs network access unless the modules are already cached or a local replacement
-is used.
+`hyperserve-init` creates an application module with explicit lifecycle,
+configuration, routes, security headers, and an application-owned rate-limit
+gate.
 
-## Install the CLI
+## Install and generate
 
-```bash
-go install github.com/osauer/hyperserve/v2/cmd/hyperserve-init@latest
-```
-
-## Generate a Service
-
-```bash
-hyperserve-init \
-  --module github.com/acme/payments \
-  --name "Acme Payments" \
-  --out payments
-
+```sh
+go install github.com/osauer/hyperserve/v2/cmd/hyperserve-init@v2.1.0
+hyperserve-init --module github.com/acme/payments
 cd payments
 go run ./cmd/server
 ```
 
-### Flags
+Use `--out` to choose a directory and `--force` only when intentionally
+replacing generated files. `--local-replace` is for HyperServe development
+and release smoke tests; a generated project intended for commit or deployment
+must not retain that replacement.
 
-- `--module` *(required)* – Go module path for the new project.
-- `--name` – Human-friendly display name (defaults to the module tail).
-- `--out` – Output directory (defaults to the service name).
-- `--with-mcp` – Enable MCP surfaces (defaults to `false`). The generated
-  endpoint includes operational built-ins; add application authorization
-  middleware around `/mcp` before exposing it in production.
-- `--force` – Allow generation into a non-empty directory.
-- `--local-replace` – Add a `replace` directive pointing at a local HyperServe checkout (useful for development and the automated tests).
+## Generated layout
 
-## Generated Layout
-
-```
-├── cmd/server/main.go        # Entry point wiring config, middleware, and routes
-├── internal/app/config.go    # JSON + environment configuration loader
-├── internal/app/server.go    # HyperServe setup with hardened defaults
-├── internal/app/routes.go    # Example HTML + JSON endpoints
-├── configs/default.json      # Opinionated defaults (addr, MCP, rate limits)
-├── Makefile                  # run/build/test/docker recipes
-├── Dockerfile                # Distroless image builder
-├── go.mod / go.sum           # Ready for go modules (with X/time pre-pinned)
-└── README.md                 # Getting started instructions
+```text
+payments/
+├── cmd/server/main.go
+├── internal/app/
+│   ├── config.go
+│   ├── config_test.go
+│   ├── routes.go
+│   ├── server.go
+│   └── server_test.go
+├── configs/default.json
+├── Dockerfile
+├── README.md
+├── go.mod
+└── go.sum
 ```
 
-## Testing the Scaffold
+The generated application may keep an application-level
+`app.NewServer(cfg)` factory. That name belongs to the generated module; its
+implementation constructs HyperServe with `hyperserve.New`.
 
-- `go test ./internal/scaffold` runs the generator integration test, which verifies the CLI builds a compilable project and that `go test ./...` succeeds inside the scaffolded tree.
-- The test suite uses `--local-replace` to avoid fetching HyperServe itself; you
-  can mirror that locally via `hyperserve-init --local-replace $(pwd)` when
-  running from the repository root.
+## Rate-limit ownership
 
-## Next Templates
+The generated application owns limiter configuration and translates it into
+`ratelimit.Config`:
 
-Additional templates (e.g. OTLP exporters, MCP runtime control bundles, or full application bundles) can live alongside the default in `internal/scaffold/templates`. Each template participates automatically in the CLI once added to the embedded filesystem.
+```go
+apiLimit, err := ratelimit.New(ratelimit.Config{
+    RequestsPerSecond: float64(cfg.RateLimit),
+    Burst:             cfg.RateBurst,
+})
+if err != nil {
+    return err
+}
+
+app.UsePrefix("/api", apiLimit)
+```
+
+Generated environment bindings use exactly:
+
+- `HS_RATE_LIMIT`
+- `HS_RATE_BURST`
+
+`HS_BURST_LIMIT` is not a scaffold alias. It is a retired HyperServe
+server-owned input and `hyperserve.WithEnvironment` rejects it. The generated
+application parses its own limiter variables and must not pass them through as
+root-server configuration.
+
+The default peer-IP identity is appropriate only when the transport peer is the
+client. A generated application placed behind a proxy must define reviewed
+trusted proxy ranges and use `ratelimit.TrustedProxyClientKey`; the generator
+cannot infer that trust boundary.
+
+## MCP defaults
+
+MCP is disabled by default. Enabling an MCP endpoint does not automatically
+enable built-in tools or resources. Builtins additionally require an explicit
+`mcp/builtin` import and an application authorization decision.
+
+## Verification
+
+A generated project should pass without workspace or replacement help:
+
+```sh
+GOWORK=off go test -mod=readonly ./...
+grep -n '^replace ' go.mod
+```
+
+The second command should print nothing. Release verification additionally
+generates from the public tag in a fresh module cache and confirms the module
+graph resolves `github.com/osauer/hyperserve/v2 v2.1.0`.

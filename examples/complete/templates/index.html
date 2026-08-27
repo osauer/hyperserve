@@ -32,7 +32,7 @@
             
             <div class="demo-section">
                 <h3>Authentication Test</h3>
-                <p>Protected routes require Bearer tokens (via SecureAPI middleware stack)</p>
+                <p>Protected routes use the bearer-authentication wrapper registered on /api</p>
                 <button onclick="testAuth('demo-token-123')">Test with Alice's Token</button>
                 <button onclick="testAuth('demo-token-456')">Test with Bob's Token</button>
                 <button onclick="testAuth('invalid')">Test with Invalid Token</button>
@@ -58,14 +58,14 @@
 
             <div class="demo-section">
                 <h3>Rate Limit Test</h3>
-                <p>SecureAPI middleware stack includes rate limiting for /api/* routes</p>
-                <button onclick="testRateLimit()">Send Rapid Requests to /api/user</button>
+                <p>An application-owned rate-limit gate wraps /api/* routes</p>
+                <button onclick="testRateLimit()">Send a Burst to /api/user</button>
                 <pre id="rate-limit-result"></pre>
             </div>
 
             <div class="demo-section">
                 <h3>Error Recovery</h3>
-                <p>DefaultMiddleware includes panic recovery</p>
+                <p>hyperserve.New installs panic recovery</p>
                 <button onclick="testError()">Trigger Random Error (50% panic rate)</button>
                 <pre id="error-result"></pre>
             </div>
@@ -73,22 +73,22 @@
             <div class="demo-section">
                 <h3>Understanding Middleware</h3>
                 <div class="middleware-info">
-                    <h4>DefaultMiddleware (Automatic)</h4>
+                    <h4>Installed by hyperserve.New</h4>
                     <ul>
                         <li>MetricsMiddleware - Request counting</li>
                         <li>RequestLoggerMiddleware - Structured logs</li>
                         <li>RecoveryMiddleware - Panic recovery</li>
                     </ul>
                     
-                    <h4>SecureWeb (Applied to all routes)</h4>
+                    <h4>Global request wrapper</h4>
                     <ul>
                         <li>HeadersMiddleware - Security headers</li>
                     </ul>
                     
-                    <h4>SecureAPI (Applied to /api/*)</h4>
+                    <h4>Request wrappers on /api/*</h4>
                     <ul>
                         <li>AuthMiddleware - Bearer token validation</li>
-                        <li>RateLimitMiddleware - Per-IP limiting</li>
+                        <li>ratelimit gate - Per-peer limiting on /api</li>
                     </ul>
                 </div>
             </div>

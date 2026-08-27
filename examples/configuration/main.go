@@ -7,11 +7,12 @@ import (
 	"log"
 	"os"
 
-	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
+	"github.com/osauer/hyperserve/v2"
+	"github.com/osauer/hyperserve/v2/ratelimit"
 )
 
 func main() {
-	restore := preserveEnvironment("HS_PORT", "HS_RATE_LIMIT", "HS_BURST_LIMIT")
+	restore := preserveEnvironment("HS_PORT")
 	defer restore()
 
 	configFile, err := os.CreateTemp("", "hyperserve-options-*.json")
@@ -22,9 +23,7 @@ func main() {
 
 	// The file supplies a deployable baseline.
 	fileConfig := map[string]any{
-		"addr":       ":8084",
-		"rate_limit": 75,
-		"burst":      150,
+		"addr": ":8084",
 	}
 	if err := json.NewEncoder(configFile).Encode(fileConfig); err != nil {
 		log.Fatal(err)
@@ -34,44 +33,53 @@ func main() {
 	}
 
 	mustSetenv("HS_PORT", "8085") // Environment overrides only the file's address.
-	mustSetenv("HS_RATE_LIMIT", "")
-	mustSetenv("HS_BURST_LIMIT", "")
 
-	loaded, err := serverpkg.NewServer(
-		serverpkg.WithConfigFile(configFile.Name()),
-		serverpkg.WithEnvironment(),
+	loaded, err := hyperserve.New(
+		hyperserve.WithConfigFile(configFile.Name()),
+		hyperserve.WithEnvironment(),
 	)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer func() { _ = loaded.Shutdown(context.Background()) }()
 	fmt.Println("After defaults, file, and environment:")
-	printOptions(loaded.Options())
+	printAddress(loaded.Options())
 
-	// Options apply left to right, so the final two calls enforce application invariants.
-	srv, err := serverpkg.NewServer(
-		serverpkg.WithConfigFile(configFile.Name()),
-		serverpkg.WithEnvironment(),
-		serverpkg.WithAddr(":8086"),
-		serverpkg.WithRateLimit(10, 20),
+	// Server options apply left to right, so the final address enforces an
+	// application invariant.
+	app, err := hyperserve.New(
+		hyperserve.WithConfigFile(configFile.Name()),
+		hyperserve.WithEnvironment(),
+		hyperserve.WithAddr(":8086"),
 	)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer func() {
-		if err := srv.Shutdown(context.Background()); err != nil {
+		if err := app.Shutdown(context.Background()); err != nil {
 			log.Printf("stop server: %v", err)
 		}
 	}()
 
-	fmt.Println("\nAfter programmatic options:")
-	printOptions(srv.Options())
+	// Rate limiting is separate application policy. Create a middleware gate,
+	// then place that gate in front of the path it protects.
+	apiPolicy := ratelimit.Config{
+		RequestsPerSecond: 10,
+		Burst:             20,
+	}
+	apiGate, err := ratelimit.New(apiPolicy)
+	if err != nil {
+		log.Fatal(err)
+	}
+	app.UsePrefix("/api", apiGate)
+
+	fmt.Println("\nAfter the application-owned address option:")
+	printAddress(app.Options())
+	fmt.Printf("  /api gate: %.0f requests/second, burst %d\n", apiPolicy.RequestsPerSecond, apiPolicy.Burst)
 }
 
-func printOptions(options serverpkg.Options) {
+func printAddress(options hyperserve.Options) {
 	fmt.Printf("  address: %s\n", options.Addr)
-	fmt.Printf("  rate:    %.0f requests/second\n", float64(options.RateLimit))
-	fmt.Printf("  burst:   %d\n", options.Burst)
 }
 
 func mustSetenv(key, value string) {

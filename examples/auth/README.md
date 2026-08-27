@@ -5,12 +5,12 @@ Connect provider. The provider library discovers signing keys and validates the
 token's signature, issuer, audience, and expiry. HyperServe receives only the
 stable identity pair: issuer plus subject.
 
-The composition in `newServer` is intentionally named instead of nested:
+The composition in `newApp` is intentionally named instead of nested:
 
 ```go
 bearerIdentity := auth.Bearer(verifier)
 requireIdentity := auth.Require(bearerIdentity)
-srv.UsePrefix("/api", requireIdentity)
+app.UsePrefix("/api", requireIdentity)
 ```
 
 That reads as three separate decisions: how credentials arrive, whether an

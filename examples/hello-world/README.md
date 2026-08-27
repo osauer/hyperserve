@@ -33,14 +33,14 @@ The server listens on `http://localhost:8080`.
 ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 defer stop()
 
-srv, err := server.NewServer()
+app, err := hyperserve.New()
 if err != nil {
 	log.Fatal(err)
 }
 
-srv.HandleFunc("/", hello)
+app.HandleFunc("/", hello)
 
-if err := srv.Run(ctx); err != nil {
+if err := app.Run(ctx); err != nil {
 	log.Fatal(err)
 }
 ```
@@ -51,7 +51,7 @@ The deferred `stop` releases the signal registration when `main` returns.
 
 Here `context.Background()` is the root because this small program owns the
 whole process. If a larger application already gives you a context, pass it to
-`srv.Run` or use it as the parent of `signal.NotifyContext`. This is the
+`app.Run` or use it as the parent of `signal.NotifyContext`. This is the
 server's lifetime context; handlers use `r.Context()` for each request.
 
 Next, read [middleware basics](../middleware-basics/) to see how request policy

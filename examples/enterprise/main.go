@@ -9,29 +9,29 @@ import (
 	"os"
 	"os/signal"
 
-	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
+	"github.com/osauer/hyperserve/v2"
 )
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	srv, err := serverpkg.NewServer(
-		serverpkg.WithTLS("cert.pem", "key.pem"),
-		serverpkg.WithFIPSMode(),
-		serverpkg.WithHealthServer(),
-		serverpkg.WithHealthAddr(":9080"),
+	app, err := hyperserve.New(
+		hyperserve.WithTLS("cert.pem", "key.pem"),
+		hyperserve.WithFIPSMode(),
+		hyperserve.WithHealthServer(),
+		hyperserve.WithHealthAddr(":9080"),
 	)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	srv.Use(serverpkg.HeadersMiddleware(srv.Options()))
-	srv.GET("/", describePolicy)
+	app.Use(hyperserve.HeadersMiddleware(app.Options()))
+	app.GET("/", describePolicy)
 
 	log.Println("TLS example listening on https://localhost:8443")
 	log.Println("health checks listening on http://localhost:9080/healthz/")
-	if err := srv.Run(ctx); err != nil {
+	if err := app.Run(ctx); err != nil {
 		log.Fatal(err)
 	}
 }

@@ -8,7 +8,7 @@ import (
 	"os/signal"
 	"time"
 
-	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
+	"github.com/osauer/hyperserve/v2"
 )
 
 type pageData struct {
@@ -22,33 +22,33 @@ func main() {
 	defer stop()
 
 	// Initialize the hyperserve server
-	srv, err := serverpkg.NewServer(
-		serverpkg.WithTemplateDir("./templates"),
-		serverpkg.WithStaticDir("./static"),
+	app, err := hyperserve.New(
+		hyperserve.WithTemplateDir("./templates"),
+		hyperserve.WithStaticDir("./static"),
 	)
 	if err != nil {
 		log.Fatalf("Error initializing server: %v", err)
 	}
 
 	// Add security headers to every route.
-	srv.Use(serverpkg.HeadersMiddleware(srv.Options()))
+	app.Use(hyperserve.HeadersMiddleware(app.Options()))
 
 	// Static content route (e.g., CSS, JS)
-	if err := srv.HandleStatic("/static/"); err != nil {
+	if err := app.HandleStatic("/static/"); err != nil {
 		log.Fatalf("Static files unavailable: %v", err)
 	}
 
 	// Main page route with HTMX support
-	srv.HandleTemplate("/", "index.html", &pageData{
+	app.HandleTemplate("/", "index.html", &pageData{
 		WelcomeMessage: "Welcome to hyperserve with HTMX",
 		PageTitle:      "hyperserve with HTMX",
 	})
 
 	// Dynamic content route for real-time updates
-	srv.HandleFuncDynamic("/dynamic-content", "dynamic-content.html", currentTime)
+	app.HandleFuncDynamic("/dynamic-content", "dynamic-content.html", currentTime)
 
 	// Start the server
-	if err := srv.Run(ctx); err != nil {
+	if err := app.Run(ctx); err != nil {
 		log.Fatalf("Server failed to start: %v", err)
 	}
 }

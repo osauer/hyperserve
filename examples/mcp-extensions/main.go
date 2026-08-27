@@ -48,8 +48,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/hyperserve/v2/pkg/mcp"
-	"github.com/osauer/hyperserve/v2/pkg/server"
+	"github.com/osauer/hyperserve/v2"
+	"github.com/osauer/hyperserve/v2/mcp"
 )
 
 // Post is the domain object every tool works with.
@@ -225,9 +225,9 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	srv, err := server.NewServer(
-		server.WithAddr(":8080"),
-		server.WithMCPSupport("blog-mcp", "0.1.0"),
+	app, err := hyperserve.New(
+		hyperserve.WithAddr(":8080"),
+		hyperserve.WithMCPSupport("blog-mcp", "0.1.0"),
 	)
 	if err != nil {
 		log.Fatal(err)
@@ -245,10 +245,10 @@ func main() {
 		WithResourceTemplate(postResourceTemplate{store: store}).
 		Build()
 
-	if err := srv.RegisterMCPExtension(ext); err != nil {
+	if err := app.RegisterMCPExtension(ext); err != nil {
 		log.Fatal(err)
 	}
 
 	log.Println("MCP server on :8080, endpoint /mcp")
-	log.Fatal(srv.Run(ctx))
+	log.Fatal(app.Run(ctx))
 }

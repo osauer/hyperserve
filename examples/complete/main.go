@@ -16,8 +16,9 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/osauer/hyperserve/v2/pkg/auth"
-	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
+	"github.com/osauer/hyperserve/v2"
+	"github.com/osauer/hyperserve/v2/auth"
+	"github.com/osauer/hyperserve/v2/ratelimit"
 )
 
 // Mock user store for authentication demo
@@ -39,40 +40,45 @@ func main() {
 	defer stop()
 
 	// Create server with configuration
-	srv, err := serverpkg.NewServer(
+	app, err := hyperserve.New(
 		// Basic configuration
-		serverpkg.WithAddr(":8080"),
-		serverpkg.WithHealthServer(), // Health checks on :9080
+		hyperserve.WithAddr(":8080"),
+		hyperserve.WithHealthServer(), // Health checks on :9080
 
 		// Advanced features
-		serverpkg.WithMCPSupport("complete-example", "1.0.0"),
-		serverpkg.WithMCPEndpoint("/mcp"),
+		hyperserve.WithMCPSupport("complete-example", "1.0.0"),
+		hyperserve.WithMCPEndpoint("/mcp"),
 
-		// Rate limiting configuration
-		serverpkg.WithRateLimit(100, 200),
-		serverpkg.WithTemplateDir("./templates"),
-		serverpkg.WithStaticDir("./static"),
+		hyperserve.WithTemplateDir("./templates"),
+		hyperserve.WithStaticDir("./static"),
 	)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}
 
 	// Apply middleware stacks
-	// Metrics, request logging, and recovery are already applied by NewServer.
+	// Metrics, request logging, and recovery are already applied by New.
 
 	// HeadersMiddleware adds the configured browser headers to every route.
-	srv.Use(serverpkg.HeadersMiddleware(srv.Options()))
+	app.Use(hyperserve.HeadersMiddleware(app.Options()))
 
 	verifier := auth.TokenVerifierFunc(verifyToken)
 	apiIdentity := auth.Bearer(verifier)
 	requireIdentity := auth.Require(apiIdentity)
-	srv.UsePrefix("/api", requireIdentity, serverpkg.RateLimitMiddleware(srv))
-	srv.UsePrefix("/mcp", requireIdentity)
+	apiGate, err := ratelimit.New(ratelimit.Config{
+		RequestsPerSecond: 100,
+		Burst:             200,
+	})
+	if err != nil {
+		log.Fatalf("Failed to create API rate limit: %v", err)
+	}
+	app.UsePrefix("/api", requireIdentity, apiGate)
+	app.UsePrefix("/mcp", requireIdentity)
 
 	// ===== ROUTE HANDLERS =====
 
 	// 1. Home page with template
-	srv.HandleFuncDynamic("/", "index.html", func(r *http.Request) any {
+	app.HandleFuncDynamic("/", "index.html", func(r *http.Request) any {
 		return map[string]any{
 			"title":    "HyperServe Complete Example",
 			"features": getFeatureList(),
@@ -81,12 +87,12 @@ func main() {
 	})
 
 	// 2. Static file serving
-	if err := srv.HandleStatic("/static/"); err != nil {
+	if err := app.HandleStatic("/static/"); err != nil {
 		log.Fatalf("Static files unavailable: %v", err)
 	}
 
 	// 3. Public API endpoint (no auth required, but has security headers)
-	srv.GET("/status", func(w http.ResponseWriter, r *http.Request) {
+	app.GET("/status", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
 			"status":  "running",
@@ -97,7 +103,7 @@ func main() {
 
 	// 4. Protected API endpoint. Authentication establishes identity;
 	// application code still owns authorization and domain lookup.
-	srv.GET("/api/user", func(w http.ResponseWriter, r *http.Request) {
+	app.GET("/api/user", func(w http.ResponseWriter, r *http.Request) {
 		principal, ok := auth.PrincipalFromRequest(r)
 		if !ok {
 			http.Error(w, "missing authenticated principal", http.StatusInternalServerError)
@@ -112,10 +118,10 @@ func main() {
 	})
 
 	// 5. Server-Sent Events (SSE) for real-time updates
-	srv.HandleFunc("/api/stream", sseHandler)
+	app.HandleFunc("/api/stream", sseHandler)
 
 	// 6. Demonstrate error handling (recovery middleware handles panics)
-	srv.HandleFunc("/api/error", func(w http.ResponseWriter, r *http.Request) {
+	app.HandleFunc("/api/error", func(w http.ResponseWriter, r *http.Request) {
 		if rand.Float32() < 0.5 {
 			panic("Simulated panic - recovery middleware will handle this!")
 		}
@@ -123,7 +129,7 @@ func main() {
 	})
 
 	// 7. File upload demonstration
-	srv.HandleFunc("/api/upload", func(w http.ResponseWriter, r *http.Request) {
+	app.HandleFunc("/api/upload", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -153,7 +159,7 @@ func main() {
 	})
 
 	// 8. Metrics endpoint (demonstrates built-in metrics collection)
-	srv.HandleFunc("/api/metrics", func(w http.ResponseWriter, r *http.Request) {
+	app.HandleFunc("/api/metrics", func(w http.ResponseWriter, r *http.Request) {
 		// Note: Real metrics are internal. This is a demo endpoint.
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
@@ -171,7 +177,7 @@ func main() {
 	// - Context cancellation
 	// - Resource cleanup
 	// - Health checks on separate port
-	if err := srv.Run(ctx); err != nil {
+	if err := app.Run(ctx); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
 }
@@ -198,7 +204,7 @@ func sseHandler(w http.ResponseWriter, r *http.Request) {
 	defer ticker.Stop()
 
 	// Send initial message
-	msg := serverpkg.NewSSEMessage(map[string]any{
+	msg := hyperserve.NewSSEMessage(map[string]any{
 		"type":    "connected",
 		"message": "SSE stream connected",
 		"time":    time.Now(),
@@ -222,7 +228,7 @@ func sseHandler(w http.ResponseWriter, r *http.Request) {
 				Time:     time.Now(),
 			}
 
-			msg := serverpkg.NewSSEMessage(status)
+			msg := hyperserve.NewSSEMessage(status)
 			if _, err := fmt.Fprintf(w, "%s", msg); err != nil {
 				log.Printf("SSE write error: %v", err)
 				return
@@ -235,7 +241,7 @@ func sseHandler(w http.ResponseWriter, r *http.Request) {
 // Get feature list for template
 func getFeatureList() []map[string]string {
 	return []map[string]string{
-		{"name": "Graceful Shutdown", "status": "context-driven", "endpoint": "srv.Run(ctx)"},
+		{"name": "Graceful Shutdown", "status": "context-driven", "endpoint": "app.Run(ctx)"},
 		{"name": "Health Checks", "status": "configured", "endpoint": "http://localhost:9080/healthz/"},
 		{"name": "Request Logging", "status": "automatic", "endpoint": "Server default"},
 		{"name": "Panic Recovery", "status": "automatic", "endpoint": "Server default"},

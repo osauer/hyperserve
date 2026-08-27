@@ -18,16 +18,18 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
-	srv, err := app.NewServer(cfg)
+	appServer, err := app.NewServer(cfg)
 	if err != nil {
 		log.Fatalf("create server: %v", err)
 	}
 
-	app.RegisterMiddleware(srv)
-	app.RegisterRoutes(srv, cfg)
+	if err := app.RegisterMiddleware(appServer, cfg); err != nil {
+		log.Fatalf("register middleware: %v", err)
+	}
+	app.RegisterRoutes(appServer, cfg)
 
 	log.Printf("%s listening on %s", cfg.ServiceName, cfg.Addr)
-	if err := srv.Run(ctx); err != nil {
+	if err := appServer.Run(ctx); err != nil {
 		log.Fatalf("server exited: %v", err)
 	}
 }

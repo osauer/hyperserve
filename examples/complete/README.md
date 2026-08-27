@@ -33,10 +33,20 @@ verifier := auth.TokenVerifierFunc(verifyToken)
 apiIdentity := auth.Bearer(verifier)
 requireIdentity := auth.Require(apiIdentity)
 
-srv.UsePrefix("/api", requireIdentity, server.RateLimitMiddleware(srv))
-srv.UsePrefix("/mcp", requireIdentity)
+apiGate, err := ratelimit.New(ratelimit.Config{
+	RequestsPerSecond: 100,
+	Burst:             200,
+})
+if err != nil {
+	log.Fatal(err)
+}
+
+app.UsePrefix("/api", requireIdentity, apiGate)
+app.UsePrefix("/mcp", requireIdentity)
 ```
 
 Authentication answers “who is this?” The `/api/user` handler reads the
 resulting principal and remains responsible for the application decision about
-what that subject may see or change.
+what that subject may see or change. Middleware is a request wrapper; the
+limiter is created as a gate and placed in front of `/api`. Its quota is owned
+by this application rather than by the server lifecycle.

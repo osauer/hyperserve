@@ -1,6 +1,7 @@
 # MCP Example
 
-Demonstrates hyperserve's Model Context Protocol (MCP) support, enabling AI assistants to interact with your server.
+This example exposes HyperServe's Model Context Protocol support over HTTP so
+an MCP client can call application tools and read application resources.
 
 ## Features
 
@@ -49,9 +50,22 @@ This example calls `WithEnvironment()` before its application-owned MCP
 capabilities. Supported deployment overrides include:
 
 - `HS_MCP_ENDPOINT` - Change MCP endpoint (default: /mcp)
-- `HS_RATE_LIMIT` - Requests per second (baseline: 50)
-- `HS_BURST_LIMIT` - Rate-limit burst (baseline: 100)
 - `HS_PORT` - Server port (default: 8080)
+
+Rate limiting is explicit application policy, not server configuration.
+Middleware is a request wrapper: create one gate, then place it in front of the
+MCP path.
+
+```go
+mcpGate, err := ratelimit.New(ratelimit.Config{
+	RequestsPerSecond: 50,
+	Burst:             100,
+})
+if err != nil {
+	log.Fatal(err)
+}
+app.UsePrefix("/mcp", mcpGate)
+```
 
 ## Custom Tools and Resources
 

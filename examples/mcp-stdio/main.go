@@ -1,4 +1,4 @@
-// Package main demonstrates hyperserve's MCP support as a stdio server for Claude Desktop.
+// Package main demonstrates HyperServe's MCP support as a stdio server for Claude Desktop.
 // This allows Claude to interact with your local system through MCP tools and resources.
 package main
 
@@ -8,9 +8,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/osauer/hyperserve/v2/pkg/mcp"
-	_ "github.com/osauer/hyperserve/v2/pkg/mcp/builtin" // register builtin preset hooks
-	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
+	"github.com/osauer/hyperserve/v2"
+	"github.com/osauer/hyperserve/v2/mcp"
+	_ "github.com/osauer/hyperserve/v2/mcp/builtin" // register builtin preset hooks
 )
 
 func main() {
@@ -40,11 +40,11 @@ func main() {
 	}
 
 	// Create server with MCP stdio support
-	opts := []serverpkg.Option{
-		serverpkg.WithMCPSupport("hyperserve-mcp-stdio", "1.0.0", mcp.OverStdio()),
-		serverpkg.WithMCPBuiltinTools(true),
-		serverpkg.WithMCPBuiltinResources(true),
-		serverpkg.WithMCPFileToolRoot(sandboxDir),
+	opts := []hyperserve.Option{
+		hyperserve.WithMCPSupport("hyperserve-mcp-stdio", "1.0.0", mcp.OverStdio()),
+		hyperserve.WithMCPBuiltinTools(true),
+		hyperserve.WithMCPBuiltinResources(true),
+		hyperserve.WithMCPFileToolRoot(sandboxDir),
 	}
 
 	if verbose {
@@ -52,13 +52,13 @@ func main() {
 		log.Printf("MCP stdio server starting (sandbox: %s)", sandboxDir)
 	}
 
-	srv, err := serverpkg.NewServer(opts...)
+	app, err := hyperserve.New(opts...)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}
 
 	// Run the stdio server
-	if err := srv.RunStdio(); err != nil {
+	if err := app.RunStdio(); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
 }

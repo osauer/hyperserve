@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
+	"github.com/osauer/hyperserve/v2"
 )
 
 // Todo represents a task in the API.
@@ -126,8 +126,8 @@ func main() {
 	store.Create("Build a REST API")
 	store.Create("Add authentication")
 
-	srv, err := serverpkg.NewServer(
-		serverpkg.WithCORS(&serverpkg.CORSOptions{
+	app, err := hyperserve.New(
+		hyperserve.WithCORS(&hyperserve.CORSOptions{
 			AllowedOrigins: []string{"*"},
 			AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 			AllowedHeaders: []string{"Content-Type"},
@@ -137,7 +137,7 @@ func main() {
 		log.Fatalf("create server: %v", err)
 	}
 
-	srv.GET("/", func(w http.ResponseWriter, r *http.Request) {
+	app.GET("/", func(w http.ResponseWriter, r *http.Request) {
 		sendJSON(w, http.StatusOK, map[string]any{
 			"service": "HyperServe TODO API",
 			"version": "1.0",
@@ -152,20 +152,20 @@ func main() {
 		})
 	})
 
-	srv.GET("/todos", func(w http.ResponseWriter, r *http.Request) {
+	app.GET("/todos", func(w http.ResponseWriter, r *http.Request) {
 		sendJSON(w, http.StatusOK, store.List())
 	})
 
-	srv.POST("/todos", func(w http.ResponseWriter, r *http.Request) {
+	app.POST("/todos", func(w http.ResponseWriter, r *http.Request) {
 		var input todoInput
-		if err := serverpkg.BindJSON(r, &input); err != nil {
+		if err := hyperserve.BindJSON(r, &input); err != nil {
 			sendError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		sendJSON(w, http.StatusCreated, store.Create(input.Title))
 	})
 
-	srv.GET("/todos/{id}", func(w http.ResponseWriter, r *http.Request) {
+	app.GET("/todos/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id, ok := todoID(r)
 		if !ok {
 			sendError(w, http.StatusBadRequest, "invalid todo ID")
@@ -179,14 +179,14 @@ func main() {
 		sendJSON(w, http.StatusOK, todo)
 	})
 
-	srv.PUT("/todos/{id}", func(w http.ResponseWriter, r *http.Request) {
+	app.PUT("/todos/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id, ok := todoID(r)
 		if !ok {
 			sendError(w, http.StatusBadRequest, "invalid todo ID")
 			return
 		}
 		var input todoInput
-		if err := serverpkg.BindJSON(r, &input); err != nil {
+		if err := hyperserve.BindJSON(r, &input); err != nil {
 			sendError(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -198,7 +198,7 @@ func main() {
 		sendJSON(w, http.StatusOK, todo)
 	})
 
-	srv.DELETE("/todos/{id}", func(w http.ResponseWriter, r *http.Request) {
+	app.DELETE("/todos/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id, ok := todoID(r)
 		if !ok {
 			sendError(w, http.StatusBadRequest, "invalid todo ID")
@@ -221,7 +221,7 @@ func main() {
 	fmt.Println("  DELETE /todos/{id}  - Delete a todo")
 	fmt.Println("\nPress Ctrl+C to stop")
 
-	if err := srv.Run(ctx); err != nil {
+	if err := app.Run(ctx); err != nil {
 		log.Fatalf("server failed: %v", err)
 	}
 }

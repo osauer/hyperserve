@@ -28,5 +28,5 @@ go run ./examples/devops -- --mcp-stdio
 - Built-in MCP tools and resources are **off by default** in HyperServe.
   This example opts in via `MCPObservability()`, which registers the
   production read-only observability resources.
-- The `_ "github.com/osauer/hyperserve/v2/pkg/mcp/builtin"` blank import is
+- The `_ "github.com/osauer/hyperserve/v2/mcp/builtin"` blank import is
   required to register the preset hooks. Without it the preset is empty.

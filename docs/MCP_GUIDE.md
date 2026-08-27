@@ -10,6 +10,27 @@ HyperServe provides native MCP support through three main configurations:
 2. **Observability** (`MCPObservability()`) - Safe monitoring for production
 3. **Custom Extensions** - Your own tools and resources
 
+Canonical construction uses the root package plus `mcp`. Built-in presets and
+resources additionally require the explicit `mcp/builtin` import:
+
+```go
+import (
+    "github.com/osauer/hyperserve/v2"
+    "github.com/osauer/hyperserve/v2/mcp"
+    _ "github.com/osauer/hyperserve/v2/mcp/builtin"
+)
+
+app, err := hyperserve.New(
+    hyperserve.WithMCPSupport("service", "1.0.0"),
+    hyperserve.WithMCPBuiltinResources(true),
+)
+```
+
+The root package never imports builtins automatically. `MCPDev` and
+`MCPObservability` select modes, but their built-in tools and resources are
+registered only when `mcp/builtin` is imported. Neither mode creates an
+implicit authorization policy.
+
 HyperServe serves two explicitly separated protocol eras on `/mcp`:
 
 - **MCP 2026-07-28 Streamable HTTP** — stateless POST requests with
@@ -91,7 +112,7 @@ Browser Origins default to same scheme, host, and port as the request. For an
 authenticated trusted cross-origin client, install an explicit policy:
 
 ```go
-server.WithMCPOriginValidator(func(r *http.Request) bool {
+hyperserve.WithMCPOriginValidator(func(r *http.Request) bool {
     return r.Header.Get("Origin") == "https://trusted.example"
 })
 ```
@@ -125,9 +146,9 @@ cannot be confused with standards-compliant Streamable HTTP.
 Enable it only while migrating an existing HyperServe-specific client:
 
 ```go
-srv, err := server.NewServer(
-    server.WithMCPSupport("service", "1.0.0"),
-    server.WithMCPLegacyRoutedSSE(true),
+app, err := hyperserve.New(
+    hyperserve.WithMCPSupport("service", "1.0.0"),
+    hyperserve.WithMCPLegacyRoutedSSE(true),
 )
 ```
 
@@ -188,7 +209,7 @@ HyperServe does not parse command-line flags. If your application owns flags
 explicitly when constructing the server:
 
 ```go
-srv, err := server.NewServer(server.WithEnvironment())
+app, err := hyperserve.New(hyperserve.WithEnvironment())
 ```
 
 ```bash
@@ -342,7 +363,7 @@ func (b *Blog) Create(ctx context.Context, args CreatePostArgs) (Post, error) {
     return b.create(args) // args is already decoded and validated.
 }
 
-srv.RegisterMCPTool(mcp.NewTypedTool(
+app.RegisterMCPTool(mcp.NewTypedTool(
     "create_post", "Create a new blog post.", blog.Create))
 ```
 
@@ -364,14 +385,14 @@ Supported `validate` verbs map to JSON Schema as:
 | `len=N`               | string/array   | min and max set to N        |
 
 Validation failures surface through the JSON-RPC tool-call error with the
-same per-field message format produced by `server.BindJSON`
+same per-field message format produced by `hyperserve.BindJSON`
 (`"validation failed: field: rule message; …"`). That format is part of
-the wire surface — see [pkg/mcp/typed_tool_test.go](../pkg/mcp/typed_tool_test.go)
+the wire surface — see [mcp/typed_tool_test.go](../mcp/typed_tool_test.go)
 `TestNewTypedTool_ValidationErrorMessageFormat` for the pinning test.
 Nested structs are inlined; pointer fields are optional (presence in
 `required` is controlled by the tag, not the pointer).
 
-Out of scope for v1: cross-field rules, custom validators, JSON Schema
+Current limitations include cross-field rules, custom validators, JSON Schema
 `$ref` / `$defs`, OpenAPI generation. Hand-author the schema with the
 builder below when those matter.
 
@@ -399,7 +420,7 @@ tool := mcp.NewTool("deploy").
     }).
     Build()
 
-srv.RegisterMCPTool(tool)
+app.RegisterMCPTool(tool)
 ```
 
 ### Simple Resource
@@ -422,7 +443,7 @@ func (userStatsResource) Read() (any, error) {
     }, nil
 }
 
-srv.RegisterMCPResource(userStatsResource{})
+app.RegisterMCPResource(userStatsResource{})
 ```
 
 ### Resource Templates and Subscriptions
@@ -450,7 +471,7 @@ func (quoteResource) Read(ctx context.Context, uri string, params map[string]str
     return lookupQuote(ctx, params["symbol"])
 }
 
-srv.RegisterMCPResourceTemplate(quoteResource{})
+app.RegisterMCPResourceTemplate(quoteResource{})
 ```
 
 Templates that also implement `mcp.SubscribableResourceTemplate` enable
@@ -497,7 +518,7 @@ ext := mcp.NewExtension("analytics").
     WithResource(analyticsSummaryResource{}).
     Build()
 
-srv.RegisterMCPExtension(ext)
+app.RegisterMCPExtension(ext)
 ```
 
 ## Namespace Support
@@ -507,12 +528,12 @@ HyperServe supports organizing MCP tools and resources into namespaces for bette
 ### Registering Tools in Namespaces
 
 ```go
-err := srv.RegisterMCPNamespace("daw",
+err := app.RegisterMCPNamespace("daw",
     mcp.WithNamespaceTools(playTool, stopTool),
 )
 // playTool is accessible as "mcp__daw__play".
 
-err = srv.RegisterMCPNamespace("analytics",
+err = app.RegisterMCPNamespace("analytics",
     mcp.WithNamespaceResources(analyticsSummaryResource{}),
     mcp.WithNamespaceResourceTemplates(metricSeriesTemplate{}),
 )
@@ -526,7 +547,7 @@ err = srv.RegisterMCPNamespace("analytics",
 
 ```go
 // Register a complete namespace with tools and resources
-err := srv.RegisterMCPNamespace("daw",
+err := app.RegisterMCPNamespace("daw",
     mcp.WithNamespaceTools(
         playTool,
         stopTool,

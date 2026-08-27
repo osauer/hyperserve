@@ -1,40 +1,55 @@
 # CLAUDE.md
 
-Guidance for Claude Code (claude.ai/code) when working in the HyperServe repo.
+Repository guidance for coding agents working on HyperServe.
 
-## Layout
+## Canonical layout
 
-HyperServe is a Go HTTP framework with built-in Model Context Protocol (MCP)
-support. The library lives under `pkg/`:
+HyperServe is a Go HTTP library with optional Model Context Protocol support.
+Its public packages are:
 
-- `pkg/server` — `net/http`-shaped HTTP server, middleware, options, lifecycle.
-- `pkg/mcp` — MCP protocol handler, JSON-RPC dispatch, SSE manager, transports.
-- `pkg/mcp/builtin` — opt-in built-in tools (calculator, sandboxed file tools)
-  and resources (config, metrics, system, logs). Activated via blank import
-  plus `WithMCPBuiltinTools(true)` / `WithMCPBuiltinResources(true)`.
-- `pkg/jsonrpc` — JSON-RPC 2.0 engine reused by MCP.
-- `pkg/websocket` — RFC 6455 WebSocket implementation.
+- repository root — `github.com/osauer/hyperserve/v2`, package
+  `hyperserve`;
+- `auth/` — authentication and stable request principals;
+- `jsonrpc/` — JSON-RPC 2.0;
+- `mcp/` and `mcp/builtin/` — MCP protocol and opt-in builtins;
+- `ratelimit/` — bounded HTTP rate-limit middleware;
+- `websocket/` — RFC 6455 server and client.
 
-Supported binary: `cmd/hyperserve-init` (project scaffold). Generated projects
-contain their own `cmd/server`; the HyperServe repository does not.
+There are no public `pkg/...` packages or compatibility facades. The central
+constructor is `hyperserve.New`; do not add `NewServer` aliases.
 
-Import the library as `github.com/osauer/hyperserve/v2/pkg/server` — there are
-no `.go` files at the repository root.
+`cmd/hyperserve-init` is the supported repository binary. Generated
+applications have their own `cmd/server` and may name an application-owned
+factory `app.NewServer(cfg)`; that does not recreate a HyperServe constructor.
 
-## Talking to an MCP-enabled HyperServe
+## Ownership boundaries
 
-If the server logs "MCP ENABLED" at startup, try the discovery endpoint
-first:
+- Applications own process signals and the root context. HyperServe follows
+  `Run(ctx)`; handlers follow `r.Context()`.
+- The root package owns HTTP serving and optional MCP wiring. It must not import
+  `mcp/builtin` or `ratelimit`.
+- One `ratelimit.New` call creates one quota namespace. Reusing its middleware
+  shares quotas; another call isolates them.
+- Default limiter identity is the transport peer. Forwarding headers require an
+  explicit `TrustedProxyClientKey` built from validated `netip.Prefix`
+  ranges.
+- `auth` establishes identity. Providers, sessions, roles, and resource
+  authorization remain application policy.
 
-```bash
+See [ADR-0014](docs/0014-root-package-and-concern-subpackages.md) before moving
+public APIs across packages.
+
+## Talking to an MCP-enabled application
+
+Start with discovery:
+
+```sh
 curl http://localhost:8080/.well-known/mcp.json
 ```
 
-It returns transport info and (per policy) tool/resource lists.
-
 ### Streamable HTTP (MCP 2026-07-28)
 
-```bash
+```sh
 curl -X POST http://localhost:8080/mcp \
   -H "Accept: application/json, text/event-stream" \
   -H "Content-Type: application/json" \
@@ -43,15 +58,13 @@ curl -X POST http://localhost:8080/mcp \
   -d '{"jsonrpc":"2.0","method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}},"id":1}'
 ```
 
-The endpoint returns JSON for ordinary requests. It validates the mirrored
-protocol/method/name headers, returns 202 with no body for accepted
-notifications, and rejects browser Origins that do not match the request Host.
-Use `server.WithMCPOriginValidator` for an authenticated cross-origin client.
+Ordinary requests return finite JSON. Accepted notifications return 202 with
+no body. Browser origins must satisfy the default same-origin policy or the
+application's `hyperserve.WithMCPOriginValidator`.
 
-Resource templates implementing `mcp.SubscribableResourceTemplate` are
-available through a request-scoped SSE POST:
+Subscribable resource templates use request-scoped SSE:
 
-```bash
+```sh
 curl -N -X POST http://localhost:8080/mcp \
   -H "Accept: application/json, text/event-stream" \
   -H "Content-Type: application/json" \
@@ -60,77 +73,67 @@ curl -N -X POST http://localhost:8080/mcp \
   -d '{"jsonrpc":"2.0","method":"subscriptions/listen","params":{"notifications":{"resourceSubscriptions":["quotes://AAPL"]},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}},"id":"quotes"}'
 ```
 
-The acknowledgement is always first. Close the response to cancel the
-subscription; server shutdown sends a final `resultType: complete` response.
+Closing the response cancels the request. Server shutdown sends a final
+`resultType: complete` response when possible.
 
-Requests without 2026 per-request metadata, or with the configured legacy
-protocol header, use the initialize-era 2025-11-25 request/response
-compatibility path. It does not implement 2025 sessions or resumable SSE.
+Requests without 2026 per-request metadata use the initialize-era 2025-11-25
+request/response path. It does not provide 2025 sessions or resumable SSE.
 
-### Legacy HyperServe routed SSE
+### Deprecated HyperServe routed SSE
 
-The following is a proprietary compatibility transport, not MCP Streamable
-HTTP. New clients must not use it. It is disabled by default; an existing
-HyperServe-specific client may temporarily enable it with
-`server.WithMCPLegacyRoutedSSE(true)`.
+This proprietary compatibility transport is not MCP Streamable HTTP. New
+clients must not use it. Existing HyperServe-specific clients can temporarily
+enable it with `hyperserve.WithMCPLegacyRoutedSSE(true)`.
 
-Connect with the SSE Accept header:
-
-```bash
+```sh
 curl -N -H "Accept: text/event-stream" http://localhost:8080/mcp
 ```
 
-The initial `connection` event carries `clientId` and `bindingToken`. POST
-JSON-RPC requests to the same `/mcp` endpoint with **both** headers set:
+The initial event provides a `clientId` and `bindingToken`. Routed POSTs
+must return both `X-SSE-Client-ID` and `X-SSE-Binding`; the client ID alone
+is not authority.
 
-```bash
-curl -X POST http://localhost:8080/mcp \
-  -H "X-SSE-Client-ID: <clientId>" \
-  -H "X-SSE-Binding: <bindingToken>" \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
-```
-
-Missing or wrong binding → 403. The binding token is the capability — the
-client ID alone is **not** sufficient to inject requests into another
-client's stream.
-
-## MCP option summary
+## MCP construction
 
 ```go
-srv, _ := server.NewServer(
-    server.WithMCPSupport("MyServer", "1.0.0"),
-    server.WithMCPBuiltinTools(true),       // off by default
-    server.WithMCPBuiltinResources(true),   // off by default
-    server.WithMCPFileToolRoot("/srv/data"), // required for file tools
+import (
+    "github.com/osauer/hyperserve/v2"
+    "github.com/osauer/hyperserve/v2/mcp"
+    _ "github.com/osauer/hyperserve/v2/mcp/builtin"
+)
+
+app, err := hyperserve.New(
+    hyperserve.WithMCPSupport("MyApp", "1.0.0"),
+    hyperserve.WithMCPBuiltinTools(true),
+    hyperserve.WithMCPBuiltinResources(true),
+    hyperserve.WithMCPFileToolRoot("/srv/data"),
+    hyperserve.WithMCPDiscoveryPolicy(mcp.DiscoveryCount),
 )
 ```
 
-Built-in tools/resources are off by default. File tools refuse to construct
-without a sandbox root; the unsandboxed fallback was deleted.
-
-## Discovery policies
-
-```go
-server.WithMCPDiscoveryPolicy(server.DiscoveryCount)         // counts only
-server.WithMCPDiscoveryPolicy(server.DiscoveryAuthenticated) // requires auth header
-server.WithMCPDiscoveryFilter(func(toolName string, r *http.Request) bool { ... })
-```
+Builtins are off by default and require the explicit `mcp/builtin` import.
+File tools never fall back to an unsandboxed root. Discovery policy controls
+what metadata is listed; it is not endpoint authorization.
 
 ## Development conventions
 
-- `make check` is the gate: formatting, vet, staticcheck, vulnerability scans
-  for root/tools/examples, modernization, canonical/compatibility examples,
-  and official MCP SDK conformance.
-- `make test` runs the native check gate plus the unit suite; use
-  `make test-race` for the race detector.
-- New features ship with: tests, doc comments, example update where relevant.
-- Honor library design practices (functional options, narrow exports).
+- `make check` is the canonical formatting, analysis, vulnerability,
+  documentation, example, MCP-conformance, and release-gate fixture check.
+- `make test` adds the native unit suite. Use `make test-race` for races and
+  `make fuzz-smoke` for fuzz targets.
+- Public API changes require focused tests, current documentation, updated
+  examples/scaffold output, and a disposable consumer witness.
+- Keep the shipped dependency graph separate from `tools/go.mod`.
+- Preserve historical CHANGELOG and ADR wording; supersede decisions with a
+  new ADR instead of rewriting history.
+- Do not claim a release from a commit, tag, or local test alone. Publication
+  and fresh-module retrieval require separate evidence.
 
-## Reference docs
+## References
 
-- [MCP_GUIDE.md](docs/MCP_GUIDE.md) — full MCP reference with namespaces and presets.
-- [API_STABILITY.md](docs/API_STABILITY.md) — pre-1.0 deprecation policy.
-- [PERFORMANCE.md](docs/PERFORMANCE.md) — benchmark methodology.
-- [examples/auth](examples/auth/) — JWT / API-key / Basic auth, role and
-  permission gating sourced from validator SessionInfo (not from raw headers).
+- [README](README.md)
+- [Architecture](ARCHITECTURE.md)
+- [MCP guide](docs/MCP_GUIDE.md)
+- [Production guide](docs/PRODUCTION.md)
+- [API stability](docs/API_STABILITY.md)
+- [Migrating to v2.1](docs/MIGRATING_V2_1.md)

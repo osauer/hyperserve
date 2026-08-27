@@ -3,16 +3,16 @@
 // All three endpoints accept the same JSON payload and produce the same
 // shape of 400 response. They differ in what they do on success:
 //
-//	POST /users/echo    — server.JSONEcho[CreateUser](). Validates the
+//	POST /users/echo    — hyperserve.JSONEcho[CreateUser](). Validates the
 //	                      body and echoes the validated value back. No
 //	                      business logic — useful for webhook acks, dev
 //	                      stubs, and "did this payload pass validation?"
 //	                      endpoints.
-//	POST /users         — server.JSONHandler. Validates, then runs real
+//	POST /users         — hyperserve.JSONHandler. Validates, then runs real
 //	                      business logic (here: assigns a server-side ID,
 //	                      lowercases the email) and returns a different
 //	                      response type.
-//	POST /users-manual  — uses the lower-level server.BindJSON and renders
+//	POST /users-manual  — uses the lower-level hyperserve.BindJSON and renders
 //	                      the 400 envelope by hand. Useful when you need
 //	                      to add headers, stream, or build a custom shape.
 //
@@ -44,7 +44,7 @@ import (
 	"os/signal"
 	"strings"
 
-	server "github.com/osauer/hyperserve/v2/pkg/server"
+	"github.com/osauer/hyperserve/v2"
 )
 
 type CreateUser struct {
@@ -80,7 +80,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	srv, err := server.NewServer(server.WithAddr(":8080"))
+	app, err := hyperserve.New(hyperserve.WithAddr(":8080"))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -88,19 +88,19 @@ func main() {
 	// Shortest form: validate-and-echo. JSONEcho is the right tool when
 	// the handler body would just be `return in, nil` — there's no
 	// business logic, only "did this payload validate?".
-	srv.POST("/users/echo", server.JSONEcho[CreateUser]())
+	app.POST("/users/echo", hyperserve.JSONEcho[CreateUser]())
 
-	// High-level: server.JSONHandler does bind + validate + JSON respond.
+	// High-level: hyperserve.JSONHandler does bind + validate + JSON respond.
 	// Use it when the response is genuinely different from the input —
 	// here, we assign an ID and normalise the email.
-	srv.POST("/users", server.JSONHandler(createUser))
+	app.POST("/users", hyperserve.JSONHandler(createUser))
 
 	// Low-level: same behaviour, hand-rolled. Use this shape when you
 	// need to set custom headers, write a non-JSON body, or stream.
-	srv.POST("/users-manual", func(w http.ResponseWriter, r *http.Request) {
+	app.POST("/users-manual", func(w http.ResponseWriter, r *http.Request) {
 		var in CreateUser
-		if err := server.BindJSON(r, &in); err != nil {
-			if verr, ok := errors.AsType[*server.ValidationError](err); ok {
+		if err := hyperserve.BindJSON(r, &in); err != nil {
+			if verr, ok := errors.AsType[*hyperserve.ValidationError](err); ok {
 				writeValidationError(w, verr)
 				return
 			}
@@ -117,13 +117,13 @@ func main() {
 	})
 
 	log.Println("listening on :8080")
-	log.Fatal(srv.Run(ctx))
+	log.Fatal(app.Run(ctx))
 }
 
 // writeValidationError mirrors the per-field 400 envelope that
-// server.JSONHandler renders automatically. Kept here so the low-level
+// hyperserve.JSONHandler renders automatically. Kept here so the low-level
 // example shows what's normally hidden.
-func writeValidationError(w http.ResponseWriter, verr *server.ValidationError) {
+func writeValidationError(w http.ResponseWriter, verr *hyperserve.ValidationError) {
 	type field struct {
 		Field   string `json:"field"`
 		Tag     string `json:"tag,omitempty"`

@@ -11,9 +11,9 @@ import (
 	"os/signal"
 	"slices"
 
-	"github.com/osauer/hyperserve/v2/pkg/mcp"
-	_ "github.com/osauer/hyperserve/v2/pkg/mcp/builtin" // register builtin preset hooks
-	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
+	"github.com/osauer/hyperserve/v2"
+	"github.com/osauer/hyperserve/v2/mcp"
+	_ "github.com/osauer/hyperserve/v2/mcp/builtin" // register builtin preset hooks
 )
 
 func main() {
@@ -24,61 +24,61 @@ func main() {
 	useStdio := slices.Contains(os.Args[1:], "--mcp-stdio")
 
 	// Create server options
-	var opts []serverpkg.Option
+	var opts []hyperserve.Option
 
 	// Configure MCP with appropriate transport
 	if useStdio {
 		// For Claude Desktop - use STDIO transport with observability
-		opts = append(opts, serverpkg.WithMCPSupport("ObservabilityExample", "1.0.0",
+		opts = append(opts, hyperserve.WithMCPSupport("ObservabilityExample", "1.0.0",
 			mcp.OverStdio(),
-			serverpkg.MCPObservability(),
+			hyperserve.MCPObservability(),
 		))
 	} else {
 		// For HTTP - use default transport with observability
-		opts = append(opts, serverpkg.WithMCPSupport("ObservabilityExample", "1.0.0",
-			serverpkg.MCPObservability(),
+		opts = append(opts, hyperserve.WithMCPSupport("ObservabilityExample", "1.0.0",
+			hyperserve.MCPObservability(),
 		))
 	}
 
 	// Create server
-	srv, err := serverpkg.NewServer(opts...)
+	app, err := hyperserve.New(opts...)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	// Example endpoints
-	srv.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	app.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		slog.Debug("Home page accessed", "path", r.URL.Path, "method", r.Method)
 		fmt.Fprintln(w, "DevOps Example Server")
 	})
 
-	srv.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
+	app.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
 		slog.Info("Test endpoint hit", "remote", r.RemoteAddr)
 		fmt.Fprintln(w, "Test endpoint")
 	})
 
-	srv.HandleFunc("/error", func(w http.ResponseWriter, r *http.Request) {
+	app.HandleFunc("/error", func(w http.ResponseWriter, r *http.Request) {
 		slog.Error("Simulated error", "endpoint", "/error", "user_agent", r.UserAgent())
 		http.Error(w, "Simulated error", http.StatusInternalServerError)
 	})
 
 	// Log startup information
 	slog.Info("Starting DevOps example server",
-		"debug_mode", srv.Options().DebugMode,
-		"log_level", srv.Options().LogLevel,
-		"mcp_enabled", srv.Options().MCPEnabled,
+		"debug_mode", app.Options().DebugMode,
+		"log_level", app.Options().LogLevel,
+		"mcp_enabled", app.Options().MCPEnabled,
 	)
 
 	// Run the server
 	if useStdio {
 		log.Println("Starting in MCP STDIO mode...")
-		if err := srv.RunStdio(); err != nil {
+		if err := app.RunStdio(); err != nil {
 			log.Fatal(err)
 		}
 	} else {
-		log.Printf("Starting server on %s", srv.Options().Addr)
-		log.Printf("MCP endpoint available at: http://localhost%s%s", srv.Options().Addr, srv.Options().MCPEndpoint)
-		if err := srv.Run(ctx); err != nil {
+		log.Printf("Starting server on %s", app.Options().Addr)
+		log.Printf("MCP endpoint available at: http://localhost%s%s", app.Options().Addr, app.Options().MCPEndpoint)
+		if err := app.Run(ctx); err != nil {
 			log.Fatal(err)
 		}
 	}

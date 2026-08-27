@@ -24,14 +24,14 @@ curl -I http://localhost:8080/index.html | grep X-Content-Type-Options
 ## Server setup
 
 ```go
-srv, err := server.NewServer(server.WithStaticDir("./static"))
+app, err := hyperserve.New(hyperserve.WithStaticDir("./static"))
 if err != nil {
     log.Fatal(err)
 }
 
-srv.Use(server.HeadersMiddleware(srv.Options()))
+app.Use(hyperserve.HeadersMiddleware(app.Options()))
 
-if err := srv.HandleStatic("/"); err != nil {
+if err := app.HandleStatic("/"); err != nil {
     log.Fatal(err)
 }
 ```

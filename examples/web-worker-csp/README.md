@@ -19,12 +19,12 @@ Open <http://localhost:8080>, start the worker, and inspect the response's
 ## Configuration
 
 ```go
-srv, err := server.NewServer(server.WithCSPWebWorkerSupport())
+app, err := hyperserve.New(hyperserve.WithCSPWebWorkerSupport())
 if err != nil {
     log.Fatal(err)
 }
 
-srv.Use(server.HeadersMiddleware(srv.Options()))
+app.Use(hyperserve.HeadersMiddleware(app.Options()))
 ```
 
 `WithCSPWebWorkerSupport` changes the configured CSP value; it does not attach

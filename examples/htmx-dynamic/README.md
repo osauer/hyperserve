@@ -3,7 +3,7 @@
 A minimal server-rendered page that returns HTML partials in response to
 HTMX-triggered requests. Demonstrates:
 
-- Loading HTML templates from `./templates` via `server.WithTemplateDir`.
+- Loading HTML templates from `./templates` via `hyperserve.WithTemplateDir`.
 - Serving static assets (the HTMX `<script>` tag) from `./static`.
 - Returning a partial (not a full page) for HTMX to swap in.
 

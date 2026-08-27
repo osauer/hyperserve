@@ -6,12 +6,12 @@ import (
 	"net/http"
 	"time"
 
-	server "github.com/osauer/hyperserve/v2/pkg/server"
+	"github.com/osauer/hyperserve/v2"
 )
 
 // RegisterRoutes wires HTTP handlers for the service.
-func RegisterRoutes(srv *server.Server, cfg Config) {
-	srv.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+func RegisterRoutes(app *hyperserve.Server, cfg Config) {
+	app.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprintf(w, `<main style="font-family: sans-serif; padding: 2rem;">
 <h1>%s</h1>
@@ -20,7 +20,7 @@ func RegisterRoutes(srv *server.Server, cfg Config) {
 </main>`, cfg.ServiceName)
 	})
 
-	srv.HandleFunc("/api/v1/status", func(w http.ResponseWriter, r *http.Request) {
+	app.HandleFunc("/api/v1/status", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
 			"service":   cfg.ServiceName,

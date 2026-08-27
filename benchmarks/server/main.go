@@ -9,36 +9,36 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/osauer/hyperserve/v2/pkg/auth"
-	"github.com/osauer/hyperserve/v2/pkg/server"
+	"github.com/osauer/hyperserve/v2"
+	"github.com/osauer/hyperserve/v2/auth"
 )
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:18080", "loopback address to listen on")
 	flag.Parse()
 
-	srv, err := server.NewServer(
-		server.WithAddr(*addr),
-		server.WithLogLevel("ERROR"),
+	app, err := hyperserve.New(
+		hyperserve.WithAddr(*addr),
+		hyperserve.WithLogLevel("ERROR"),
 	)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	srv.HandleFunc("/ready", func(w http.ResponseWriter, _ *http.Request) {
+	app.HandleFunc("/ready", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
-	srv.HandleFunc("/minimal", okHandler)
-	srv.HandleFunc("/middleware", okHandler)
+	app.HandleFunc("/minimal", okHandler)
+	app.HandleFunc("/middleware", okHandler)
 	authenticator := auth.Bearer(benchmarkVerifier{})
-	srv.UsePrefix("/middleware",
-		server.HeadersMiddleware(srv.Options()),
+	app.UsePrefix("/middleware",
+		hyperserve.HeadersMiddleware(app.Options()),
 		auth.Require(authenticator),
 	)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	if err := srv.Run(ctx); err != nil {
+	if err := app.Run(ctx); err != nil {
 		log.Fatal(err)
 	}
 }

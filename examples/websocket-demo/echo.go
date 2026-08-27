@@ -8,7 +8,7 @@ import (
 	"os"
 	"os/signal"
 
-	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
+	"github.com/osauer/hyperserve/v2"
 )
 
 //go:embed demo.html
@@ -18,8 +18,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	srv, err := serverpkg.NewServer(
-		serverpkg.WithAddr(":8080"),
+	app, err := hyperserve.New(
+		hyperserve.WithAddr(":8080"),
 	)
 	if err != nil {
 		log.Fatal(err)
@@ -27,11 +27,11 @@ func main() {
 
 	// The server-owned upgrader keeps the package's same-origin default and
 	// records successful upgrades in HyperServe's WebSocket telemetry.
-	upgrader := srv.WebSocketUpgrader()
+	upgrader := app.WebSocketUpgrader()
 	upgrader.MaxMessageSize = 512 << 10
 
 	// WebSocket echo handler
-	srv.GET("/ws/echo", func(w http.ResponseWriter, r *http.Request) {
+	app.GET("/ws/echo", func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			log.Printf("WebSocket upgrade error: %v", err)
@@ -59,7 +59,7 @@ func main() {
 	})
 
 	// Embedding the page keeps the example runnable from any working directory.
-	srv.GET("/", func(w http.ResponseWriter, _ *http.Request) {
+	app.GET("/", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if _, err := w.Write(demoHTML); err != nil {
 			log.Printf("Write demo page: %v", err)
@@ -68,5 +68,5 @@ func main() {
 
 	log.Printf("Starting WebSocket echo server on :8080")
 	log.Printf("Open http://localhost:8080 in your browser")
-	log.Fatal(srv.Run(ctx))
+	log.Fatal(app.Run(ctx))
 }

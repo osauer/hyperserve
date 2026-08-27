@@ -18,7 +18,7 @@ import (
 	"os/signal"
 	"time"
 
-	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
+	"github.com/osauer/hyperserve/v2"
 )
 
 func numbersStreamHandler(w http.ResponseWriter, r *http.Request) {
@@ -40,7 +40,7 @@ func numbersStreamHandler(w http.ResponseWriter, r *http.Request) {
 	defer ticker.Stop()
 
 	// Create a new SSE message, with empty data. The data will be updated in the loop.
-	sseMessage := serverpkg.NewSSEMessage("")
+	sseMessage := hyperserve.NewSSEMessage("")
 	if _, err := fmt.Fprint(w, sseMessage); err != nil {
 		log.Println("Error creating SSE message:", err)
 	}
@@ -59,7 +59,7 @@ func numbersStreamHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Use the improved SSE message formatting
-			sseMessage := serverpkg.NewSSEMessage(data)
+			sseMessage := hyperserve.NewSSEMessage(data)
 			if _, err := fmt.Fprint(w, sseMessage); err != nil {
 				log.Println("Error sending SSE message:", err)
 				return
@@ -74,27 +74,27 @@ func main() {
 	defer stop()
 
 	// Initialize the server
-	srv, err := serverpkg.NewServer(
-		serverpkg.WithTimeouts(0, 0, 0),
-		serverpkg.WithTemplateDir("./templates"),
-		serverpkg.WithStaticDir("./static"),
+	app, err := hyperserve.New(
+		hyperserve.WithTimeouts(0, 0, 0),
+		hyperserve.WithTemplateDir("./templates"),
+		hyperserve.WithStaticDir("./static"),
 	)
 	if err != nil {
 		panic(err)
 	}
-	if err := srv.HandleStatic("/static/"); err != nil {
+	if err := app.HandleStatic("/static/"); err != nil {
 		log.Fatalf("Static files unavailable: %v", err)
 	}
 
 	// Handler for streaming
-	srv.HandleFunc("/numbers/stream", numbersStreamHandler)
+	app.HandleFunc("/numbers/stream", numbersStreamHandler)
 
 	// Serve the main template
-	srv.HandleTemplate("/", "index.html", nil)
+	app.HandleTemplate("/", "index.html", nil)
 
-	// Run the srv
-	err = srv.Run(ctx)
+	// Run the app
+	err = app.Run(ctx)
 	if err != nil {
-		fmt.Printf("Error running srv: %v", err)
+		fmt.Printf("Error running app: %v", err)
 	}
 }

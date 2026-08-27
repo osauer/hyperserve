@@ -1,8 +1,12 @@
 # WebSocket guide
 
-HyperServe's `github.com/osauer/hyperserve/v2/pkg/websocket` package implements
+HyperServe's `github.com/osauer/hyperserve/v2/websocket` package implements
 RFC 6455 without an external WebSocket dependency. It supports HTTP server
 upgrades and outbound `ws`/`wss` clients.
+
+```go
+import "github.com/osauer/hyperserve/v2/websocket"
+```
 
 ## Outbound client
 
@@ -117,8 +121,8 @@ Close frames are echoed before `Read` or `ReadMessage` returns a close error.
   unexpected continuations, and oversized fragmented messages are rejected.
 - The default complete-message read limit is 1 MiB on clients and servers.
 - Use `wss` in production and authenticate before upgrading.
-- Rate-limit connection attempts and validate application payloads after the
-  protocol layer accepts them.
+- Rate-limit connection attempts with an application-owned gate and validate
+  payloads after the protocol layer accepts them.
 
 Middleware around an upgrade route must preserve `http.Hijacker`. HyperServe's
 built-in logging middleware does so.

@@ -1,6 +1,6 @@
 # ADR-0009: Single Package Architecture (SUPERSEDED)
 
-**Status:** Superseded by the layered `pkg/` layout introduced in 0.21 and extended in 0.25
+**Status:** Superseded by [ADR-0014](./0014-root-package-and-concern-subpackages.md). The interim layered `pkg/` decision remains recorded below.
 **Date:** 2024-12-01
 **Deciders:** hyperserve team
 
@@ -14,4 +14,4 @@ The original ADR mandated a single-package layout. That decision has been revers
 - v2 keeps that package layout under the `github.com/osauer/hyperserve/v2`
   module path and adds the provider-neutral `pkg/auth` boundary.
 
-The current layout is documented in `ARCHITECTURE.md`. This file remains as a marker so the historical context isn't lost.
+The current layout is documented in [ADR-0014](./0014-root-package-and-concern-subpackages.md) and [ARCHITECTURE.md](../ARCHITECTURE.md). This file remains as a marker so the historical context is not lost.

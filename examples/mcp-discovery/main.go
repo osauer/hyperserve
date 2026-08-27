@@ -9,8 +9,8 @@ import (
 	"os/signal"
 	"strings"
 
-	"github.com/osauer/hyperserve/v2/pkg/mcp"
-	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
+	"github.com/osauer/hyperserve/v2"
+	"github.com/osauer/hyperserve/v2/mcp"
 )
 
 // CustomTool that opts out of discovery
@@ -53,30 +53,30 @@ func main() {
 	defer stop()
 
 	// Example 1: Count-only policy (most restrictive)
-	srv1, _ := serverpkg.NewServer(
-		serverpkg.WithAddr(":8081"),
-		serverpkg.WithMCPSupport("discovery-demo", "1.0.0"),
-		serverpkg.WithMCPDiscoveryPolicy(mcp.DiscoveryCount),
+	app1, _ := hyperserve.New(
+		hyperserve.WithAddr(":8081"),
+		hyperserve.WithMCPSupport("discovery-demo", "1.0.0"),
+		hyperserve.WithMCPDiscoveryPolicy(mcp.DiscoveryCount),
 	)
-	srv1.RegisterMCPTool(&PublicTool{})
-	srv1.RegisterMCPTool(&SecretTool{})
+	app1.RegisterMCPTool(&PublicTool{})
+	app1.RegisterMCPTool(&SecretTool{})
 	log.Println("Server 1 on :8081 - DiscoveryCount policy (only shows counts)")
 
 	// Example 2: Authenticated policy
-	srv2, _ := serverpkg.NewServer(
-		serverpkg.WithAddr(":8082"),
-		serverpkg.WithMCPSupport("discovery-demo", "1.0.0"),
-		serverpkg.WithMCPDiscoveryPolicy(mcp.DiscoveryAuthenticated),
+	app2, _ := hyperserve.New(
+		hyperserve.WithAddr(":8082"),
+		hyperserve.WithMCPSupport("discovery-demo", "1.0.0"),
+		hyperserve.WithMCPDiscoveryPolicy(mcp.DiscoveryAuthenticated),
 	)
-	srv2.RegisterMCPTool(&PublicTool{})
-	srv2.RegisterMCPTool(&SecretTool{})
+	app2.RegisterMCPTool(&PublicTool{})
+	app2.RegisterMCPTool(&SecretTool{})
 	log.Println("Server 2 on :8082 - DiscoveryAuthenticated (requires Authorization header)")
 
 	// Example 3: Custom filter based on IP
-	srv3, _ := serverpkg.NewServer(
-		serverpkg.WithAddr(":8083"),
-		serverpkg.WithMCPSupport("discovery-demo", "1.0.0"),
-		serverpkg.WithMCPDiscoveryFilter(func(toolName string, r *http.Request) bool {
+	app3, _ := hyperserve.New(
+		hyperserve.WithAddr(":8083"),
+		hyperserve.WithMCPSupport("discovery-demo", "1.0.0"),
+		hyperserve.WithMCPDiscoveryFilter(func(toolName string, r *http.Request) bool {
 			// Only show tools to localhost connections
 			remoteAddr := r.RemoteAddr
 			if strings.Contains(remoteAddr, "[::1]") || strings.HasPrefix(remoteAddr, "127.") {
@@ -86,17 +86,17 @@ func main() {
 			return strings.Contains(toolName, "public")
 		}),
 	)
-	srv3.RegisterMCPTool(&PublicTool{})
-	srv3.RegisterMCPTool(&SecretTool{})
-	srv3.RegisterMCPTool(&CustomTool{name: "admin_tool"})
+	app3.RegisterMCPTool(&PublicTool{})
+	app3.RegisterMCPTool(&SecretTool{})
+	app3.RegisterMCPTool(&CustomTool{name: "admin_tool"})
 	log.Println("Server 3 on :8083 - Custom filter (localhost sees all, others see public only)")
 
 	// Start servers
-	go srv1.Run(ctx)
-	go srv2.Run(ctx)
+	go app1.Run(ctx)
+	go app2.Run(ctx)
 
 	// Add demo endpoint to show discovery
-	srv3.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	app3.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "MCP Discovery Policy Examples")
 		fmt.Fprintln(w, "")
 		fmt.Fprintln(w, "Test the discovery endpoints:")
@@ -116,7 +116,7 @@ func main() {
 		fmt.Fprintln(w, "   # From external IP - only public tools")
 	})
 
-	srv3.Run(ctx)
+	app3.Run(ctx)
 }
 
 // CustomTool with configurable name

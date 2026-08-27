@@ -3,45 +3,53 @@ package app
 import (
 	"fmt"
 
-	"github.com/osauer/hyperserve/v2/pkg/server"
-	"golang.org/x/time/rate"
+	"github.com/osauer/hyperserve/v2"
+	"github.com/osauer/hyperserve/v2/ratelimit"
 )
 
 const version = "0.1.0"
 
 // NewServer constructs a HyperServe instance configured with security-first defaults.
-func NewServer(cfg Config) (*server.Server, error) {
-	var opts []server.Option
+func NewServer(cfg Config) (*hyperserve.Server, error) {
+	var opts []hyperserve.Option
 
 	if cfg.HealthAddr != "" {
-		opts = append(opts, server.WithHealthAddr(cfg.HealthAddr))
+		opts = append(opts, hyperserve.WithHealthAddr(cfg.HealthAddr))
 	}
 
 	if cfg.LogLevel != "" {
-		opts = append(opts, server.WithLogLevel(cfg.LogLevel))
+		opts = append(opts, hyperserve.WithLogLevel(cfg.LogLevel))
 	}
 
 	opts = append(opts,
-		server.WithAddr(cfg.Addr),
-		server.WithHealthServer(),
-		server.WithRateLimit(rate.Limit(cfg.RateLimit), cfg.RateBurst),
+		hyperserve.WithAddr(cfg.Addr),
+		hyperserve.WithHealthServer(),
 	)
 
 	if cfg.EnableMCP {
-		opts = append(opts, server.WithMCPSupport(cfg.ServiceName, version))
+		opts = append(opts, hyperserve.WithMCPSupport(cfg.ServiceName, version))
 	}
 
-	srv, err := server.NewServer(opts...)
+	app, err := hyperserve.New(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("create server: %w", err)
 	}
 
-	return srv, nil
+	return app, nil
 }
 
 // RegisterMiddleware adds application policy to HyperServe's default metrics,
 // request logging, and panic recovery middleware.
-func RegisterMiddleware(srv *server.Server) {
-	srv.Use(server.HeadersMiddleware(srv.Options()))
-	srv.UsePrefix("/api", server.RateLimitMiddleware(srv))
+func RegisterMiddleware(app *hyperserve.Server, cfg Config) error {
+	gate, err := ratelimit.New(ratelimit.Config{
+		RequestsPerSecond: float64(cfg.RateLimit),
+		Burst:             cfg.RateBurst,
+	})
+	if err != nil {
+		return fmt.Errorf("create API rate limit gate: %w", err)
+	}
+
+	app.Use(hyperserve.HeadersMiddleware(app.Options()))
+	app.UsePrefix("/api", gate)
+	return nil
 }

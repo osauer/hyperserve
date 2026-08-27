@@ -35,9 +35,9 @@ The important boundary is visible in the code:
 
 ```go
 if *mcpDev {
-    configs = append(configs, server.MCPDev())
+    configs = append(configs, hyperserve.MCPDev())
 }
-opts = append(opts, server.WithMCPSupport("MyApp", "1.0.0", configs...))
+opts = append(opts, hyperserve.WithMCPSupport("MyApp", "1.0.0", configs...))
 ```
 
 The example explicitly starts with `WithEnvironment()`, so environment

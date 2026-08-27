@@ -4,7 +4,7 @@ This example shows the middleware split HyperServe is designed for: production
 defaults are installed once, while application policy is attached globally or
 to a route prefix.
 
-`server.NewServer` already provides request metrics, structured request logs,
+`hyperserve.New` already provides request metrics, structured request logs,
 and panic recovery. The example adds three things:
 
 - a normal `net/http` wrapper that marks every response;
@@ -12,13 +12,22 @@ and panic recovery. The example adds three things:
 - rate limiting only for `/api` and its descendants.
 
 ```go
-srv.Use(exampleHeader)
-srv.Use(server.HeadersMiddleware(srv.Options()))
-srv.UsePrefix("/api", server.RateLimitMiddleware(srv))
+app.Use(exampleHeader)
+app.Use(hyperserve.HeadersMiddleware(app.Options()))
+
+apiGate, err := ratelimit.New(ratelimit.Config{
+	RequestsPerSecond: 5,
+	Burst:             10,
+})
+if err != nil {
+	log.Fatal(err)
+}
+app.UsePrefix("/api", apiGate)
 ```
 
 That route prefix is segment-aware: it matches `/api` and `/api/data`, but not
-`/api2`.
+`/api2`. Middleware is a request wrapper. Rate limiting follows the same model:
+create a gate, then place the gate in front of the path it protects.
 
 ## Run it
 
@@ -31,10 +40,10 @@ go run ./examples/middleware-basics
 In another terminal:
 
 ```bash
-# Global custom and security headers, without API rate-limit headers.
+# Global custom and security headers, outside the API rate-limit gate.
 curl -i http://localhost:8080/
 
-# Route-scoped rate-limit headers plus the global middleware.
+# Route-scoped rate limiting plus the global middleware.
 curl -i http://localhost:8080/api/data
 
 # Default recovery turns the deliberate panic into a generic 500.

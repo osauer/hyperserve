@@ -4,7 +4,7 @@ go 1.27
 
 require (
 	github.com/osauer/hyperserve/v2 {{ .HyperserveVersion }}
-	golang.org/x/time v0.15.0
+	golang.org/x/time v0.15.0 // indirect
 )
 
 {{- if .LocalReplace }}

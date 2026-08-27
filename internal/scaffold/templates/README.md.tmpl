@@ -17,10 +17,20 @@ The server listens on `{{ .DefaultAddr }}` by default and exposes a health serve
 Configuration lives in `configs/default.json`. Override any value with environment variables:
 
 - `HS_MCP_ENABLED=true` enables Model Context Protocol support.
+- `HS_RATE_LIMIT=100` sets the sustained requests per second for the `/api` gate.
+- `HS_RATE_BURST=200` sets how many `/api` requests the gate may admit at once.
 - `SERVER_ADDR=":9090"` changes the HTTP listener.
+
+`HS_BURST_LIMIT` is retired. If it is present, even with an empty value, the
+application fails startup and directs the operator to `HS_RATE_BURST`.
 
 `HeadersMiddleware` applies browser security headers to every application
 route. HyperServe omits its `Server` identification header by default.
+
+Rate limiting belongs to this application: it creates one `ratelimit` gate
+from `RateLimit` and `RateBurst`, then places that gate in front of `/api`.
+Reusing the gate would share quotas; a separate `ratelimit.New` call would
+create an independent quota namespace.
 
 MCP is disabled unless the project was generated with `--with-mcp` or enabled
 later through configuration. The generated endpoint starts without built-in

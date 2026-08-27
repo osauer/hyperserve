@@ -1,111 +1,121 @@
 # Contributing to HyperServe
 
-Thanks for your interest. HyperServe is a small v1 Go library (single
-maintainer). This doc tells you exactly what CI gates on so the first PR comes in
-green.
+HyperServe is maintained as a small Go library. Keep changes focused, preserve
+standard-library handler shapes, and prove public behavior at the boundary that
+changed.
 
 ## Setup
 
-```bash
+```sh
 git clone https://github.com/osauer/hyperserve.git
 cd hyperserve
 go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
 go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
-make check && make test-race && make fuzz-smoke
+make check
+make test-race
+make fuzz-smoke
 ```
 
-If those three commands pass locally, CI will pass. `modernize` is pinned in
-`tools/go.mod` and invoked via `go -C tools tool modernize`, so it downloads
-on first use without entering the shipped module graph.
+The required Go version is recorded in `go.mod` (currently 1.27).
+`modernize` is pinned in `tools/go.mod` and runs from that module, so it
+does not enter HyperServe's shipped dependency graph.
 
-Go version: see `go.mod` (currently 1.27).
+## Check gate
 
-## The check gate
+| Check | Purpose |
+|---|---|
+| `gofmt` | Canonical Go formatting |
+| `go vet` and `staticcheck` | Correctness, simplification, and redundancy diagnostics |
+| `govulncheck` | Reachable vulnerabilities in runtime, example, and tool graphs |
+| `modernize` | Current Go idioms without changing public behavior |
+| documentation and example checks | Runnable imports, links, scaffold output, and stale-surface prevention |
+| MCP conformance | Protocol behavior against the official SDK |
+| release-gate fixtures | Exact-SHA CI selection and failure handling |
 
-CI runs `make test`, which invokes `make check` first. The gate is:
-
-| Tool                                    | What it catches                                                       |
-|-----------------------------------------|-----------------------------------------------------------------------|
-| `gofmt`                                 | unformatted Go — fix with `make fmt`                                  |
-| `go vet`                                | suspicious constructs                                                 |
-| `staticcheck`                           | bugs, simplifications, redundancy                                     |
-| `govulncheck`                           | known CVEs in shipped, example, and developer-tool module graphs       |
-| `go fix -diff` + tools-module modernize | current Go idioms (`any`, `for i := range N`, `wg.Go`, `b.Loop`, …)   |
-
-Apply idiom fixes in place with `make modernize`. Race detector and fuzz
-smoke run as separate CI steps — run `make test-race` and `make fuzz-smoke`
-locally before pushing.
-
-A `make check` failure on your machine is the same failure CI will report;
-fix it locally rather than relying on CI to surface it.
+`make test` runs the repository gate before the unit suite. Race and fuzz
+checks are separate because of cost; run both before pushing a public API,
+protocol, concurrency, or lifecycle change.
 
 ## Code map
 
-| What                                              | Where                          |
-|---------------------------------------------------|--------------------------------|
-| HTTP server, middleware, deferred-init lifecycle  | `pkg/server/`                  |
-| MCP protocol, JSON-RPC dispatch, namespaces       | `pkg/mcp/`                     |
-| SSE transport (binding tokens, connection events) | `pkg/mcp/transport_sse.go`     |
-| Built-in MCP tools and resources (opt-in)         | `pkg/mcp/builtin/`             |
-| WebSocket server and outbound client (RFC 6455)  | `pkg/websocket/`               |
-| JSON-RPC 2.0 engine                               | `pkg/jsonrpc/`                 |
-| Scaffold generator                                | `internal/scaffold/`, `cmd/hyperserve-init/` |
-| Self-contained `go run .` examples                | `examples/`                    |
+| Concern | Location |
+|---|---|
+| Root HTTP server, middleware, options, binding, lifecycle | repository-root `*.go` |
+| Authentication and principals | `auth/` |
+| JSON-RPC engine | `jsonrpc/` |
+| MCP protocol, transports, discovery, namespaces | `mcp/` |
+| Opt-in MCP tools and resources | `mcp/builtin/` |
+| Bounded rate-limit middleware | `ratelimit/` |
+| WebSocket server and outbound client | `websocket/` |
+| Scaffold generator | `internal/scaffold/`, `cmd/hyperserve-init/` |
+| Runnable examples | `examples/` |
 
-The library imports as `github.com/osauer/hyperserve/v2/pkg/server`. There is
-no Go code at the repository root.
+The main library import is `github.com/osauer/hyperserve/v2`. The old
+`.../pkg/...` public paths have no forwarding packages.
 
-## Architecture decisions
+## Design boundaries
 
-Before changing load-bearing design — transports, dependency policy,
-lifecycle — read the relevant ADR in [`docs/`](docs/). They are short and
-record the *why*. Notable ones:
+Read the relevant ADR before changing a load-bearing boundary:
 
-- [ADR 0001](docs/0001-minimal-external-dependencies.md) — minimal external
-  dependencies. This is load-bearing for the project's pitch; new transitive
-  deps need a strong case.
-- [ADR 0002](docs/0002-functional-options-pattern.md) — functional options
-  (`WithFoo(...)`) over config structs.
-- [ADR 0008](docs/0008-graceful-shutdown-design.md) — graceful shutdown.
-- [ADR 0011](docs/0011-mcp-protocol-support.md) — MCP protocol support.
+- [ADR-0001](docs/0001-minimal-external-dependencies.md) — runtime dependency policy.
+- [ADR-0008](docs/0008-graceful-shutdown-design.md) — application-owned lifecycle.
+- [ADR-0011](docs/0011-mcp-protocol-support.md) and
+  [ADR-0012](docs/0012-mcp-streamable-http-2026.md) — MCP transports.
+- [ADR-0014](docs/0014-root-package-and-concern-subpackages.md) — canonical
+  root and concern-package architecture.
 
-If a change contradicts an ADR, propose superseding it in the same PR.
+The application owns signals, its root context, identity-provider setup,
+sessions, and authorization. HyperServe follows `Run(ctx)`; request work
+follows `r.Context()`. The standalone `ratelimit` package owns quota state;
+the root `Server` does not.
 
-## Submitting changes
+If a change contradicts an accepted ADR, propose a superseding ADR in the same
+pull request. Do not silently revise historical decision prose.
+
+## Pull requests
 
 1. Branch from `main`.
-2. Keep the PR focused — one concern per branch.
-3. Locally: `make check && make test-race && make fuzz-smoke`.
-4. Commit subject in the imperative, ≤72 chars. Body explains *why* (the
-   diff shows *what*). New features ship with tests and updated docs.
-5. Push and open a PR. CI runs the same gate you just ran.
+2. Keep one concern per branch and avoid unrelated cleanup.
+3. Add focused tests at the changed risk surface.
+4. Update current documentation and examples when the public surface changes.
+5. Run `make check`, `make test-race`, and `make fuzz-smoke`.
+6. Use an imperative commit subject of at most 72 characters; explain why in
+   the body when the reason is not obvious.
+
+Changes to exported APIs need a disposable consumer witness in addition to
+in-repository tests. A local replacement is useful before publication, but it
+must never be committed as release evidence.
 
 ## Release notes
 
-User-visible changes need a `CHANGELOG.md` entry. Start one with:
+User-visible changes need a `CHANGELOG.md` entry:
 
-```bash
+```sh
 make changelog-stub RELEASE_VERSION=vX.Y.Z
+make changelog-lint RELEASE_VERSION=vX.Y.Z
 ```
 
-Fill `### What's new` in plain English; that section is promoted directly into
-the GitHub Release body by `make release-publish`. Before a release, run
-`make changelog-lint RELEASE_VERSION=vX.Y.Z` to catch malformed headings,
-missing user-facing highlights, and public notes that leak internal review IDs.
+`make release-publish` promotes the `What's new` section into the GitHub
+Release body. Breaking releases must put the warning, migration guide, and
+rollback pin before any upgrade command.
+
+The canonical release path is
+`make release RELEASE_VERSION=vX.Y.Z`. It verifies the pushed candidate's
+exact-SHA `push` CI run and every required job before creating a tag. Local
+`make release-smoke` is source and scaffold evidence; it is not CI or
+public-module evidence.
+
+If an annotated tag is pushed but GitHub Release creation fails, never move or
+replace the tag. Verify that local and remote tags resolve to the same commit
+and that exact-SHA CI succeeded, then recover only the publication step with
+`make release-publish RELEASE_VERSION=vX.Y.Z`.
 
 ## Reporting issues
 
-Open a [GitHub Issue](https://github.com/osauer/hyperserve/issues) with:
+Open a [GitHub Issue](https://github.com/osauer/hyperserve/issues) with the Go
+version, operating system, a minimal reproduction, and expected versus actual
+behavior. Report security issues privately as described in
+[SECURITY.md](SECURITY.md).
 
-- Go version (`go version`) and OS
-- Minimal reproduction (a failing test is best)
-- Expected vs actual behavior
-
-For security issues, see [SECURITY.md](SECURITY.md) — do **not** open a
-public issue.
-
-## Questions
-
-[GitHub Discussions](https://github.com/osauer/hyperserve/discussions) is
-the right place for "is this the right fit for X?" or "how should I approach
-Y?" questions. Bug reports and feature proposals go in Issues.
+[GitHub Discussions](https://github.com/osauer/hyperserve/discussions) is for
+usage and fit questions.

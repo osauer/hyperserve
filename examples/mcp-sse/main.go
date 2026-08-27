@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
+	"github.com/osauer/hyperserve/v2"
 )
 
 func main() {
@@ -69,17 +69,17 @@ func runServer(addr string) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	srv, err := serverpkg.NewServer(
-		serverpkg.WithAddr(addr),
-		serverpkg.WithMCPSupport("sse-example", "1.0.0"),
+	app, err := hyperserve.New(
+		hyperserve.WithAddr(addr),
+		hyperserve.WithMCPSupport("sse-example", "1.0.0"),
 		//lint:ignore SA1019 This example intentionally release-tests the deprecated compatibility transport.
-		serverpkg.WithMCPLegacyRoutedSSE(true),
+		hyperserve.WithMCPLegacyRoutedSSE(true),
 	)
 	if err != nil {
 		log.Fatal(err)
 	}
-	srv.RegisterMCPTool(echoTool{})
-	srv.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	app.RegisterMCPTool(echoTool{})
+	app.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "HyperServe legacy routed-SSE compatibility example")
 		fmt.Fprintln(w, "MCP endpoint: /mcp")
 		fmt.Fprintln(w, "- HTTP: POST /mcp")
@@ -88,7 +88,7 @@ func runServer(addr string) {
 	})
 	log.Printf("Server starting on %s", addr)
 	log.Printf("MCP endpoint: http://localhost%s/mcp", addr)
-	if err := srv.Run(ctx); err != nil {
+	if err := app.Run(ctx); err != nil {
 		log.Fatal(err)
 	}
 }

@@ -1,5 +1,5 @@
 // Command auth shows how a HyperServe API can accept identities from an
-// OpenID Connect provider without coupling the server package to that provider.
+// OpenID Connect provider without coupling HyperServe to that provider.
 package main
 
 import (
@@ -11,8 +11,8 @@ import (
 	"os/signal"
 
 	"github.com/coreos/go-oidc/v3/oidc"
-	"github.com/osauer/hyperserve/v2/pkg/auth"
-	"github.com/osauer/hyperserve/v2/pkg/server"
+	"github.com/osauer/hyperserve/v2"
+	"github.com/osauer/hyperserve/v2/auth"
 )
 
 type idTokenVerifier interface {
@@ -35,8 +35,8 @@ func (v oidcVerifier) VerifyToken(ctx context.Context, rawToken string) (auth.Pr
 	return auth.Principal{Issuer: token.Issuer, Subject: token.Subject}, nil
 }
 
-func newServer(addr string, verifier auth.TokenVerifier) (*server.Server, error) {
-	srv, err := server.NewServer(server.WithAddr(addr))
+func newApp(addr string, verifier auth.TokenVerifier) (*hyperserve.Server, error) {
+	app, err := hyperserve.New(hyperserve.WithAddr(addr))
 	if err != nil {
 		return nil, err
 	}
@@ -45,10 +45,10 @@ func newServer(addr string, verifier auth.TokenVerifier) (*server.Server, error)
 	// right: verify a bearer token, then require that identity under /api.
 	bearerIdentity := auth.Bearer(verifier)
 	requireIdentity := auth.Require(bearerIdentity)
-	srv.UsePrefix("/api", requireIdentity)
+	app.UsePrefix("/api", requireIdentity)
 
-	srv.GET("/api/me", handleMe)
-	return srv, nil
+	app.GET("/api/me", handleMe)
+	return app, nil
 }
 
 func handleMe(w http.ResponseWriter, r *http.Request) {
@@ -78,11 +78,11 @@ func main() {
 		tokens: provider.Verifier(&oidc.Config{ClientID: clientID}),
 	}
 
-	srv, err := newServer(":8090", verifier)
+	app, err := newApp(":8090", verifier)
 	if err != nil {
 		log.Fatal(err)
 	}
-	if err := srv.Run(ctx); err != nil {
+	if err := app.Run(ctx); err != nil {
 		log.Fatal(err)
 	}
 }

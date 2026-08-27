@@ -37,9 +37,9 @@ The method helpers rely on Go's `ServeMux`, so the mux rejects a wrong method
 before the handler runs:
 
 ```go
-srv.GET("/todos/{id}", getTodo)
-srv.PUT("/todos/{id}", updateTodo)
-srv.DELETE("/todos/{id}", deleteTodo)
+app.GET("/todos/{id}", getTodo)
+app.PUT("/todos/{id}", updateTodo)
+app.DELETE("/todos/{id}", deleteTodo)
 ```
 
 Writes use `BindJSON` rather than an unbounded decoder:
@@ -50,7 +50,7 @@ type todoInput struct {
 }
 
 var input todoInput
-if err := server.BindJSON(r, &input); err != nil {
+if err := hyperserve.BindJSON(r, &input); err != nil {
     sendError(w, http.StatusBadRequest, err.Error())
     return
 }

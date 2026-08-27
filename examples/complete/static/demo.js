@@ -173,46 +173,34 @@ async function uploadFile() {
     }
 }
 
-// Rate limit test - now testing protected endpoint
+// Exercise the application-owned gate mounted on the protected /api prefix.
 async function testRateLimit() {
     const result = document.getElementById('rate-limit-result');
-    result.textContent = 'Testing rate limits on /api/user (protected endpoint)...\n';
-    
-    // Use a valid token for the test
+    const attempts = 250;
+    result.textContent = `Sending ${attempts} requests through the /api gate...\n`;
+
     const token = 'demo-token-123';
-    
-    for (let i = 0; i < 10; i++) {
-        try {
-            const response = await fetch('/api/user', {
+
+    try {
+        const responses = await Promise.all(
+            Array.from({ length: attempts }, () => fetch('/api/user', {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
-            });
-            
-            const headers = {
-                limit: response.headers.get('X-RateLimit-Limit'),
-                remaining: response.headers.get('X-RateLimit-Remaining'),
-                reset: response.headers.get('X-RateLimit-Reset'),
-                retryAfter: response.headers.get('Retry-After')
-            };
-            
-            result.textContent += `Request ${i + 1}: ${response.status}`;
-            if (headers.remaining) {
-                result.textContent += ` - Remaining: ${headers.remaining}/${headers.limit}`;
-            }
-            result.textContent += '\n';
-            
-            if (response.status === 429) {
-                result.textContent += `Rate limited! Retry after: ${headers.retryAfter}s\n`;
-                result.textContent += '\nNote: SecureAPI middleware stack includes rate limiting for /api/* routes';
-                break;
-            }
-        } catch (error) {
-            result.textContent += `Request ${i + 1}: Error - ${error.message}\n`;
+            }))
+        );
+        const limited = responses.filter(response => response.status === 429);
+        const accepted = responses.length - limited.length;
+        result.textContent += `Accepted: ${accepted}\nRejected with 429: ${limited.length}\n`;
+        if (limited.length > 0) {
+            const first = limited[0];
+            result.textContent += `Retry-After: ${first.headers.get('Retry-After')}s\n`;
+            result.textContent += `RateLimit-Reset: ${first.headers.get('RateLimit-Reset')}s\n`;
+        } else {
+            result.textContent += 'No rejection observed; the gate refilled while requests were in flight.\n';
         }
-        
-        // Small delay between requests
-        await new Promise(resolve => setTimeout(resolve, 100));
+    } catch (error) {
+        result.textContent += `Error: ${error.message}\n`;
     }
 }
 
@@ -228,7 +216,7 @@ async function testError() {
         
         if (response.status === 500) {
             result.textContent += 'Error handled gracefully!\n';
-            result.textContent += 'DefaultMiddleware includes RecoveryMiddleware which catches panics.';
+            result.textContent += 'The recovery wrapper installed by hyperserve.New catches panics.';
         }
     } catch (error) {
         result.textContent = `Network error: ${error.message}`;

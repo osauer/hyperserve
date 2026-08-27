@@ -1,54 +1,49 @@
-# HyperServe Roadmap
+# Roadmap
 
-_Last updated: 2026-08-24 (v2 line)._
+This document records directions, not release promises. Issues and accepted
+ADRs remain the authority for scheduled work.
 
-HyperServe is the Go API server its maintainer wanted to own: standard
-`net/http` shapes, an explicit lifecycle and configuration boundary, and the
-operational pieces that otherwise accumulate around each service. WebSocket,
-JSON-RPC, and optional MCP remain in-tree so adopters can choose an integrated
-server instead of assembling a framework from many packages.
+## Current baseline
 
-## Product Thesis
+The v2.1 package reset establishes:
 
-A service should be able to add lifecycle, request binding, security middleware,
-observability, WebSocket, and MCP without replacing ordinary Go handlers. Each
-integrated capability must remove repeated application work and justify the
-protocol and compatibility surface HyperServe then owns.
+- the branded root `hyperserve` package;
+- concern-specific `auth`, `jsonrpc`, `mcp`, `mcp/builtin`,
+  `ratelimit`, and `websocket` packages;
+- application-owned lifecycle and deterministic configuration binding;
+- standalone, bounded rate-limit middleware;
+- MCP 2026-07-28 Streamable HTTP plus stdio;
+- RFC 6455 server and outbound-client support.
 
-MCP is first-class but optional. When enabled, it can expose tools and resources
-from the same process that serves HTTP traffic. The application still owns
-authorization, logging boundaries, and which capabilities are reachable.
+The baseline must settle before another public surface is added. Future
+breaking changes require a new major module path.
 
-## Canonical Examples
+## Near-term work
 
-These three examples define the release story:
-
-- `examples/devops`: production MCP observability.
-- `examples/mcp-extensions`: current Streamable HTTP subscriptions over SSE.
-- `examples/json-api`: a normal JSON API server using method-aware routes and typed binding.
-
-Other examples are supplemental. They should not dilute the main README or
-release gate unless they protect a specific production contract.
-`examples/mcp-sse` remains release-gated separately as a deprecated routed-SSE
-compatibility regression, not as the primary transport story.
-
-## Near-Term Work
-
-| Theme | Description | Why It Matters |
+| Area | Direction | Constraint |
 |---|---|---|
-| Production MCP observability | Keep resources live, route inspection truthful, logs server-owned, and discovery cache-safe. | An in-process observability surface must not capture unrelated application state or weaken caller authority. |
-| Scaffold reliability | Generated projects should build outside the monorepo, include the right module requirement, and use current Go/tooling defaults. | The generated service is many users' first executable contract with the library. |
-| Protocol conformance | Continue tightening JSON-RPC, SSE, and WebSocket behavior against their specs. | Agent clients are strict; protocol drift becomes integration pain. |
-| Benchmark discipline | Keep concurrent workloads reproducible and publish only environment-qualified results. | Performance claims should follow evidence rather than drive speculative optimization. |
-| Authentication adapters | Keep `pkg/auth` provider-neutral while maintaining one real OIDC example and clear authorization boundaries. | Identity-provider choice should not inflate the core module or blur application policy. |
+| MCP conformance | Track protocol revisions through focused fixtures and the official SDK suite. | Do not confuse proprietary routed SSE with current Streamable HTTP. |
+| Authentication examples | Keep `auth` provider-neutral while maintaining at least one real provider integration example. | Identity must not imply application authorization. |
+| Limiter operations | Add evidence only where operators need it, without exporting mutable quota internals. | Preserve bounded state, no cleanup goroutine, and explicit proxy trust. |
+| Generated applications | Keep scaffold output compiling against the exact public release and application-owned policy. | Generated modules must contain no local replacement. |
+| Performance | Maintain exact-revision A/B baselines for middleware, limiter, and loopback workloads. | No universal throughput claim from a microbenchmark. |
+| Protocol hardening | Continue fuzzing WebSocket, JSON-RPC, MCP headers, and streaming cancellation. | Correctness and denial-of-service bounds precede convenience. |
 
-## Release Discipline
+## Deliberately out of scope
 
-- Keep `cmd/hyperserve-init` as the supported command; avoid checked-in demo binaries.
-- Keep v2 semver clean. Breaking exported APIs require a future `/v3` module path.
-- Use `make release RELEASE_VERSION=vX.Y.Z`; it checks the changelog, local
-  gates, scaffold smoke, clean tree, synced `origin/main`, tag uniqueness, and
-  then publishes GitHub release notes derived from `CHANGELOG.md`.
-- Run `make changelog-stub RELEASE_VERSION=vX.Y.Z` at the start of release
-  prep, then fill the `### What's new` section in reader-facing language.
-- Update docs and examples in the same change as API or behavior changes.
+- ORM or database abstraction;
+- browser-session management;
+- identity-provider configuration inside the root package;
+- application roles and resource authorization;
+- automatic trust of `Forwarded` or `X-Forwarded-For`;
+- a process-wide default limiter policy;
+- a custom router solely for benchmark position;
+- retaining duplicate public APIs for compatibility.
+
+## How work enters the roadmap
+
+A proposal should identify the user problem, authority boundary, public API
+impact, expected dependency cost, and verification witness. Changes to package
+direction or lifecycle require an ADR. Security-sensitive features need
+fail-closed behavior and tests before they become examples or scaffold
+defaults.

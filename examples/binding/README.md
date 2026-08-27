@@ -5,9 +5,9 @@ different shapes of success path.
 
 | Endpoint            | Helper                       | Success behaviour                                  |
 |---------------------|------------------------------|----------------------------------------------------|
-| `POST /users/echo`  | `server.JSONEcho[CreateUser]()` | Validates the body and echoes the value back.   |
-| `POST /users`       | `server.JSONHandler[In, Out]`   | Validates, runs real logic (assigns ID, lowercases email), returns a different type. |
-| `POST /users-manual`| `server.BindJSON` (manual)      | Same shape as the framework path, but built by hand to show what `JSONHandler` hides. |
+| `POST /users/echo`  | `hyperserve.JSONEcho[CreateUser]()` | Validates the body and echoes the value back.   |
+| `POST /users`       | `hyperserve.JSONHandler[In, Out]`   | Validates, runs real logic (assigns ID, lowercases email), returns a different type. |
+| `POST /users-manual`| `hyperserve.BindJSON` (manual)      | Same shape as the framework path, but built by hand to show what `JSONHandler` hides. |
 
 ## Run
 
