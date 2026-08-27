@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	streamableHTTPMaxBody = 4 << 20
+	mcpHTTPMaxBody = 4 << 20
 
 	headerProtocolVersion = "MCP-Protocol-Version"
 	headerMethod          = "Mcp-Method"
@@ -174,7 +174,7 @@ func (h *Handler) serveStreamableHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, streamableHTTPMaxBody)
+	r.Body = http.MaxBytesReader(w, r.Body, mcpHTTPMaxBody)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {

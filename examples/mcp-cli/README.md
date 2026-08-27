@@ -26,7 +26,7 @@ The application accepts:
 
 | Flag | Purpose |
 |---|---|
-| `--mcp-dev` | Local route inspection, status, and log-level tools |
+| `--mcp-dev` | Local route inspection, server status, and developer help |
 | `--mcp-observability` | Read-only server health and telemetry resources |
 | `--mcp-transport=http\|stdio` | Transport used when a preset is enabled |
 | `--port=8080` | Optional programmatic override for the listen port |
@@ -67,6 +67,6 @@ go build -o mcp-flags ./examples/mcp-cli
 }
 ```
 
-Do not expose the development preset on an untrusted network. It permits route
-inspection and runtime log-level changes. Prefer the observability preset when
-an operator only needs read-only status.
+Do not expose the development preset on an untrusted network. It exposes route
+and middleware layout, runtime status, and development logs. Prefer the
+observability preset when an operator only needs read-only status.

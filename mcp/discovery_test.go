@@ -92,6 +92,26 @@ func TestBuildDiscoveryInfoBasics(t *testing.T) {
 	}
 }
 
+func TestBuildDiscoveryInfoSortsMapBackedInventories(t *testing.T) {
+	h := newDiscoveryHandler(t)
+	for _, name := range []string{"zulu", "alpha", "middle"} {
+		h.RegisterTool(&stubTool{name: name})
+	}
+	for _, uri := range []string{"z://resource", "a://resource", "m://resource"} {
+		h.RegisterResource(&stubResource{uri: uri})
+	}
+
+	info := h.BuildDiscoveryInfo(newDiscoveryRequest(""), DiscoveryConfig{Policy: DiscoveryPublic})
+	tools := info.Capabilities["tools"].(map[string]any)["available"].([]string)
+	if !slices.Equal(tools, []string{"alpha", "middle", "zulu"}) {
+		t.Fatalf("discovery tools = %v, want deterministic order", tools)
+	}
+	resources := info.Capabilities["resources"].(map[string]any)["available"].([]string)
+	if !slices.Equal(resources, []string{"a://resource", "m://resource", "z://resource"}) {
+		t.Fatalf("discovery resources = %v, want deterministic order", resources)
+	}
+}
+
 func TestBuildDiscoveryInfoIncludesLegacySSEOnlyWhenEnabled(t *testing.T) {
 	h := newDiscoveryHandler(t)
 	h.SetLegacyRoutedSSEEnabled(true)

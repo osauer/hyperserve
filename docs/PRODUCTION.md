@@ -232,9 +232,10 @@ The built-in outbound HTTP and request-debugger shapes were removed because
 they would have exposed SSRF and credential-capture capabilities. Applications
 that need outbound access should register a narrowly allow-listed tool.
 
-Do not use `MCPDev()` in production. It enables route introspection and
-runtime controls. For read-only operational resources, configure
-`MCPObservability()` and still apply normal endpoint authorization.
+Do not use `MCPDev()` in production. It exposes runtime status, registered
+routes, middleware layout, and development logs. For narrower read-only
+operational resources, configure `MCPObservability()` and still apply normal
+endpoint authorization.
 
 ## Static files
 
@@ -262,11 +263,13 @@ one quota namespace: reusing it deliberately shares quotas, while separate
 charges a request at most once.
 
 The store is bounded. Zero `IdleTTL` and `MaxClients` select finite defaults of
-10 minutes and 10,000 clients. Expired entries are pruned opportunistically;
-there is no cleanup goroutine or `Close`. At capacity, a new key receives
-`429` instead of evicting an active bucket, while existing keys continue.
-Quota and capacity rejections include retry/reset information derived from the
-actual schedule.
+10 minutes and 10,000 clients. `IdleTTL` is a minimum: a bucket remains until
+its full burst could refill, so pruning cannot reset a slow quota early.
+Expired entries are pruned opportunistically; there is no cleanup goroutine or
+`Close`. At capacity, a new key receives `429` instead of evicting an active
+bucket, while existing keys continue. Quota retry/reset information follows
+the actual token schedule; capacity rejection uses the effective retention as
+a conservative backoff.
 
 The retired root configuration keys `rate_limit` and `burst`, and environment
 variables `HS_RATE_LIMIT` and `HS_BURST_LIMIT`, fail during construction when

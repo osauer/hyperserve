@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +20,23 @@ type recordingTool struct {
 	err      error
 }
 
+type panickingTool struct {
+	stubTool
+	panicValue any
+}
+
+func (t *panickingTool) Execute(map[string]any) (any, error) {
+	panic(t.panicValue)
+}
+
+type contextPanickingTool struct {
+	panickingTool
+}
+
+func (t *contextPanickingTool) ExecuteWithContext(context.Context, map[string]any) (any, error) {
+	panic(t.panicValue)
+}
+
 func (t *recordingTool) Execute(params map[string]any) (any, error) {
 	t.lastArgs = params
 	return t.result, t.err
@@ -27,6 +45,49 @@ func (t *recordingTool) Execute(params map[string]any) (any, error) {
 func newHandlerForTest(t *testing.T) *Handler {
 	t.Helper()
 	return NewHandler(ServerInfo{Name: "test", Version: "0.0.1"})
+}
+
+func TestHandlerToolPanicPreservesIdentity(t *testing.T) {
+	tests := []struct {
+		name string
+		tool func(any) Tool
+	}{
+		{
+			name: "plain Tool",
+			tool: func(value any) Tool {
+				return &panickingTool{stubTool: stubTool{name: "boom"}, panicValue: value}
+			},
+		},
+		{
+			name: "ToolWithContext",
+			tool: func(value any) Tool {
+				return &contextPanickingTool{panickingTool: panickingTool{
+					stubTool:   stubTool{name: "boom"},
+					panicValue: value,
+				}}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			panicValue := &struct{ source string }{source: tt.name}
+			h := newHandlerForTest(t)
+			h.RegisterTool(tt.tool(panicValue))
+
+			var recovered any
+			func() {
+				defer func() { recovered = recover() }()
+				_, _ = h.handleToolsCallContext(context.Background(), map[string]any{
+					"name":      "boom",
+					"arguments": map[string]any{},
+				})
+			}()
+			if recovered != panicValue {
+				t.Fatalf("recovered panic = %#v, want original value %#v", recovered, panicValue)
+			}
+		})
+	}
 }
 
 func TestHandlerRegisterToolAndLookup(t *testing.T) {
@@ -219,6 +280,42 @@ func TestServeHTTPUnknownMethodReturnsRPCError(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "\"error\"") {
 		t.Errorf("expected JSON-RPC error envelope; got %s", rec.Body.String())
+	}
+}
+
+func TestCompatibilityHTTPRejectsOversizedBody(t *testing.T) {
+	h := newHandlerForTest(t)
+	body := `{"jsonrpc":"2.0","method":"ping","params":{"payload":"` + strings.Repeat("x", mcpHTTPMaxBody) + `"},"id":1}`
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusRequestEntityTooLarge, rec.Body.String())
+	}
+}
+
+func TestLegacyRoutedSSERejectsOversizedBody(t *testing.T) {
+	h := newHandlerForTest(t)
+	h.SetLegacyRoutedSSEEnabled(true)
+	streamRecorder := httptest.NewRecorder()
+	client := newSSEClient("client", "binding", streamRecorder, streamRecorder)
+	if _, ok := h.sseManager.admitClient("client", client); !ok {
+		t.Fatal("failed to admit test SSE client")
+	}
+	defer h.sseManager.CloseAll()
+
+	body := `{"jsonrpc":"2.0","method":"ping","params":{"payload":"` + strings.Repeat("x", mcpHTTPMaxBody) + `"},"id":1}`
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-SSE-Client-ID", "client")
+	req.Header.Set("X-SSE-Binding", "binding")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusRequestEntityTooLarge, rec.Body.String())
 	}
 }
 

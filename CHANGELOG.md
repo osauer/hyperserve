@@ -11,9 +11,10 @@ Entries tier by audience:
 
 - **`### What's new`** — plain-English TL;DR for Go importers, MCP clients,
   API server owners, and scaffold users. Three bullets max. Mark Go-library
-  breakage with `**Breaking (Go library):**`; v1 breakage requires a future
-  `/v2` module path. The GitHub Release body's "What's new in vX.Y.Z" section
-  is mechanically derived from this section by `make release-publish`.
+  breakage with `**Breaking (Go library):**`; after v2.1.0, breaking changes
+  require a new major version and matching major module path. The GitHub
+  Release body's "What's new in vX.Y.Z" section is mechanically derived from
+  this section by `make release-publish`.
 - **`### Added / Changed / Deprecated / Removed / Fixed / Security`** —
   Keep-a-Changelog bullets for users who need detail. One user-visible change
   per bullet, framed as the consumer-visible effect rather than the internal

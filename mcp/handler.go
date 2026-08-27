@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"io"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -58,8 +59,8 @@ type resourceTemplateEntry struct {
 }
 
 // defaultToolCallTimeout is the per-tool execution budget. Tools that exceed
-// this return context.DeadlineExceeded to the caller; see the caveat in
-// contextToolWrapper.ExecuteWithContext for what happens to the goroutine.
+// this return context.DeadlineExceeded to the caller. Go cannot forcibly stop
+// an uncooperative function, so it may continue in the dispatch goroutine.
 const defaultToolCallTimeout = 30 * time.Second
 
 // SetToolCallTimeout overrides the per-call timeout used when dispatching
@@ -463,11 +464,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.ProcessRequestWithTransport(transport); err != nil {
 		h.logger.Error("Failed to process MCP request", "error", err)
+		var bodyTooLarge *http.MaxBytesError
 		switch {
 		case errors.Is(err, ErrMethodNotAllowed):
 			http.Error(w, "Method not allowed. MCP requires POST requests.", http.StatusMethodNotAllowed)
 		case errors.Is(err, ErrUnsupportedContentType):
 			http.Error(w, err.Error(), http.StatusBadRequest)
+		case errors.As(err, &bodyTooLarge):
+			http.Error(w, "Request body is too large", http.StatusRequestEntityTooLarge)
 		default:
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 		}
@@ -801,7 +805,34 @@ func (h *Handler) handleToolsCallContext(parent context.Context, params any) (an
 	ctxTool := wrapToolWithContext(tool)
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
-	result, err := ctxTool.ExecuteWithContext(ctx, callParams.Arguments)
+	type executionResult struct {
+		value      any
+		err        error
+		panicValue any
+	}
+	resultCh := make(chan executionResult, 1)
+	go func() {
+		result := executionResult{}
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				result.panicValue = recovered
+			}
+			resultCh <- result
+		}()
+		result.value, result.err = ctxTool.ExecuteWithContext(ctx, callParams.Arguments)
+	}()
+
+	var result any
+	var err error
+	select {
+	case <-ctx.Done():
+		err = ctx.Err()
+	case execution := <-resultCh:
+		if execution.panicValue != nil {
+			panic(execution.panicValue)
+		}
+		result, err = execution.value, execution.err
+	}
 	if err != nil {
 		if toolErr, ok := errors.AsType[*toolError](err); ok {
 			return ToolResult{
@@ -913,8 +944,18 @@ func (h *Handler) handleSSERoutedRequest(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, mcpHTTPMaxBody)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
+			http.Error(w, "Request body is too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		http.Error(w, "Invalid JSON-RPC request", http.StatusBadRequest)
+		return
+	}
 	var request jsonrpc.Request
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+	if err := json.Unmarshal(body, &request); err != nil {
 		http.Error(w, "Invalid JSON-RPC request", http.StatusBadRequest)
 		return
 	}

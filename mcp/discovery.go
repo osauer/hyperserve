@@ -3,6 +3,7 @@ package mcp
 import (
 	"cmp"
 	"net/http"
+	"slices"
 	"strings"
 )
 
@@ -49,11 +50,6 @@ type DiscoveryConfig struct {
 	Transport TransportType
 	// Policy controls discovery list visibility.
 	Policy DiscoveryPolicy
-	// Dev is retained for v1 source compatibility and has no effect. Tool
-	// registration and IsDiscoverable control exposure.
-	//
-	// Deprecated: this field is a no-op and will be removed in v2.
-	Dev bool
 	// Filter, if non-nil, makes the final decision per tool. It overrides the
 	// default rules entirely.
 	Filter func(toolName string, r *http.Request) bool
@@ -108,6 +104,8 @@ func (h *Handler) BuildDiscoveryInfo(r *http.Request, cfg DiscoveryConfig) Disco
 	tools := h.RegisteredTools()
 	resources := h.RegisteredResources()
 	resourceTemplates := h.RegisteredResourceTemplates()
+	slices.Sort(tools)
+	slices.Sort(resources)
 
 	toolCapability := map[string]any{
 		"supported": true,

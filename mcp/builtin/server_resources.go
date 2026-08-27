@@ -87,11 +87,7 @@ func (r *ServerHealthResource) Read() (any, error) {
 	if r.server == nil {
 		return nil, fmt.Errorf("server not initialized")
 	}
-	start := r.server.ServerStart()
-	uptime := time.Duration(0)
-	if !start.IsZero() {
-		uptime = time.Since(start)
-	}
+	uptime := serverUptime(r.server)
 	return map[string]any{
 		"status": map[string]bool{
 			"alive":   r.server.IsRunning(),
@@ -206,17 +202,17 @@ func (r *ServerLogResource) Enabled(ctx context.Context, level slog.Level) bool 
 func (r *ServerLogResource) WithAttrs(attrs []slog.Attr) slog.Handler { return r }
 func (r *ServerLogResource) WithGroup(name string) slog.Handler       { return r }
 
-// StreamingLogResource is a ServerLogResource exposed at a different URI to
-// distinguish "stream" semantics (intended for the dev workflow) from the
-// generic "recent" view.
+// StreamingLogResource keeps the established development URI while exposing
+// the same bounded snapshot semantics as ServerLogResource. Clients re-read
+// the resource to refresh it; this type does not provide a subscription.
 type StreamingLogResource struct {
 	*ServerLogResource
 }
 
 func (r *StreamingLogResource) URI() string  { return "logs://server/stream" }
-func (r *StreamingLogResource) Name() string { return "Server Log Stream" }
+func (r *StreamingLogResource) Name() string { return "Recent Server Log Snapshot" }
 func (r *StreamingLogResource) Description() string {
-	return "Real-time MCP server log streaming for development"
+	return "Bounded snapshot of recent MCP server logs; re-read to refresh"
 }
 
 // RouteListResource provides a structured list of registered routes.
@@ -309,7 +305,7 @@ func (r *MetricsResource) Description() string {
 func (r *MetricsResource) MimeType() string { return "application/json" }
 
 func (r *MetricsResource) Read() (any, error) {
-	uptime := time.Since(r.server.ServerStart())
+	uptime := serverUptime(r.server)
 	totalRequests := r.server.TotalRequests()
 	totalResponseTime := r.server.TotalResponseTime()
 
@@ -334,6 +330,17 @@ func (r *MetricsResource) Read() (any, error) {
 }
 
 func (r *MetricsResource) List() ([]string, error) { return []string{r.URI()}, nil }
+
+func serverUptime(server *hyperserve.Server) time.Duration {
+	if server == nil {
+		return 0
+	}
+	start := server.ServerStart()
+	if start.IsZero() {
+		return 0
+	}
+	return time.Since(start)
+}
 
 // avgResponseTime computes the average response time in microseconds. Returns
 // 0 if no requests have been processed yet (or in the unlikely overflow case).

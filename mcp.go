@@ -46,8 +46,8 @@ func SetBuiltinPresetHooks(tools, standardResources, observability, developer fu
 
 // MCPDev configures MCP with developer tools for local development.
 //
-// SECURITY WARNING: Only use in development environments. Enables tools
-// that can modify server behavior (log level, route introspection).
+// SECURITY WARNING: Only use in development environments. It exposes runtime
+// status, registered routes, middleware layout, and development logs.
 //
 // Tools provided:
 //   - mcp__hyperserve__server_control
@@ -58,8 +58,9 @@ func SetBuiltinPresetHooks(tools, standardResources, observability, developer fu
 //   - logs://server/stream, routes://server/all
 func MCPDev() mcp.TransportConfig { return mcp.WithDeveloperMode() }
 
-// MCPObservability configures MCP with observability resources for production use.
-// This preset provides read-only access to system state with no control plane access:
+// MCPObservability configures MCP with read-only observability resources.
+// It does not authenticate or authorize requests; applications must protect the
+// MCP endpoint or keep it on a private listener. The preset provides:
 //   - config://server/current (sanitized server config, no secrets)
 //   - health://server/status (uptime and health metrics)
 //   - logs://server/recent (circular buffer of recent log entries)
@@ -172,12 +173,12 @@ func (srv *Server) setupDiscoveryEndpoints() {
 		}
 	}
 
-	srv.registerRoute("/.well-known/mcp.json")
-	srv.mux.HandleFunc("/.well-known/mcp.json", writeDiscovery)
+	srv.registerRoute(mcpDiscoveryEndpoint)
+	srv.mux.HandleFunc(mcpDiscoveryEndpoint, writeDiscovery)
 
 	srv.registerRoute(srv.options.MCPEndpoint + "/discover")
 	srv.mux.HandleFunc(srv.options.MCPEndpoint+"/discover", writeDiscovery)
 
 	srv.logger.Debug("MCP discovery endpoints registered",
-		"endpoints", []string{"/.well-known/mcp.json", srv.options.MCPEndpoint + "/discover"})
+		"endpoints", []string{mcpDiscoveryEndpoint, srv.options.MCPEndpoint + "/discover"})
 }

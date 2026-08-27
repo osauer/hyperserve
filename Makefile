@@ -7,10 +7,13 @@ BUILD_TIME ?= $(shell date -u +"%Y-%m-%d_%H:%M:%S_UTC" || echo "unknown")
 # Stamped into the root package's Version/BuildHash/BuildTime via -X.
 LDFLAGS := -ldflags "-X github.com/osauer/hyperserve/v2.Version=$(VERSION) -X github.com/osauer/hyperserve/v2.BuildHash=$(BUILD_HASH) -X github.com/osauer/hyperserve/v2.BuildTime=$(BUILD_TIME)"
 
-MAIN_BRANCH ?= main
+override RELEASE_REPOSITORY := osauer/hyperserve
+override RELEASE_MAIN_BRANCH := main
+override RELEASE_WORKFLOW := ci.yml
+override RELEASE_REQUIRED_JOBS := Test Benchmark
 RELEASE_TEST_JOBS ?= 2
 
-.PHONY: build install test test-race fuzz-smoke benchmark-load clean version help check check-docs check-examples check-canonical-examples check-compatibility-examples mcp-conformance vet fmt modernize modernize-check staticcheck govulncheck govulncheck-tools changelog-lint changelog-stub release-notes release-ci release-gate-test release-publish release-smoke release
+.PHONY: build install test test-race fuzz-smoke benchmark-load clean version help check check-architecture check-docs check-examples check-canonical-examples check-compatibility-examples mcp-conformance vet fmt modernize modernize-check staticcheck govulncheck govulncheck-tools changelog-lint changelog-stub release-notes release-authority-check release-ci release-gate-test release-publish release-smoke release
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets:\n"} \
@@ -19,7 +22,7 @@ help: ## List available targets
 	@echo
 	@echo "Common flow:  make fmt && make check && make test-race && make fuzz-smoke"
 	@echo "Release flow: make changelog-stub RELEASE_VERSION=vX.Y.Z"
-	@echo "              make release RELEASE_VERSION=vX.Y.Z   (clean tree + HEAD == origin/$(MAIN_BRANCH))"
+	@echo "              make release RELEASE_VERSION=vX.Y.Z   (clean tree + HEAD == origin/$(RELEASE_MAIN_BRANCH))"
 
 build: ## Compile hyperserve-init with version stamped via ldflags
 	mkdir -p bin
@@ -83,20 +86,51 @@ release-notes: ## Render GitHub Release notes from CHANGELOG.md for RELEASE_VERS
 	@$(MAKE) --no-print-directory changelog-lint RELEASE_VERSION=$(RELEASE_VERSION) >&2
 	@RELEASE_VERSION=$(RELEASE_VERSION) ./scripts/release-notes.sh
 
-release-ci: ## Wait for and verify the push CI run for RELEASE_SHA (defaults to HEAD)
-	@sha="$${RELEASE_SHA:-$$(git rev-parse HEAD)}"; \
-		RELEASE_SHA="$$sha" ./scripts/wait-exact-sha-ci.sh
+release-authority-check: ## Verify origin resolves only to the canonical GitHub repository
+	@set -eu; \
+		fetch_urls=$$(git remote get-url --all origin 2>/dev/null) || { \
+			echo "release-authority: origin has no fetch URL" >&2; \
+			exit 1; \
+		}; \
+		push_urls=$$(git remote get-url --push --all origin 2>/dev/null) || { \
+			echo "release-authority: origin has no push URL" >&2; \
+			exit 1; \
+		}; \
+		[ -n "$$fetch_urls" ] || { echo "release-authority: origin has no fetch URL" >&2; exit 1; }; \
+		[ -n "$$push_urls" ] || { echo "release-authority: origin has no push URL" >&2; exit 1; }; \
+		for url in $$fetch_urls; do \
+			case "$$url" in \
+				https://github.com/osauer/hyperserve|https://github.com/osauer/hyperserve.git|git@github.com:osauer/hyperserve|git@github.com:osauer/hyperserve.git|ssh://git@github.com/osauer/hyperserve|ssh://git@github.com/osauer/hyperserve.git) ;; \
+				*) echo "release-authority: refusing non-canonical origin fetch URL: $$url" >&2; exit 1 ;; \
+			esac; \
+		done; \
+		for url in $$push_urls; do \
+			case "$$url" in \
+				https://github.com/osauer/hyperserve|https://github.com/osauer/hyperserve.git|git@github.com:osauer/hyperserve|git@github.com:osauer/hyperserve.git|ssh://git@github.com/osauer/hyperserve|ssh://git@github.com/osauer/hyperserve.git) ;; \
+				*) echo "release-authority: refusing non-canonical origin push URL: $$url" >&2; exit 1 ;; \
+			esac; \
+		done
 
-release-gate-test: ## Exercise the exact-SHA CI gate with deterministic fixtures
+release-ci: ## Wait for and verify canonical main-branch push CI for RELEASE_SHA (defaults to HEAD)
+	@sha="$${RELEASE_SHA:-$$(git rev-parse HEAD)}"; \
+		GH_REPO= RELEASE_GATE_TEST_FIXTURE=0 RELEASE_SHA="$$sha" ./scripts/wait-exact-sha-ci.sh
+
+release-gate-test: ## Exercise exact-SHA CI and recovery-source gates with deterministic fixtures
 	@./scripts/wait-exact-sha-ci_test.sh
+	@sh ./scripts/check-release-publish-source_test.sh
 
 release-publish: ## Create GitHub Release page from CHANGELOG.md — RELEASE_VERSION required
 	@if [ -z "$(RELEASE_VERSION)" ]; then \
 		echo "release-publish: RELEASE_VERSION is required, e.g. make release-publish RELEASE_VERSION=v1.2.3" >&2; \
 		exit 1; \
 	fi
+	@if ! echo "$(RELEASE_VERSION)" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$$'; then \
+		echo "release-publish: RELEASE_VERSION must look like vX.Y.Z (got $(RELEASE_VERSION))" >&2; \
+		exit 1; \
+	fi
 	@command -v gh >/dev/null 2>&1 || { echo "release-publish: gh CLI not on PATH; install gh" >&2; exit 1; }
-	@$(MAKE) --no-print-directory changelog-lint RELEASE_VERSION=$(RELEASE_VERSION)
+	@$(MAKE) --no-print-directory release-authority-check
+	@git fetch origin $(RELEASE_MAIN_BRANCH) --tags
 	@if ! git ls-remote --tags --exit-code origin $(RELEASE_VERSION) >/dev/null 2>&1; then \
 		echo "release-publish: tag $(RELEASE_VERSION) is not on origin; run make release or push the tag first" >&2; \
 		exit 1; \
@@ -106,18 +140,27 @@ release-publish: ## Create GitHub Release page from CHANGELOG.md — RELEASE_VER
 		echo "release-publish: origin/$(RELEASE_VERSION) is not an annotated tag" >&2; \
 		exit 1; \
 	fi; \
-	local_sha=$$(git rev-list -n 1 $(RELEASE_VERSION) 2>/dev/null || true); \
+		local_sha=$$(git rev-list -n 1 $(RELEASE_VERSION) 2>/dev/null || true); \
 	if [ -z "$$local_sha" ] || [ "$$local_sha" != "$$remote_sha" ]; then \
 		echo "release-publish: local and remote $(RELEASE_VERSION) do not resolve to the same commit" >&2; \
 		echo "                 fetch and verify the immutable tag before recovery" >&2; \
 		exit 1; \
 	fi; \
+	RELEASE_VERSION=$(RELEASE_VERSION) RELEASE_REMOTE_SHA="$$remote_sha" sh ./scripts/check-release-publish-source.sh; \
+	main_sha=$$(git rev-parse origin/$(RELEASE_MAIN_BRANCH)); \
+	if ! git merge-base --is-ancestor "$$remote_sha" "$$main_sha"; then \
+		echo "release-publish: tag $(RELEASE_VERSION) does not resolve to a commit on origin/$(RELEASE_MAIN_BRANCH)" >&2; \
+		exit 1; \
+	fi; \
 	$(MAKE) --no-print-directory release-ci RELEASE_SHA="$$remote_sha"
-	@notes=$$(mktemp -t hyperserve-release-notes.XXXXXX) && \
+	@$(MAKE) --no-print-directory changelog-lint RELEASE_VERSION=$(RELEASE_VERSION)
+	@remote_sha=$$(git ls-remote --tags origin 'refs/tags/$(RELEASE_VERSION)^{}' | awk 'NR == 1 { print $$1 }') && \
+		RELEASE_VERSION=$(RELEASE_VERSION) RELEASE_REMOTE_SHA="$$remote_sha" sh ./scripts/check-release-publish-source.sh && \
+		notes=$$(mktemp -t hyperserve-release-notes.XXXXXX) && \
 		trap 'rm -f $$notes' EXIT && \
 		RELEASE_VERSION=$(RELEASE_VERSION) ./scripts/release-notes.sh > "$$notes" && \
 		title="$${MESSAGE:-HyperServe $(RELEASE_VERSION)}" && \
-		gh release create $(RELEASE_VERSION) --notes-file "$$notes" --title "$$title" --latest
+		GH_REPO= GH_HOST= gh release create $(RELEASE_VERSION) --repo $(RELEASE_REPOSITORY) --verify-tag --notes-file "$$notes" --title "$$title" --latest
 
 release-smoke: ## Run the full local release gate before tagging
 	@if [ -z "$(RELEASE_VERSION)" ]; then \
@@ -154,14 +197,15 @@ release: ## Tag, push, and publish a release: make release RELEASE_VERSION=vX.Y.
 		git status --short >&2; \
 		exit 1; \
 	fi
-	git fetch origin $(MAIN_BRANCH) --tags
+	@$(MAKE) --no-print-directory release-authority-check
+	git fetch origin $(RELEASE_MAIN_BRANCH) --tags
 	@head=$$(git rev-parse HEAD); \
-	main=$$(git rev-parse origin/$(MAIN_BRANCH) 2>/dev/null) || { \
-		echo "release: origin/$(MAIN_BRANCH) ref missing locally" >&2; \
+	main=$$(git rev-parse origin/$(RELEASE_MAIN_BRANCH) 2>/dev/null) || { \
+		echo "release: origin/$(RELEASE_MAIN_BRANCH) ref missing locally" >&2; \
 		exit 1; \
 	}; \
 	if [ "$$head" != "$$main" ]; then \
-		echo "release: HEAD ($$head) does not match origin/$(MAIN_BRANCH) ($$main); push your commits first" >&2; \
+		echo "release: HEAD ($$head) does not match origin/$(RELEASE_MAIN_BRANCH) ($$main); push your commits first" >&2; \
 		exit 1; \
 	fi
 	@if git rev-parse --verify --quiet $(RELEASE_VERSION) >/dev/null; then \
@@ -178,7 +222,7 @@ release: ## Tag, push, and publish a release: make release RELEASE_VERSION=vX.Y.
 		$(MAKE) --no-print-directory release-ci RELEASE_SHA="$$sha"
 	@msg="$${MESSAGE:-HyperServe $(RELEASE_VERSION)}"; \
 		git tag -a $(RELEASE_VERSION) -m "$$msg"
-	git push origin HEAD:$(MAIN_BRANCH)
+	git push origin HEAD:$(RELEASE_MAIN_BRANCH)
 	git push origin $(RELEASE_VERSION)
 	@msg="$${MESSAGE:-HyperServe $(RELEASE_VERSION)}"; \
 		$(MAKE) release-publish RELEASE_VERSION=$(RELEASE_VERSION) MESSAGE="$$msg"
@@ -194,7 +238,7 @@ release: ## Tag, push, and publish a release: make release RELEASE_VERSION=vX.Y.
 # tells you the exact command if missing. Modernize is different — it's
 # pinned via the `tool` directive in tools/go.mod and invoked from that module, so it
 # auto-downloads on first use and stays reproducible across machines/CI.
-check: vet staticcheck govulncheck govulncheck-tools modernize-check check-docs check-examples check-canonical-examples check-compatibility-examples mcp-conformance release-gate-test ## gofmt + vet + staticcheck + govulncheck + modernize-check + docs/example gates
+check: vet staticcheck govulncheck govulncheck-tools modernize-check check-architecture check-docs check-examples check-canonical-examples check-compatibility-examples mcp-conformance release-gate-test ## gofmt + vet + staticcheck + govulncheck + architecture + docs/example gates
 	@# gofmt over tracked + untracked-but-not-gitignored .go files. Same
 	@# pattern as ibkr — `git ls-files` respects .gitignore so this skips
 	@# /dist, agent worktrees, etc. The intermediate exists-check filters
@@ -249,6 +293,9 @@ check-examples: ## go vet + build + govulncheck in each standalone examples/*/ m
 
 check-docs: ## Verify entry-point links and reject known stale example claims
 	go test ./internal/doccheck
+
+check-architecture: ## Enforce the canonical public package set and direct dependency graph
+	go test ./internal/archcheck
 
 check-canonical-examples: ## Build and test every example in the main module
 	go test ./examples/...

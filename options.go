@@ -214,6 +214,11 @@ func cloneOptions(options Options) Options {
 
 func normalizeOptions(options *Options) error {
 	options.CORS = normalizeCORSOptions(options.CORS)
+	if options.MCPEndpoint != "" || options.MCPEnabled {
+		if err := validateMCPEndpoint(options.MCPEndpoint); err != nil {
+			return err
+		}
+	}
 	for i := 0; i < len(options.ServerHeader); i++ {
 		b := options.ServerHeader[i]
 		if b == '\r' || b == '\n' || b == 0x7f || (b < 0x20 && b != '\t') {

@@ -22,6 +22,6 @@ goroutine exits — context cancellation is the only stop signal.
 
 ## Notes
 
-This example uses raw `text/event-stream` for direct HTMX consumption. If
-you also want the MCP control plane to share the same SSE primitives, see
-the [MCP SSE guide](../../docs/MCP_GUIDE.md#server-sent-events-sse-support).
+This example uses raw `text/event-stream` for direct HTMX consumption. MCP's
+separate request-scoped SSE behavior is covered under
+[resource subscriptions](../../docs/MCP_GUIDE.md#resource-subscriptions).

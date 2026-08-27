@@ -1,30 +1,3 @@
-// Typed MCP tools.
-//
-// NewTypedTool wraps a typed handler — `func(ctx, In) (Out, error)` where
-// In is a struct — as an MCP Tool. The framework derives the JSON Schema
-// from In via reflection, decodes incoming arguments into a fresh In,
-// runs the same `validate:"..."` rules used by the HTTP binding helpers,
-// and invokes the handler. When Out is a non-empty struct (or a slice of
-// one), an `outputSchema` is also derived so MCP clients can introspect
-// the return shape — see MCP spec revision 2025-06-18 for the wire field.
-//
-// The old builder path (mcp.NewTool(...).WithParameter(...).WithExecute(...))
-// keeps working; this is additive. Use the typed shape for new tools — it
-// removes the hand-mirrored schema, the unchecked `params.(string)` type
-// assertions, and the unchecked `(any, error)` return.
-//
-// Schema generation covers the subset MCP clients actually consume:
-//
-//   - object with typed properties + required list
-//   - strings, integers, numbers, booleans, arrays, nested objects
-//   - enum (from `validate:"oneof=…"`)
-//   - minimum/maximum (from `validate:"min=N,max=N"` on numeric fields)
-//   - minLength/maxLength (from min/max on strings; from `len=N`)
-//   - minItems/maxItems (from min/max on arrays/slices; from `len=N`)
-//   - description (from `mcp:"desc=…"`)
-//
-// `$ref` / `$defs` are deliberately not emitted — nested structs are
-// inlined. Cross-field rules and custom validators are out of scope.
 package mcp
 
 import (
@@ -79,6 +52,15 @@ type ToolWithOutputSchema interface {
 //
 // Type inference at the call site picks both In and Out off the function
 // value, so callers don't write the type parameters explicitly.
+//
+// Schema generation covers strings, numbers, booleans, arrays, and nested
+// structs. It derives enums and bounds from oneof, min, max, and len validation
+// rules, and descriptions from mcp:"desc=..." tags. Nested structs are inlined;
+// $ref, $defs, cross-field rules, and custom validators are not emitted.
+//
+// Prefer NewTypedTool for new tools because the typed shape keeps the handler
+// and its schema together. The NewTool builder remains available for callers
+// that need to assemble a schema dynamically.
 //
 // Panics at registration if In is not a struct type — the panic is
 // preferable to silently emitting a schema no client can use.

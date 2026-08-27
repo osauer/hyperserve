@@ -184,7 +184,7 @@ them into application-owned `ratelimit.Config`.
 
 ```sh
 go list -m all | grep hyperserve
-rg 'hyperserve(/v2)?/pkg/|NewServer|RunContext|SetDefaultLogger' --glob '*.go'
+rg 'hyperserve(/v2)?/pkg/|(?:hyperserve|server|serverpkg)\.NewServer\(|RunContext|SetDefaultLogger' --glob '*.go'
 GOWORK=off go test -race -mod=readonly ./...
 ```
 

@@ -43,21 +43,24 @@ curl -H "Authorization: Bearer token" http://localhost:8082/.well-known/mcp.json
 
 ### Server 3: Custom filter (port 8083)
 ```bash
-# From localhost - see non-secret tools
+# From localhost - the custom filter deliberately exposes all three tools
 curl http://localhost:8083/.well-known/mcp.json | jq '.capabilities.tools'
-# Output: {"supported": true, "count": 3, "available": ["public_info", "admin_tool"]}
+# Output: {"supported": true, "count": 3, "available": ["admin_tool", "public_info", "secret_operation"]}
+
+# From a non-loopback peer - the custom filter exposes only names containing "public"
+# Output: {"supported": true, "count": 3, "available": ["public_info"]}
 ```
 
 ## Key Concepts
 
 1. **IsDiscoverable()** - Tools can opt out of discovery by implementing this method
-2. **Discovery Filter** - Custom logic for context-aware filtering
+2. **Discovery Filter** - Custom logic that overrides the default name and `IsDiscoverable` rules
 3. **RBAC Compatible** - Filters can decode JWT tokens from Authorization headers
 4. **Default Behavior** - Tools without IsDiscoverable() default to being discoverable
 
 ## Security Notes
 
-- Dev tools like `server_control` are automatically hidden in production
-- Tools prefixed with `internal_` or `_` are always hidden
+- Default discovery hides underscore-prefixed tools and honors `IsDiscoverable`
+- A custom filter replaces those defaults and must reproduce any rules it needs
 - Custom filters can implement complex RBAC logic
-- Discovery policies work independently of actual tool access control
+- Discovery policies change metadata presentation only; they do not authorize tool calls

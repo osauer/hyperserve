@@ -407,7 +407,7 @@ func TestStreamableHTTPRejectsMalformedTransportRequests(t *testing.T) {
 		{
 			name: "oversized body",
 			mutate: func(r *http.Request) {
-				data := `{"jsonrpc":"2.0","method":"ping","params":{"payload":"` + strings.Repeat("x", streamableHTTPMaxBody) + `"}}`
+				data := `{"jsonrpc":"2.0","method":"ping","params":{"payload":"` + strings.Repeat("x", mcpHTTPMaxBody) + `"}}`
 				r.Body = ioNopCloser(data)
 			},
 			wantStatus: http.StatusRequestEntityTooLarge,

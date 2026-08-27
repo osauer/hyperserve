@@ -1,7 +1,10 @@
 package builtin
 
 import (
+	"encoding/json"
 	"net/http"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/osauer/hyperserve/v2"
@@ -277,6 +280,87 @@ func TestRouteInspectorTool(t *testing.T) {
 	})
 }
 
+func TestRouteInspectorMCPMethodsMatchTransportMode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		legacy  bool
+		methods []string
+	}{
+		{name: "standards only", methods: []string{"POST"}},
+		{name: "legacy routed SSE", legacy: true, methods: []string{"GET", "POST"}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			options := []hyperserve.Option{hyperserve.WithMCPSupport("test", "1.0.0")}
+			if test.legacy {
+				//lint:ignore SA1019 This truth test covers the explicit legacy compatibility mode.
+				options = append(options, hyperserve.WithMCPLegacyRoutedSSE(true))
+			}
+			app, err := hyperserve.New(options...)
+			if err != nil {
+				t.Fatalf("create server: %v", err)
+			}
+
+			result, err := NewRouteInspectorTool(app).Execute(map[string]any{
+				"pattern": app.Options().MCPEndpoint,
+			})
+			if err != nil {
+				t.Fatalf("inspect routes: %v", err)
+			}
+			routes := result.(map[string]any)["routes"].([]map[string]any)
+			for _, route := range routes {
+				if route["pattern"] != app.Options().MCPEndpoint {
+					continue
+				}
+				methods, ok := route["methods"].([]string)
+				if !ok {
+					t.Fatalf("MCP methods have type %T, want []string", route["methods"])
+				}
+				if !slices.Equal(methods, test.methods) {
+					t.Fatalf("MCP methods = %v, want %v", methods, test.methods)
+				}
+				return
+			}
+			t.Fatalf("MCP route %q not reported", app.Options().MCPEndpoint)
+		})
+	}
+}
+
+func TestRouteInspectorPreservesSamePathAcrossMainAndHealthServers(t *testing.T) {
+	t.Parallel()
+
+	app, err := hyperserve.New(hyperserve.WithHealthServer())
+	if err != nil {
+		t.Fatalf("create server: %v", err)
+	}
+	app.HandleFunc("/healthz", func(http.ResponseWriter, *http.Request) {})
+
+	result, err := NewRouteInspectorTool(app).Execute(map[string]any{"pattern": "/healthz"})
+	if err != nil {
+		t.Fatalf("inspect routes: %v", err)
+	}
+	routes := result.(map[string]any)["routes"].([]map[string]any)
+	methodsByServer := make(map[string][]string)
+	for _, route := range routes {
+		if route["pattern"] != "/healthz" {
+			continue
+		}
+		server, _ := route["server"].(string)
+		methods, _ := route["methods"].([]string)
+		methodsByServer[server] = methods
+	}
+	if !slices.Equal(methodsByServer["main"], []string{"ANY"}) {
+		t.Errorf("main /healthz methods = %v, want [ANY]", methodsByServer["main"])
+	}
+	if !slices.Equal(methodsByServer["health"], []string{"GET"}) {
+		t.Errorf("health /healthz methods = %v, want [GET]", methodsByServer["health"])
+	}
+}
+
 // Helper function to check if a string contains a substring
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || (len(s) > len(substr) && stringContains(s, substr)))
@@ -337,6 +421,9 @@ func TestServerControlTool(t *testing.T) {
 				t.Errorf("Expected field %s not found in response", field)
 			}
 		}
+		if got := response["uptime"]; got != "0s" {
+			t.Errorf("pre-Run uptime = %v, want 0s", got)
+		}
 	})
 
 	t.Run("invalid_action", func(t *testing.T) {
@@ -354,6 +441,108 @@ func TestServerControlTool(t *testing.T) {
 			t.Error("Expected error for missing action")
 		}
 	})
+}
+
+func TestServerControlActionParity(t *testing.T) {
+	srv, err := hyperserve.New(hyperserve.WithMCPSupport("test", "1.0.0"))
+	if err != nil {
+		t.Fatalf("create server: %v", err)
+	}
+	control := &ServerControlTool{server: srv}
+	guide := &DevGuideTool{server: srv}
+
+	properties, ok := control.Schema()["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("server_control schema properties have unexpected shape")
+	}
+	actionSchema, ok := properties["action"].(map[string]any)
+	if !ok {
+		t.Fatal("server_control action schema has unexpected shape")
+	}
+	schemaActions, ok := actionSchema["enum"].([]string)
+	if !ok {
+		t.Fatalf("server_control action enum has unexpected type %T", actionSchema["enum"])
+	}
+	if !slices.Equal(schemaActions, serverControlActions()) {
+		t.Fatalf("schema actions %v differ from runtime actions %v", schemaActions, serverControlActions())
+	}
+	for _, action := range schemaActions {
+		if _, err := control.Execute(map[string]any{"action": action}); err != nil {
+			t.Errorf("schema advertises action %q that runtime rejects: %v", action, err)
+		}
+	}
+	if _, err := control.Execute(map[string]any{"action": "set_log_level"}); err == nil {
+		t.Error("removed set_log_level action must remain rejected")
+	}
+
+	overviewResult, err := guide.Execute(map[string]any{"topic": "overview"})
+	if err != nil {
+		t.Fatalf("execute dev guide overview: %v", err)
+	}
+	overview := overviewResult.(map[string]any)
+	overviewTools := overview["tools"].([]map[string]any)
+	var overviewActions []string
+	for _, advertised := range overviewTools {
+		if advertised["name"] == "server_control" {
+			overviewActions, _ = advertised["actions"].([]string)
+		}
+	}
+	if !slices.Equal(overviewActions, schemaActions) {
+		t.Errorf("dev guide overview actions %v differ from schema actions %v", overviewActions, schemaActions)
+	}
+
+	toolsResult, err := guide.Execute(map[string]any{"topic": "tools"})
+	if err != nil {
+		t.Fatalf("execute dev guide tools: %v", err)
+	}
+	availableTools := toolsResult.(map[string]any)["available_tools"].([]map[string]any)
+	var documentedActions map[string]string
+	for _, advertised := range availableTools {
+		if advertised["tool"] == "server_control" {
+			documentedActions, _ = advertised["actions"].(map[string]string)
+		}
+	}
+	if len(documentedActions) != len(schemaActions) {
+		t.Errorf("dev guide documents %d server_control actions; schema advertises %d", len(documentedActions), len(schemaActions))
+	}
+	for action := range documentedActions {
+		if !slices.Contains(schemaActions, action) {
+			t.Errorf("dev guide documents server_control action %q that schema omits", action)
+		}
+	}
+
+	examplesResult, err := guide.Execute(map[string]any{"topic": "examples"})
+	if err != nil {
+		t.Fatalf("execute dev guide examples: %v", err)
+	}
+	examples := examplesResult.(map[string]any)["common_examples"].([]map[string]any)
+	for _, example := range examples {
+		if example["tool"] != "server_control" {
+			continue
+		}
+		arguments := example["arguments"].(map[string]any)
+		action, _ := arguments["action"].(string)
+		if !slices.Contains(schemaActions, action) {
+			t.Errorf("dev guide example advertises server_control action %q that schema omits", action)
+		}
+	}
+
+	for _, topic := range []string{"overview", "tools", "resources", "examples", "workflows"} {
+		result, err := guide.Execute(map[string]any{"topic": topic})
+		if err != nil {
+			t.Fatalf("execute dev guide topic %q: %v", topic, err)
+		}
+		encoded, err := json.Marshal(result)
+		if err != nil {
+			t.Fatalf("encode dev guide topic %q: %v", topic, err)
+		}
+		if strings.Contains(string(encoded), "set_log_level") {
+			t.Errorf("dev guide topic %q still advertises removed set_log_level action", topic)
+		}
+		if strings.Contains(strings.ToLower(string(encoded)), "real-time mcp server log") {
+			t.Errorf("dev guide topic %q advertises snapshot logs as real-time", topic)
+		}
+	}
 }
 
 // TestDevGuideTool tests the DevGuideTool functionality

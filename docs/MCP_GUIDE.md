@@ -7,7 +7,7 @@ This guide covers how to use HyperServe's Model Context Protocol (MCP) support f
 HyperServe provides native MCP support through three main configurations:
 
 1. **Development** (`MCPDev()`) - Tools for local development with Claude Code
-2. **Observability** (`MCPObservability()`) - Safe monitoring for production
+2. **Observability** (`MCPObservability()`) - Read-only operational resources; applications must authenticate access
 3. **Custom Extensions** - Your own tools and resources
 
 Canonical construction uses the root package plus `mcp`. Built-in presets and
@@ -67,7 +67,8 @@ curl -X POST http://localhost:8080/mcp \
 `tools/call` and `resources/read` also require `Mcp-Name`.
 Tool parameters marked `x-mcp-header` require the matching `Mcp-Param-*`
 header. HyperServe rejects missing, duplicate, malformed, or mismatched
-metadata and bounds request bodies to 4 MiB. `server/discover` reports the
+metadata. Every MCP POST path has a 4 MiB request-body limit.
+`server/discover` reports the
 current transport version and capabilities.
 
 ### Resource subscriptions
@@ -254,13 +255,12 @@ go build -o myapp
 ```
 
 3. Start developing with Claude:
-- "Set log level to DEBUG"
+- "Show me the server status"
 - "Show me all routes"
 
 ### Available Tools
 
 **mcp__hyperserve__server_control**
-- `set_log_level` - Change log level (DEBUG, INFO, WARN, ERROR)
 - `get_status` - Get server status
 
 **mcp__hyperserve__route_inspector**
@@ -274,8 +274,8 @@ go build -o myapp
 ### Security Warning
 
 ⚠️ **Never use MCPDev() in production.** It exposes server-introspection
-endpoints (log-level switching, route enumeration) that should not be on
-an internet-facing interface.
+endpoints (server status, route enumeration, middleware layout, and development
+logs) that should not be on an internet-facing interface.
 
 ## Production Observability
 
@@ -312,22 +312,29 @@ HS_MCP_ENABLED=true HS_MCP_OBSERVABILITY=true ./myapp
 
 ### Remote Access
 
-For production monitoring via Claude:
+Create a local-only SSH tunnel to the remote loopback listener and keep it
+running while the MCP client is connected:
+
+```bash
+ssh -N -o StrictHostKeyChecking=yes -L 127.0.0.1:18080:127.0.0.1:8080 prod-server
+```
+
+Then point an HTTP-capable MCP client at the forwarded URL:
 
 ```json
 {
   "mcpServers": {
     "prod-monitor": {
-      "command": "ssh",
-      "args": [
-        "-o", "StrictHostKeyChecking=yes",
-        "prod-server",
-        "curl", "-s", "http://localhost:8080/mcp"
-      ]
+      "type": "http",
+      "url": "http://127.0.0.1:18080/mcp"
     }
   }
 }
 ```
+
+The tunnel protects the network hop but does not add application
+authentication or authorization. The remote endpoint must still enforce its
+own access policy, and it should expose `MCPObservability()`, not `MCPDev()`.
 
 ## Custom Extensions
 
@@ -595,7 +602,8 @@ curl -X POST http://localhost:8080/mcp \
 ## Best Practices
 
 ### 1. Security First
-- Use `MCPObservability()` for production
+- Protect every network-exposed MCP endpoint with application authentication
+- Treat `MCPObservability()` as read-only, not as authorization
 - Never expose `MCPDev()` to networks
 - Sanitize all data in resources
 - Validate tool parameters
@@ -603,17 +611,17 @@ curl -X POST http://localhost:8080/mcp \
 ### 2. Clear Naming
 ```go
 // Good
-tool := NewTool("create_user")
-resource := NewResource("users://active/list")
+tool := mcp.NewTool("create_user")
+resource := userStatsResource{} // URI: app://stats/users
 
 // Bad
-tool := NewTool("do_thing")
-resource := NewResource("data://stuff")
+tool := mcp.NewTool("do_thing")
+// Avoid vague resource URIs such as data://stuff.
 ```
 
 ### 3. Error Handling
 ```go
-WithExecute(func(params map[string]any) (any, error) {
+mcp.NewTool("lookup_user").WithExecute(func(params map[string]any) (any, error) {
     name, ok := params["name"].(string)
     if !ok {
         return nil, fmt.Errorf("name parameter required")
@@ -624,7 +632,7 @@ WithExecute(func(params map[string]any) (any, error) {
     }
     
     // ... rest of logic
-})
+}).Build()
 ```
 
 Return `mcp.ToolError("message")` for domain failures that should be
@@ -632,12 +640,12 @@ successful MCP `tools/call` responses with `isError: true`. Keep returning
 ordinary errors for protocol, validation, decode, or unexpected failures:
 
 ```go
-WithExecute(func(params map[string]any) (any, error) {
+mcp.NewTool("call_gateway").WithExecute(func(params map[string]any) (any, error) {
     if gatewayDown() {
         return nil, mcp.ToolError("gateway unavailable")
     }
     return callGateway(params)
-})
+}).Build()
 ```
 
 ### 4. Resource Caching
@@ -648,7 +656,7 @@ template reads should normally stay uncached.
 ### 5. Documentation
 Always provide clear descriptions:
 ```go
-NewTool("backup_database").
+mcp.NewTool("backup_database").
     WithDescription("Create a database backup with optional encryption").
     WithParameter("encrypt", "boolean", "Enable encryption (default: true)", false).
     WithParameter("location", "string", "Backup location (s3|local)", false)

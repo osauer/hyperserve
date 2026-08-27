@@ -39,7 +39,8 @@ Release summary in one or two plain-English sentences.
   Three bullets max. Plain English. This section is promoted into the
   GitHub Release header by make release-publish.
   Mark Go-library breaking changes with **Breaking (Go library):** and
-  reserve those for a future /v2 module path.
+  after v2.1.0 reserve those for a new major version and matching major
+  module path.
 -->
 
 - TODO:

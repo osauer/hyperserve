@@ -167,10 +167,10 @@ type deferredLifecycle struct {
 //	)
 //
 // Returns an error if any of the options fail to apply.
-func New(opts ...Option) (*Server, error) {
+func New(options ...Option) (*Server, error) {
 	srv := newServerSkeleton()
 
-	for _, opt := range opts {
+	for _, opt := range options {
 		if err := opt(srv); err != nil {
 			return nil, err
 		}
@@ -301,7 +301,7 @@ func initializeMCPHandler(srv *Server) {
 
 	if srv.options.mcpTransportOpts.DeveloperMode {
 		srv.logger.Warn("⚠️  MCP DEVELOPER MODE ENABLED ⚠️",
-			"warning", "This mode allows server restart and configuration changes",
+			"warning", "This mode exposes runtime status, routes, middleware layout, and development logs",
 			"security", "Only use in development environments")
 	}
 	if srv.options.MCPToolsEnabled {
@@ -581,9 +581,14 @@ func (srv *Server) Use(middleware ...Middleware) {
 
 // UsePrefix registers middleware for a URL path and its child paths at a
 // slash boundary. For example, "/api" matches "/api/users" but not "/apiv2".
+// A non-empty prefix must begin with "/"; malformed prefixes panic at
+// registration time so a security middleware cannot be silently bypassed.
 // Register middleware before calling Run or serving Handler; registration
 // after serving starts panics.
 func (srv *Server) UsePrefix(prefix string, middleware ...Middleware) {
+	if err := validateMiddlewarePrefix(prefix); err != nil {
+		panic("hyperserve: " + err.Error())
+	}
 	srv.middleware.Add(prefix, middleware)
 	srv.logger.Debug("Middleware registered", "scope", prefix, "count", len(middleware))
 }
@@ -1244,8 +1249,8 @@ func (srv *Server) SetMetrics(totalRequests uint64, totalResponseTime int64) {
 	srv.totalResponseTime.Store(totalResponseTime)
 }
 
-// AddMetrics is a test affordance: it bumps the request count by one and
-// adds to the cumulative response time. See SetMetrics.
+// AddMetrics is a test affordance: it adds deltaRequests to the request count
+// and deltaResponseTime to the cumulative response time. See SetMetrics.
 func (srv *Server) AddMetrics(deltaRequests uint64, deltaResponseTime int64) {
 	srv.totalRequests.Add(deltaRequests)
 	srv.totalResponseTime.Add(deltaResponseTime)

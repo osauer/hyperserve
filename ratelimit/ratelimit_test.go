@@ -82,8 +82,8 @@ func TestNewAppliesFiniteDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("normalizeConfig() error = %v", err)
 	}
-	if config.idleTTL != 10*time.Minute {
-		t.Fatalf("IdleTTL default = %v, want 10m", config.idleTTL)
+	if config.retention != 10*time.Minute {
+		t.Fatalf("effective retention = %v, want 10m", config.retention)
 	}
 	if defaultIdleTTL != 10*time.Minute {
 		t.Fatalf("defaultIdleTTL = %v, want 10m", defaultIdleTTL)
@@ -96,6 +96,60 @@ func TestNewAppliesFiniteDefaults(t *testing.T) {
 	}
 	if config.clientKey == nil {
 		t.Fatal("default ClientKey is nil")
+	}
+}
+
+func TestEffectiveRetentionCoversFullRefill(t *testing.T) {
+	t.Parallel()
+	if got := fullRefillDuration(1, 2_000_000_000); got != time.Nanosecond {
+		t.Fatalf("fractional-nanosecond full refill = %v, want conservative 1ns ceiling", got)
+	}
+
+	tests := []struct {
+		name   string
+		config Config
+		want   time.Duration
+	}{
+		{
+			name: "configured idle TTL is longer",
+			config: Config{
+				RequestsPerSecond: 10,
+				Burst:             20,
+				IdleTTL:           3 * time.Second,
+			},
+			want: 3 * time.Second,
+		},
+		{
+			name: "full refill is longer",
+			config: Config{
+				RequestsPerSecond: 2,
+				Burst:             10,
+				IdleTTL:           time.Second,
+			},
+			want: 5 * time.Second,
+		},
+		{
+			name: "extremely slow refill saturates",
+			config: Config{
+				RequestsPerSecond: math.SmallestNonzeroFloat64,
+				Burst:             1,
+				IdleTTL:           time.Nanosecond,
+			},
+			want: time.Duration(math.MaxInt64),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			config, err := normalizeConfig(test.config)
+			if err != nil {
+				t.Fatalf("normalizeConfig() error = %v", err)
+			}
+			if config.retention != test.want {
+				t.Fatalf("effective retention = %v, want %v", config.retention, test.want)
+			}
+		})
 	}
 }
 
@@ -349,6 +403,93 @@ func TestTrustedProxyClientKeyFailsClosed(t *testing.T) {
 	}
 }
 
+func TestForwardedForByteLimitAndNonReflectiveErrors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("exact aggregate boundary is accepted by size check", func(t *testing.T) {
+		t.Parallel()
+		for _, values := range [][]string{
+			{strings.Repeat("x", maxForwardedForBytes)},
+			{
+				strings.Repeat("x", maxForwardedForBytes/2),
+				strings.Repeat("y", maxForwardedForBytes/2-1),
+			},
+		} {
+			_, err := parseForwardedFor(values)
+			if err == nil {
+				t.Fatal("parseForwardedFor() error = nil for invalid address")
+			}
+			if strings.Contains(err.Error(), "exceeds") {
+				t.Fatalf("exact-boundary error = %q, size check rejected %d bytes", err, maxForwardedForBytes)
+			}
+		}
+	})
+
+	t.Run("single field over aggregate boundary", func(t *testing.T) {
+		t.Parallel()
+		_, err := parseForwardedFor([]string{strings.Repeat("x", maxForwardedForBytes+1)})
+		if err == nil || !strings.Contains(err.Error(), "exceeds 4096 bytes") {
+			t.Fatalf("parseForwardedFor() error = %v, want byte-limit error", err)
+		}
+	})
+
+	t.Run("multiple fields count their joining comma", func(t *testing.T) {
+		t.Parallel()
+		_, err := parseForwardedFor([]string{
+			strings.Repeat("x", maxForwardedForBytes/2),
+			strings.Repeat("y", maxForwardedForBytes/2),
+		})
+		if err == nil || !strings.Contains(err.Error(), "exceeds 4096 bytes") {
+			t.Fatalf("parseForwardedFor() error = %v, want aggregate byte-limit error", err)
+		}
+	})
+
+	t.Run("invalid address is not reflected", func(t *testing.T) {
+		t.Parallel()
+		const attackerValue = "attacker-controlled-secret.invalid"
+		_, err := parseForwardedFor([]string{attackerValue})
+		if err == nil {
+			t.Fatal("parseForwardedFor() error = nil for invalid address")
+		}
+		if strings.Contains(err.Error(), attackerValue) {
+			t.Fatalf("parseForwardedFor() error reflected attacker input: %q", err)
+		}
+	})
+}
+
+func TestOversizedForwardedForFailsClosedInMiddleware(t *testing.T) {
+	t.Parallel()
+
+	keyFunc, err := TrustedProxyClientKey([]netip.Prefix{
+		netip.MustParsePrefix("10.0.0.0/8"),
+	})
+	if err != nil {
+		t.Fatalf("TrustedProxyClientKey() error = %v", err)
+	}
+	gate := mustGate(t, Config{
+		RequestsPerSecond: 1,
+		Burst:             1,
+		ClientKey:         keyFunc,
+	})
+	var handled atomic.Bool
+	handler := gate(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		handled.Store(true)
+		w.WriteHeader(http.StatusOK)
+	}))
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request.RemoteAddr = "10.0.0.2:1234"
+	request.Header.Set("X-Forwarded-For", strings.Repeat("x", maxForwardedForBytes+1))
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusBadRequest)
+	}
+	if handled.Load() {
+		t.Fatal("next handler ran for oversized X-Forwarded-For")
+	}
+}
+
 func TestTrustedProxyClientKeyValidatesAndCopiesRanges(t *testing.T) {
 	t.Parallel()
 
@@ -429,7 +570,7 @@ func TestCapacityRejectsNewKeysWithoutEvictingActiveClients(t *testing.T) {
 	t.Parallel()
 
 	gate := mustGate(t, Config{
-		RequestsPerSecond: 0.001,
+		RequestsPerSecond: 1_000,
 		Burst:             2,
 		IdleTTL:           4 * time.Second,
 		MaxClients:        2,
@@ -451,7 +592,7 @@ func TestCapacityRejectsNewKeysWithoutEvictingActiveClients(t *testing.T) {
 	}
 	seconds := assertRetryHeaders(t, capacity)
 	if seconds < 3 || seconds > 4 {
-		t.Fatalf("capacity Retry-After = %d seconds, want 3-4 from the earliest idle expiry", seconds)
+		t.Fatalf("capacity Retry-After = %d seconds, want 3-4 from effective-retention backoff", seconds)
 	}
 
 	if got := serve(t, handler, "192.0.2.80:2000", "").Code; got != http.StatusOK {
@@ -459,36 +600,191 @@ func TestCapacityRejectsNewKeysWithoutEvictingActiveClients(t *testing.T) {
 	}
 }
 
+func TestCapacityRetryDoesNotUnderstateRefreshedExpiry(t *testing.T) {
+	start := time.Unix(1_700_000_000, 0)
+	config, err := normalizeConfig(Config{
+		RequestsPerSecond: 10,
+		Burst:             1,
+		IdleTTL:           10 * time.Second,
+		MaxClients:        1,
+	})
+	if err != nil {
+		t.Fatalf("normalizeConfig() error = %v", err)
+	}
+	p := &policy{
+		config:  config,
+		clients: make(map[string]*clientEntry),
+	}
+
+	entry, _, ok := p.entryFor("existing", start)
+	if !ok {
+		t.Fatal("initial entryFor() rejected")
+	}
+	if allowed, _ := entry.allowAt(func() time.Time { return start }); !allowed {
+		t.Fatal("initial token was rejected")
+	}
+
+	refreshTime := start.Add(9 * time.Second)
+	refreshed, _, ok := p.entryFor("existing", refreshTime)
+	if !ok || refreshed != entry {
+		t.Fatal("existing entry was not refreshed in place")
+	}
+	refreshed.allowAt(func() time.Time { return refreshTime })
+
+	attackTime := start.Add(9*time.Second + 500*time.Millisecond)
+	if _, retry, accepted := p.entryFor("new", attackTime); accepted {
+		t.Fatal("new entry was accepted at capacity")
+	} else {
+		untilRefreshedExpiry := refreshTime.Add(config.retention).Sub(attackTime)
+		if retry < untilRefreshedExpiry {
+			t.Fatalf("capacity retry = %v, understates refreshed expiry in %v", retry, untilRefreshedExpiry)
+		}
+		if retry != config.retention {
+			t.Fatalf("capacity retry = %v, want conservative effective retention %v", retry, config.retention)
+		}
+	}
+}
+
+func TestFullPoolMissDoesNotRequireWriterLockBeforeExpiry(t *testing.T) {
+	start := time.Unix(1_700_000_000, 0)
+	config, err := normalizeConfig(Config{
+		RequestsPerSecond: 100,
+		Burst:             1,
+		IdleTTL:           time.Minute,
+		MaxClients:        1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &policy{config: config, clients: make(map[string]*clientEntry)}
+	entry, _, ok := p.entryFor("existing", start)
+	if !ok {
+		t.Fatal("initial entry rejected")
+	}
+	if allowed, _ := entry.allowAt(func() time.Time { return start }); !allowed {
+		t.Fatal("initial token rejected")
+	}
+
+	// Holding a read lock blocks any writer but permits the full-pool fast
+	// rejection to take its own read lock. This makes writer-lock regression
+	// deterministic without relying on timing under load.
+	p.mu.RLock()
+	type result struct {
+		retry    time.Duration
+		accepted bool
+	}
+	resultCh := make(chan result, 1)
+	go func() {
+		_, retry, accepted := p.entryFor("rotating-miss", start.Add(time.Second))
+		resultCh <- result{retry: retry, accepted: accepted}
+	}()
+
+	select {
+	case got := <-resultCh:
+		p.mu.RUnlock()
+		if got.accepted {
+			t.Fatal("full-pool miss was accepted")
+		}
+		if got.retry != config.retention {
+			t.Fatalf("retry = %v, want conservative retention %v", got.retry, config.retention)
+		}
+	case <-time.After(500 * time.Millisecond):
+		p.mu.RUnlock()
+		<-resultCh
+		t.Fatal("full-pool miss waited for the writer lock")
+	}
+}
+
 func TestExpiredEntriesArePrunedAndQuotaResets(t *testing.T) {
-	gate := mustGate(t, Config{
+	start := time.Unix(1_700_000_000, 0)
+	config, err := normalizeConfig(Config{
+		RequestsPerSecond: 1,
+		Burst:             1,
+		IdleTTL:           2 * time.Second,
+		MaxClients:        1,
+	})
+	if err != nil {
+		t.Fatalf("normalizeConfig() error = %v", err)
+	}
+	p := &policy{
+		config:  config,
+		clients: make(map[string]*clientEntry),
+	}
+
+	entry, _, ok := p.entryFor("first", start)
+	if !ok {
+		t.Fatal("initial entryFor() rejected")
+	}
+	if allowed, _ := entry.allowAt(func() time.Time { return start }); !allowed {
+		t.Fatal("initial token was rejected")
+	}
+	entry, _, ok = p.entryFor("first", start)
+	if !ok {
+		t.Fatal("pre-expiry entryFor() rejected existing key")
+	}
+	if allowed, _ := entry.allowAt(func() time.Time { return start }); allowed {
+		t.Fatal("pre-expiry token was allowed")
+	}
+
+	firstExpiry := start.Add(config.retention)
+	replacement, _, ok := p.entryFor("first", firstExpiry)
+	if !ok {
+		t.Fatal("same key was rejected after fully refilled bucket expired")
+	}
+	if replacement == entry {
+		t.Fatal("expired bucket was not replaced")
+	}
+	if allowed, _ := replacement.allowAt(func() time.Time { return firstExpiry }); !allowed {
+		t.Fatal("replacement token was rejected")
+	}
+
+	secondExpiry := firstExpiry.Add(config.retention)
+	newEntry, _, ok := p.entryFor("second", secondExpiry)
+	if !ok {
+		t.Fatal("new key was rejected after existing bucket expired")
+	}
+	newEntry.allowAt(func() time.Time { return secondExpiry })
+}
+
+func TestSlowRefillBucketCannotResetBeforeFullRefill(t *testing.T) {
+	start := time.Unix(1_700_000_000, 0)
+	config, err := normalizeConfig(Config{
 		RequestsPerSecond: 0.001,
 		Burst:             1,
 		IdleTTL:           15 * time.Millisecond,
 		MaxClients:        1,
 	})
-	handler := gate(okHandler())
-
-	if got := serve(t, handler, "192.0.2.90:1000", "").Code; got != http.StatusOK {
-		t.Fatalf("first status = %d, want %d", got, http.StatusOK)
+	if err != nil {
+		t.Fatalf("normalizeConfig() error = %v", err)
 	}
-	if got := serve(t, handler, "192.0.2.90:2000", "").Code; got != http.StatusTooManyRequests {
-		t.Fatalf("pre-expiry status = %d, want %d", got, http.StatusTooManyRequests)
-	}
-
-	time.Sleep(40 * time.Millisecond)
-	if got := serve(t, handler, "192.0.2.90:3000", "").Code; got != http.StatusOK {
-		t.Fatalf("same key after expiry status = %d, want %d", got, http.StatusOK)
+	p := &policy{
+		config:  config,
+		clients: make(map[string]*clientEntry),
 	}
 
-	time.Sleep(40 * time.Millisecond)
-	if got := serve(t, handler, "192.0.2.91:1000", "").Code; got != http.StatusOK {
-		t.Fatalf("new key after expiry status = %d, want %d", got, http.StatusOK)
+	entry, _, ok := p.entryFor("slow", start)
+	if !ok {
+		t.Fatal("initial entryFor() rejected")
+	}
+	if allowed, _ := entry.allowAt(func() time.Time { return start }); !allowed {
+		t.Fatal("initial token was rejected")
+	}
+	afterConfiguredTTL := start.Add(40 * time.Millisecond)
+	sameEntry, _, ok := p.entryFor("slow", afterConfiguredTTL)
+	if !ok || sameEntry != entry {
+		t.Fatal("slow bucket reset after configured IdleTTL but before full refill")
+	}
+	if allowed, _ := sameEntry.allowAt(func() time.Time { return afterConfiguredTTL }); allowed {
+		t.Fatal("same key received a fresh token before full refill")
+	}
+	if _, _, ok := p.entryFor("new", afterConfiguredTTL); ok {
+		t.Fatal("new key replaced slow bucket before full refill")
 	}
 }
 
 func TestInFlightEntryIsNotReplacedAfterIdleTTL(t *testing.T) {
 	config, err := normalizeConfig(Config{
-		RequestsPerSecond: 1,
+		RequestsPerSecond: 1_000_000_000_000,
 		Burst:             2,
 		IdleTTL:           time.Nanosecond,
 		MaxClients:        1,
@@ -514,10 +810,10 @@ func TestInFlightEntryIsNotReplacedAfterIdleTTL(t *testing.T) {
 		t.Fatal("in-flight client bucket was replaced after IdleTTL")
 	}
 
-	if allowed, _ := first.allow(time.Now()); !allowed {
+	if allowed, _ := first.allow(); !allowed {
 		t.Fatal("first token was unexpectedly rejected")
 	}
-	if allowed, _ := second.allow(time.Now()); !allowed {
+	if allowed, _ := second.allow(); !allowed {
 		t.Fatal("second token was unexpectedly rejected")
 	}
 	if got := first.active.Load(); got != 0 {
@@ -547,18 +843,46 @@ func TestRejectedReservationDoesNotConsumeFutureToken(t *testing.T) {
 	entry := &clientEntry{bucket: rate.NewLimiter(2, 1)}
 	entry.active.Store(3)
 
-	if allowed, _ := entry.allow(start); !allowed {
+	if allowed, _ := entry.allowAt(func() time.Time { return start }); !allowed {
 		t.Fatal("initial token was rejected")
 	}
-	allowed, retry := entry.allow(start)
+	allowed, retry := entry.allowAt(func() time.Time { return start })
 	if allowed {
 		t.Fatal("immediate second token was allowed")
 	}
 	if retry != 500*time.Millisecond {
 		t.Fatalf("retry delay = %v, want exact 500ms schedule", retry)
 	}
-	if allowed, _ := entry.allow(start.Add(retry)); !allowed {
+	if allowed, _ := entry.allowAt(func() time.Time { return start.Add(retry) }); !allowed {
 		t.Fatal("token was unavailable after the reported retry schedule")
+	}
+}
+
+func TestAllowCapturesDecisionTimeWhileHoldingClientLock(t *testing.T) {
+	initial := time.Unix(1_700_000_000, 0)
+	decision := initial.Add(5 * time.Second)
+	entry := &clientEntry{bucket: rate.NewLimiter(1, 1)}
+	entry.lastSeen.Store(initial.UnixNano())
+	entry.active.Store(1)
+
+	allowed, _ := entry.allowAt(func() time.Time {
+		if entry.mu.TryLock() {
+			entry.mu.Unlock()
+			t.Fatal("decision clock ran before acquiring the client token lock")
+		}
+		if got := entry.active.Load(); got != 1 {
+			t.Fatalf("active leases while making decision = %d, want 1", got)
+		}
+		return decision
+	})
+	if !allowed {
+		t.Fatal("token was unexpectedly rejected")
+	}
+	if got := entry.lastSeen.Load(); got != decision.UnixNano() {
+		t.Fatalf("lastSeen = %d, want decision time %d", got, decision.UnixNano())
+	}
+	if got := entry.active.Load(); got != 0 {
+		t.Fatalf("active leases after decision = %d, want 0", got)
 	}
 }
 

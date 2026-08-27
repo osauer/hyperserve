@@ -11,6 +11,47 @@ import (
 	"testing"
 )
 
+func TestUsePrefixRejectsPathsThatCannotMatchURLPath(t *testing.T) {
+	t.Parallel()
+
+	for _, prefix := range []string{
+		"api",
+		"/api?tenant=x",
+		"/api#fragment",
+		"/api/{id}",
+		"/a/../admin",
+		"/api//admin",
+		"/api%2Fadmin",
+	} {
+		prefix := prefix
+		t.Run(prefix, func(t *testing.T) {
+			t.Parallel()
+			defer func() {
+				if recover() == nil {
+					t.Fatalf("UsePrefix(%q) did not panic", prefix)
+				}
+			}()
+			srv, err := New()
+			if err != nil {
+				t.Fatal(err)
+			}
+			srv.UsePrefix(prefix, func(next http.Handler) http.Handler { return next })
+		})
+	}
+}
+
+func TestUsePrefixAcceptsIntentionalUniversalRootAndTrailingSlash(t *testing.T) {
+	t.Parallel()
+
+	for _, prefix := range []string{"", "/", "/api", "/api/"} {
+		srv, err := New()
+		if err != nil {
+			t.Fatal(err)
+		}
+		srv.UsePrefix(prefix, func(next http.Handler) http.Handler { return next })
+	}
+}
+
 func TestMetricsMiddlewareIncrementsTotalRequests(t *testing.T) {
 	t.Parallel()
 	srv, _ := New()
@@ -359,6 +400,22 @@ func TestMiddlewareRootPrefixMatches(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestUsePrefixRejectsMissingLeadingSlash(t *testing.T) {
+	t.Parallel()
+
+	srv, err := New()
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	defer func() {
+		if recovered := recover(); recovered == nil {
+			t.Fatal("UsePrefix accepted a nonempty prefix without a leading slash")
+		}
+	}()
+	srv.UsePrefix("api", countingMW(new(int)))
 }
 
 func TestMiddlewarePlanCompilesOnceAndPreservesOrder(t *testing.T) {

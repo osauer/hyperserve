@@ -189,9 +189,8 @@ func TestMCPBuiltinDefaults(t *testing.T) {
 			t.Fatal("Expected resources to be an array")
 		}
 
-		// Should have built-in resources
-		if len(resources) < 2 {
-			t.Errorf("Expected at least 2 built-in resources, got %d", len(resources))
+		if len(resources) != 4 {
+			t.Errorf("built-in resource count = %d, want 4", len(resources))
 		}
 
 		// Check for specific resources
@@ -205,12 +204,18 @@ func TestMCPBuiltinDefaults(t *testing.T) {
 			}
 		}
 
-		// Verify some resources are present
-		if !resourceURIs["config://server/options"] {
-			t.Error("Expected config://server/options resource to be present")
+		for _, uri := range []string{
+			"config://server/options",
+			"metrics://server/stats",
+			"system://runtime/info",
+			"logs://server/recent",
+		} {
+			if !resourceURIs[uri] {
+				t.Errorf("expected built-in resource %s", uri)
+			}
 		}
-		if !resourceURIs["system://runtime/info"] {
-			t.Error("Expected system://runtime/info resource to be present")
+		if resourceURIs["health://server/status"] {
+			t.Error("health://server/status belongs to MCPObservability, not WithMCPBuiltinResources")
 		}
 	})
 }

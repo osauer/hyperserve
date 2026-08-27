@@ -3,11 +3,36 @@
 set -eu
 
 sha=${RELEASE_SHA:-}
-workflow=${RELEASE_WORKFLOW:-ci.yml}
-required_jobs=${RELEASE_REQUIRED_JOBS:-Test Benchmark}
-gh_bin=${GH_BIN:-gh}
 max_polls=${CI_MAX_POLLS:-60}
 poll_seconds=${CI_POLL_SECONDS:-10}
+
+# Release authority is immutable in production. Tests may substitute a fake CLI
+# and fixture values only through the explicit fixture switch; canonical Make
+# targets force that switch off.
+case "${RELEASE_GATE_TEST_FIXTURE:-0}" in
+  0|'')
+    repository=osauer/hyperserve
+    main_branch=main
+    workflow=ci.yml
+    required_jobs='Test Benchmark'
+    gh_bin=gh
+    ;;
+  1)
+    repository=${RELEASE_REPOSITORY:-osauer/hyperserve}
+    main_branch=${RELEASE_MAIN_BRANCH:-main}
+    workflow=${RELEASE_WORKFLOW:-ci.yml}
+    required_jobs=${RELEASE_REQUIRED_JOBS:-Test Benchmark}
+    gh_bin=${GH_BIN:-gh}
+    ;;
+  *)
+    echo "release-ci: RELEASE_GATE_TEST_FIXTURE must be 0 or 1" >&2
+    exit 1
+    ;;
+esac
+
+# gh otherwise treats these ambient variables as repository authority. Every
+# invocation below also carries an explicit --repo binding.
+unset GH_REPO GH_HOST
 
 case "$sha" in
   ''|*[!0-9a-fA-F]*)
@@ -41,12 +66,14 @@ run_id=
 poll=1
 while [ "$poll" -le "$max_polls" ]; do
   run_id=$("$gh_bin" run list \
+    --repo "$repository" \
     --workflow "$workflow" \
+    --branch "$main_branch" \
     --event push \
     --commit "$sha" \
     --limit 20 \
-    --json databaseId,headSha,event,createdAt \
-    --jq ".[] | select(.headSha == \"$sha\" and .event == \"push\") | .databaseId" |
+    --json databaseId,headSha,headBranch,event,createdAt \
+    --jq ".[] | select(.headSha == \"$sha\" and .headBranch == \"$main_branch\" and .event == \"push\") | .databaseId" |
     sed -n '1p')
   [ -n "$run_id" ] && break
   if [ "$poll" -lt "$max_polls" ]; then
@@ -56,24 +83,29 @@ while [ "$poll" -le "$max_polls" ]; do
 done
 
 if [ -z "$run_id" ]; then
-  echo "release-ci: no $workflow push run found for $sha" >&2
+  echo "release-ci: no $repository $workflow push run on $main_branch found for $sha" >&2
   exit 1
 fi
 
-echo "release-ci: waiting for $workflow run $run_id at $sha"
-if ! "$gh_bin" run watch "$run_id" --exit-status; then
+echo "release-ci: waiting for $repository $workflow run $run_id on $main_branch at $sha"
+if ! "$gh_bin" run watch "$run_id" --repo "$repository" --exit-status; then
   echo "release-ci: run $run_id did not succeed" >&2
   exit 1
 fi
 
-actual_sha=$("$gh_bin" run view "$run_id" --json headSha --jq .headSha)
-event=$("$gh_bin" run view "$run_id" --json event --jq .event)
-status=$("$gh_bin" run view "$run_id" --json status --jq .status)
-conclusion=$("$gh_bin" run view "$run_id" --json conclusion --jq .conclusion)
-url=$("$gh_bin" run view "$run_id" --json url --jq .url)
+actual_sha=$("$gh_bin" run view "$run_id" --repo "$repository" --json headSha --jq .headSha)
+actual_branch=$("$gh_bin" run view "$run_id" --repo "$repository" --json headBranch --jq .headBranch)
+event=$("$gh_bin" run view "$run_id" --repo "$repository" --json event --jq .event)
+status=$("$gh_bin" run view "$run_id" --repo "$repository" --json status --jq .status)
+conclusion=$("$gh_bin" run view "$run_id" --repo "$repository" --json conclusion --jq .conclusion)
+url=$("$gh_bin" run view "$run_id" --repo "$repository" --json url --jq .url)
 
 if [ "$actual_sha" != "$sha" ]; then
   echo "release-ci: run $run_id headSha is $actual_sha, expected $sha" >&2
+  exit 1
+fi
+if [ "$actual_branch" != "$main_branch" ]; then
+  echo "release-ci: run $run_id headBranch is $actual_branch, expected $main_branch" >&2
   exit 1
 fi
 if [ "$event" != push ]; then
@@ -85,7 +117,7 @@ if [ "$status" != completed ] || [ "$conclusion" != success ]; then
   exit 1
 fi
 
-jobs=$("$gh_bin" run view "$run_id" --json jobs \
+jobs=$("$gh_bin" run view "$run_id" --repo "$repository" --json jobs \
   --template '{{range .jobs}}{{printf "%s\t%s\n" .name .conclusion}}{{end}}')
 if [ -z "$jobs" ]; then
   echo "release-ci: run $run_id returned no jobs" >&2
@@ -110,5 +142,5 @@ for required in $required_jobs; do
   fi
 done
 
-echo "release-ci: verified run=$run_id headSha=$actual_sha event=$event status=$status conclusion=$conclusion"
+echo "release-ci: verified repo=$repository workflow=$workflow branch=$actual_branch run=$run_id headSha=$actual_sha event=$event status=$status conclusion=$conclusion"
 echo "release-ci: $url"

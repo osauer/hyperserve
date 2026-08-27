@@ -16,7 +16,7 @@ boundary your application needs to own.
 > [v2.1 migration guide](../MIGRATING_V2_1.md) before upgrading an existing v2
 > application. To roll back, pin
 > `github.com/osauer/hyperserve/v2@v2.0.3`. Future breaking changes require a
-> new major version.
+> new major version and matching major module path.
 
 ```bash
 go get github.com/osauer/hyperserve/v2@v2.1.0

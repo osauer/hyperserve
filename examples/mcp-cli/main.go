@@ -107,7 +107,7 @@ func printUsage(app *hyperserve.Server) {
 	if !app.MCPEnabled() {
 		log.Println("MCP is disabled. To enable, use:")
 		log.Println("  ./mcp-flags --mcp-dev                  # For development")
-		log.Println("  ./mcp-flags --mcp-observability        # For production monitoring")
+		log.Println("  ./mcp-flags --mcp-observability        # Read-only; protect the endpoint")
 		log.Println("  ./mcp-flags --mcp-dev --mcp-transport=stdio  # For Claude Desktop")
 		return
 	}
@@ -128,7 +128,7 @@ func printUsage(app *hyperserve.Server) {
 		log.Printf("MCP endpoint %s on %s", app.Options().MCPEndpoint, app.Options().Addr)
 		if app.Options().MCPDev {
 			log.Println("Developer tools enabled - use Claude Code to:")
-			log.Println("  - Set log levels dynamically")
+			log.Println("  - Inspect server status")
 			log.Println("  - Inspect routes and middleware")
 		}
 		if app.Options().MCPObservability {

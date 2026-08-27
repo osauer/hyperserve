@@ -24,7 +24,9 @@ func main() {
 	useStdio := slices.Contains(os.Args[1:], "--mcp-stdio")
 
 	// Create server options
-	var opts []hyperserve.Option
+	// The HTTP form is intentionally loopback-only. Read-only MCP resources
+	// are not an authentication or authorization boundary.
+	opts := []hyperserve.Option{hyperserve.WithAddr("127.0.0.1:8080")}
 
 	// Configure MCP with appropriate transport
 	if useStdio {
@@ -77,7 +79,7 @@ func main() {
 		}
 	} else {
 		log.Printf("Starting server on %s", app.Options().Addr)
-		log.Printf("MCP endpoint available at: http://localhost%s%s", app.Options().Addr, app.Options().MCPEndpoint)
+		log.Printf("MCP endpoint available at: http://%s%s", app.Options().Addr, app.Options().MCPEndpoint)
 		if err := app.Run(ctx); err != nil {
 			log.Fatal(err)
 		}

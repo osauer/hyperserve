@@ -45,6 +45,12 @@ func TestMCPProgrammaticConfigurationNoDoubleWarning(t *testing.T) {
 	if !strings.Contains(logOutput, "MCP DEVELOPER MODE ENABLED") {
 		t.Error("Expected to see MCP developer mode warning")
 	}
+	if !strings.Contains(logOutput, "exposes runtime status") {
+		t.Error("developer mode warning must describe its read-only introspection exposure")
+	}
+	if strings.Contains(logOutput, "allows server restart") || strings.Contains(logOutput, "configuration changes") {
+		t.Error("developer mode warning advertises removed runtime controls")
+	}
 
 	// Should NOT see "MCP auto-configured from options" with dev=false
 	if strings.Contains(logOutput, "MCP auto-configured from options") &&

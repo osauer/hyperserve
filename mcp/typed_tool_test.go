@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/osauer/hyperserve/v2/internal/validate"
 )
@@ -200,6 +201,38 @@ func TestNewTypedTool_Execute_ContextPropagates(t *testing.T) {
 	}
 	if got != "hello" {
 		t.Errorf("ctx value lost: got %v", got)
+	}
+}
+
+func TestHandlerToolCallTimeoutBoundsUncooperativeTypedTool(t *testing.T) {
+	h := newHandlerForTest(t)
+	h.toolCallTimeout = 20 * time.Millisecond
+	release := make(chan struct{})
+	started := make(chan struct{})
+	tool := NewTypedTool("blocks", "",
+		func(context.Context, struct{}) (any, error) {
+			close(started)
+			<-release
+			return "late", nil
+		})
+	h.RegisterTool(tool)
+
+	start := time.Now()
+	_, err := h.handleToolsCallContext(context.Background(), map[string]any{
+		"name":      "blocks",
+		"arguments": map[string]any{},
+	})
+	close(release)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want context deadline exceeded", err)
+	}
+	if elapsed := time.Since(start); elapsed > 250*time.Millisecond {
+		t.Fatalf("uncooperative typed tool blocked for %v past configured deadline", elapsed)
+	}
+	select {
+	case <-started:
+	default:
+		t.Fatal("typed tool handler never started")
 	}
 }
 

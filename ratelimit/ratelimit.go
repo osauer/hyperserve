@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 	"net/http"
 	"net/netip"
 	"slices"
@@ -22,6 +23,7 @@ const (
 	defaultMaxClients    = 10_000
 	maxClientKeyBytes    = 512
 	maxForwardedForHops  = 64
+	maxForwardedForBytes = 4096
 	clientIdentityStatus = http.StatusBadRequest
 )
 
@@ -44,8 +46,10 @@ type Config struct {
 	// peer from Request.RemoteAddr and never trusts forwarding headers.
 	ClientKey KeyFunc
 
-	// IdleTTL controls when an unused client bucket becomes eligible for
-	// opportunistic pruning. Zero selects the finite default of 10 minutes.
+	// IdleTTL is the minimum time an unused client bucket is retained before
+	// opportunistic pruning. To prevent quota resets, the effective retention
+	// is never shorter than the time needed to refill Burst tokens. Zero
+	// selects the finite default of 10 minutes.
 	IdleTTL time.Duration
 
 	// MaxClients bounds the number of client buckets. Zero selects the finite
@@ -58,7 +62,7 @@ type normalizedConfig struct {
 	requestsPerSecond float64
 	burst             int
 	clientKey         KeyFunc
-	idleTTL           time.Duration
+	retention         time.Duration
 	maxClients        int
 }
 
@@ -124,14 +128,37 @@ func normalizeConfig(config Config) (normalizedConfig, error) {
 	if clientKey == nil {
 		clientKey = transportPeerClientKey
 	}
+	retention := max(idleTTL, fullRefillDuration(config.Burst, config.RequestsPerSecond))
 
 	return normalizedConfig{
 		requestsPerSecond: config.RequestsPerSecond,
 		burst:             config.Burst,
 		clientKey:         clientKey,
-		idleTTL:           idleTTL,
+		retention:         retention,
 		maxClients:        maxClients,
 	}, nil
+}
+
+// fullRefillDuration computes ceil(Burst / RequestsPerSecond) in nanoseconds
+// from the exact rational value of the validated float64 rate. Saturation
+// keeps duration arithmetic defined for extremely small positive rates.
+func fullRefillDuration(burst int, requestsPerSecond float64) time.Duration {
+	rateValue := new(big.Rat).SetFloat64(requestsPerSecond)
+	numerator := new(big.Int).Mul(
+		big.NewInt(int64(burst)),
+		big.NewInt(int64(time.Second)),
+	)
+	numerator.Mul(numerator, rateValue.Denom())
+
+	nanoseconds, remainder := new(big.Int), new(big.Int)
+	nanoseconds.QuoRem(numerator, rateValue.Num(), remainder)
+	if remainder.Sign() != 0 {
+		nanoseconds.Add(nanoseconds, big.NewInt(1))
+	}
+	if nanoseconds.Cmp(big.NewInt(math.MaxInt64)) > 0 {
+		return time.Duration(math.MaxInt64)
+	}
+	return time.Duration(nanoseconds.Int64())
 }
 
 func (p *policy) middleware(next http.Handler) http.Handler {
@@ -157,7 +184,7 @@ func (p *policy) middleware(next http.Handler) http.Handler {
 			return
 		}
 
-		allowed, quotaRetry := entry.allow(time.Now())
+		allowed, quotaRetry := entry.allow()
 		if !allowed {
 			writeTooManyRequests(w, quotaRetry, "rate limit exceeded")
 			return
@@ -174,8 +201,8 @@ func wasCharged(ctx context.Context, candidate *policy) bool {
 }
 
 func (p *policy) entryFor(key string, now time.Time) (*clientEntry, time.Duration, bool) {
-	cutoff := now.Add(-p.config.idleTTL).UnixNano()
 	nowUnix := now.UnixNano()
+	cutoff := cutoffUnixNano(nowUnix, p.config.retention)
 
 	p.mu.RLock()
 	entry, exists := p.clients[key]
@@ -184,6 +211,14 @@ func (p *policy) entryFor(key string, now time.Time) (*clientEntry, time.Duratio
 		entry.active.Add(1)
 		p.mu.RUnlock()
 		return entry, 0, true
+	}
+	if !exists && len(p.clients) >= p.config.maxClients &&
+		p.nextPruneUnix != 0 && nowUnix < p.nextPruneUnix {
+		// No entry can be stale before nextPruneUnix. Reject rotating-key
+		// misses while still holding the shared lock so they cannot queue
+		// writers ahead of legitimate existing-client reads.
+		p.mu.RUnlock()
+		return nil, p.config.retention, false
 	}
 	p.mu.RUnlock()
 
@@ -215,7 +250,7 @@ func (p *policy) entryFor(key string, now time.Time) (*clientEntry, time.Duratio
 	}
 
 	if len(p.clients) >= p.config.maxClients {
-		return nil, p.capacityRetryLocked(nowUnix), false
+		return nil, p.capacityRetryLocked(), false
 	}
 
 	entry = &clientEntry{
@@ -226,7 +261,7 @@ func (p *policy) entryFor(key string, now time.Time) (*clientEntry, time.Duratio
 	// Clone prevents a short custom key from retaining an arbitrarily large
 	// backing string for the lifetime of the bucket.
 	p.clients[strings.Clone(key)] = entry
-	expires := expiryUnixNano(nowUnix, p.config.idleTTL)
+	expires := expiryUnixNano(nowUnix, p.config.retention)
 	if p.nextPruneUnix == 0 || expires < p.nextPruneUnix {
 		p.nextPruneUnix = expires
 	}
@@ -246,25 +281,33 @@ func (p *policy) pruneExpiredLocked(cutoff, nowUnix int64) {
 			// while it waited for its per-client token decision.
 			lastSeen = entry.touch(nowUnix)
 		}
-		expires := expiryUnixNano(lastSeen, p.config.idleTTL)
+		expires := expiryUnixNano(lastSeen, p.config.retention)
 		if p.nextPruneUnix == 0 || expires < p.nextPruneUnix {
 			p.nextPruneUnix = expires
 		}
 	}
 }
 
-func (p *policy) capacityRetryLocked(nowUnix int64) time.Duration {
-	if p.nextPruneUnix <= nowUnix {
-		return time.Nanosecond
-	}
-	return time.Duration(p.nextPruneUnix - nowUnix)
+func (p *policy) capacityRetryLocked() time.Duration {
+	// nextPruneUnix can be earlier than the true expiry after an existing key
+	// is refreshed. Returning one effective retention interval is a bounded,
+	// conservative backoff that never requires scanning the full client map for
+	// each new key in a capacity attack.
+	return p.config.retention
 }
 
-func expiryUnixNano(lastSeen int64, idleTTL time.Duration) int64 {
-	if lastSeen > math.MaxInt64-int64(idleTTL) {
+func cutoffUnixNano(now int64, retention time.Duration) int64 {
+	if now < math.MinInt64+int64(retention) {
+		return math.MinInt64
+	}
+	return now - int64(retention)
+}
+
+func expiryUnixNano(lastSeen int64, retention time.Duration) int64 {
+	if lastSeen > math.MaxInt64-int64(retention) {
 		return math.MaxInt64
 	}
-	return lastSeen + int64(idleTTL)
+	return lastSeen + int64(retention)
 }
 
 func (entry *clientEntry) touch(nowUnix int64) int64 {
@@ -279,21 +322,30 @@ func (entry *clientEntry) touch(nowUnix int64) int64 {
 	}
 }
 
-func (entry *clientEntry) allow(now time.Time) (bool, time.Duration) {
+func (entry *clientEntry) allow() (bool, time.Duration) {
+	return entry.allowAt(time.Now)
+}
+
+func (entry *clientEntry) allowAt(now func() time.Time) (bool, time.Duration) {
+	// Retain the active lease until after the per-client lock is released.
+	// This prevents pruning while a request waits for or makes its token
+	// decision.
 	defer entry.active.Add(-1)
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
 
-	if entry.bucket.AllowN(now, 1) {
+	decisionTime := now()
+	entry.touch(decisionTime.UnixNano())
+	if entry.bucket.AllowN(decisionTime, 1) {
 		return true, 0
 	}
 
-	reservation := entry.bucket.ReserveN(now, 1)
+	reservation := entry.bucket.ReserveN(decisionTime, 1)
 	if !reservation.OK() {
 		return false, time.Nanosecond
 	}
-	delay := reservation.DelayFrom(now)
-	reservation.CancelAt(now)
+	delay := reservation.DelayFrom(decisionTime)
+	reservation.CancelAt(decisionTime)
 	if delay <= 0 {
 		delay = time.Nanosecond
 	}
@@ -304,8 +356,8 @@ func writeTooManyRequests(w http.ResponseWriter, retryAfter time.Duration, messa
 	seconds := retryAfterSeconds(retryAfter)
 	w.Header().Set("Retry-After", seconds)
 	// RateLimit-Reset uses the same computed delta as Retry-After. The delta
-	// comes from the token reservation or earliest idle expiry that rejected
-	// this request.
+	// comes from the token reservation or the effective-retention backoff for
+	// a full client pool.
 	w.Header().Set("RateLimit-Reset", seconds)
 	http.Error(w, message, http.StatusTooManyRequests)
 }
@@ -329,7 +381,7 @@ func transportPeer(r *http.Request) (netip.Addr, error) {
 	}
 	peer, err := netip.ParseAddrPort(r.RemoteAddr)
 	if err != nil {
-		return netip.Addr{}, fmt.Errorf("ratelimit: invalid RemoteAddr: %w", err)
+		return netip.Addr{}, errors.New("ratelimit: invalid RemoteAddr")
 	}
 	return peer.Addr().Unmap(), nil
 }
@@ -395,7 +447,21 @@ func normalizeProxyRanges(proxyRanges []netip.Prefix) ([]netip.Prefix, error) {
 }
 
 func parseForwardedFor(values []string) ([]netip.Addr, error) {
-	hops := make([]netip.Addr, 0, len(values))
+	totalBytes := 0
+	for index, value := range values {
+		if index > 0 {
+			if totalBytes == maxForwardedForBytes {
+				return nil, fmt.Errorf("ratelimit: X-Forwarded-For exceeds %d bytes", maxForwardedForBytes)
+			}
+			totalBytes++ // Account for the comma joining multiple header fields.
+		}
+		if len(value) > maxForwardedForBytes-totalBytes {
+			return nil, fmt.Errorf("ratelimit: X-Forwarded-For exceeds %d bytes", maxForwardedForBytes)
+		}
+		totalBytes += len(value)
+	}
+
+	hops := make([]netip.Addr, 0, min(len(values), maxForwardedForHops))
 	for _, value := range values {
 		for rawHop := range strings.SplitSeq(value, ",") {
 			if len(hops) == maxForwardedForHops {
@@ -407,7 +473,7 @@ func parseForwardedFor(values []string) ([]netip.Addr, error) {
 			}
 			hop, err := netip.ParseAddr(rawHop)
 			if err != nil || hop.Zone() != "" {
-				return nil, fmt.Errorf("ratelimit: X-Forwarded-For contains invalid address %q", rawHop)
+				return nil, errors.New("ratelimit: X-Forwarded-For contains an invalid address")
 			}
 			hops = append(hops, hop.Unmap())
 		}

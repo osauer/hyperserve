@@ -3,12 +3,17 @@ package builtin
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/osauer/hyperserve/v2"
 )
 
-// ServerControlTool provides server lifecycle management for development.
+const serverControlGetStatus = "get_status"
+
+func serverControlActions() []string {
+	return []string{serverControlGetStatus}
+}
+
+// ServerControlTool provides read-only server status for development.
 type ServerControlTool struct {
 	server *hyperserve.Server
 }
@@ -30,7 +35,7 @@ func (t *ServerControlTool) Schema() map[string]any {
 		"properties": map[string]any{
 			"action": map[string]any{
 				"type":        "string",
-				"enum":        []string{"get_status"},
+				"enum":        serverControlActions(),
 				"description": "Return current server health and configuration status.",
 			},
 		},
@@ -44,11 +49,11 @@ func (t *ServerControlTool) Execute(params map[string]any) (any, error) {
 		return nil, fmt.Errorf("action is required")
 	}
 	switch action {
-	case "get_status":
+	case serverControlGetStatus:
 		return map[string]any{
 			"running":   t.server.IsRunning(),
 			"ready":     t.server.IsReady(),
-			"uptime":    time.Since(t.server.ServerStart()).String(),
+			"uptime":    serverUptime(t.server).String(),
 			"log_level": t.server.Options().LogLevel,
 			"addr":      t.server.Options().Addr,
 		}, nil
@@ -120,8 +125,12 @@ func (t *RouteInspectorTool) Execute(params map[string]any) (any, error) {
 	}
 
 	if t.server.Options().MCPEnabled {
-		mcpRoute := t.server.Options().MCPEndpoint
-		routes = ensureSyntheticRoute(routes, pattern, mcpRoute, "main", []string{"GET", "POST"}, includeMiddleware, []string{"MCPMiddleware"})
+		options := t.server.Options()
+		methods := []string{"POST"}
+		if options.MCPLegacyRoutedSSE {
+			methods = []string{"GET", "POST"}
+		}
+		routes = ensureSyntheticRoute(routes, pattern, options.MCPEndpoint, "main", methods, includeMiddleware, []string{"MCPMiddleware"})
 	}
 
 	return map[string]any{
@@ -166,16 +175,25 @@ func middlewareStackNames(stack hyperserve.MiddlewareStack) []string {
 	return names
 }
 
-// ensureSyntheticRoute appends a route entry for a server-managed endpoint
-// (e.g. /healthz, /mcp) that isn't visible via the middleware registry, but
-// only when the pattern filter (if any) matches and the route isn't already
-// present in `routes`.
+// ensureSyntheticRoute appends a route entry for a server-managed endpoint or
+// corrects the method metadata of an already tracked pattern. Server-managed
+// handlers such as /mcp are registered as plain ServeMux patterns, so their
+// protocol-specific methods cannot be inferred from the pattern alone.
 func ensureSyntheticRoute(routes []map[string]any, filter, route, server string, methods []string, includeMiddleware bool, middlewareNames []string) []map[string]any {
 	if filter != "" && !strings.Contains(route, filter) {
 		return routes
 	}
 	for _, existing := range routes {
-		if existing["pattern"] == route {
+		if existing["pattern"] == route && existing["server"] == server {
+			existing["methods"] = methods
+			if server != "" {
+				existing["server"] = server
+			}
+			if includeMiddleware {
+				if existingNames, ok := existing["middleware"].([]string); !ok || len(existingNames) == 0 {
+					existing["middleware"] = middlewareNames
+				}
+			}
 			return routes
 		}
 	}
@@ -221,12 +239,12 @@ func (t *DevGuideTool) Execute(params map[string]any) (any, error) {
 		return map[string]any{
 			"description": "HyperServe MCP Developer Tools",
 			"tools": []map[string]any{
-				{"name": "server_control", "purpose": "Inspect server health and adjust log level", "actions": []string{"get_status", "set_log_level"}},
+				{"name": "server_control", "purpose": "Inspect server health and configuration status", "actions": serverControlActions()},
 				{"name": "route_inspector", "purpose": "View all registered HTTP routes", "features": []string{"filter by pattern", "show middleware chains"}},
 				{"name": "dev_guide", "purpose": "This help tool", "topics": []string{"overview", "tools", "resources", "examples", "workflows"}},
 			},
 			"resources": []map[string]any{
-				{"uri": "logs://server/stream", "purpose": "Real-time MCP server logs"},
+				{"uri": "logs://server/stream", "purpose": "Recent MCP server log snapshot; re-read to refresh"},
 				{"uri": "routes://server/all", "purpose": "Detailed route information"},
 			},
 			"tip": "Use 'dev_guide' with topic='examples' to see usage examples",
@@ -238,8 +256,7 @@ func (t *DevGuideTool) Execute(params map[string]any) (any, error) {
 				{
 					"tool": "server_control",
 					"actions": map[string]string{
-						"get_status":    "Check if server is running, uptime, current log level",
-						"set_log_level": "Change logging verbosity (DEBUG, INFO, WARN, ERROR)",
+						serverControlGetStatus: "Check if the server is running, ready, and how it is configured",
 					},
 				},
 				{
@@ -257,9 +274,9 @@ func (t *DevGuideTool) Execute(params map[string]any) (any, error) {
 			"available_resources": []map[string]any{
 				{
 					"uri":         "logs://server/stream",
-					"description": "Real-time MCP server log stream",
+					"description": "Bounded snapshot of recent MCP server logs",
 					"contents":    "Recent log entries with timestamp, level, message",
-					"use_case":    "Monitor server activity during development",
+					"use_case":    "Re-read while diagnosing server activity during development",
 				},
 				{
 					"uri":         "routes://server/all",
@@ -273,7 +290,7 @@ func (t *DevGuideTool) Execute(params map[string]any) (any, error) {
 	case "examples":
 		return map[string]any{
 			"common_examples": []map[string]any{
-				{"task": "Enable debug logging", "tool": "server_control", "arguments": map[string]any{"action": "set_log_level", "log_level": "DEBUG"}},
+				{"task": "Check server status", "tool": "server_control", "arguments": map[string]any{"action": serverControlGetStatus}},
 				{"task": "Find all API routes", "tool": "route_inspector", "arguments": map[string]any{"pattern": "/api"}},
 			},
 		}, nil
@@ -286,14 +303,14 @@ func (t *DevGuideTool) Execute(params map[string]any) (any, error) {
 					"steps": []string{
 						"1. Use route_inspector to list all routes",
 						"2. Check if your path matches any pattern",
-						"3. Enable DEBUG logging to see route matching",
+						"3. Inspect the middleware chain for the nearest route",
 					},
 				},
 				{
 					"workflow": "Performance debugging",
 					"steps": []string{
-						"1. Enable DEBUG logging",
-						"2. Monitor logs://server/stream",
+						"1. Check server status with server_control",
+						"2. Re-read logs://server/stream for recent entries",
 						"3. Check middleware execution in route_inspector",
 					},
 				},

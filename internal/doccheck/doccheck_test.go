@@ -2,18 +2,24 @@ package doccheck
 
 import (
 	"io/fs"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
+	"unicode"
 )
 
 var (
 	markdownLink  = regexp.MustCompile(`\[[^]]+\]\(([^)]+)\)`)
+	markdownTitle = regexp.MustCompile(`(?m)^ {0,3}#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$`)
+	explicitID    = regexp.MustCompile(`(?i)<(?:a|[a-z][a-z0-9-]*)[^>]+(?:id|name)=["']([^"']+)["'][^>]*>`)
 	historicalADR = regexp.MustCompile(`^docs/(?:000[1-9]|001[0-3])-.*\.md$`)
 )
 
@@ -39,17 +45,115 @@ func TestCurrentMarkdownLinksResolve(t *testing.T) {
 
 			for _, match := range markdownLink.FindAllStringSubmatch(string(data), -1) {
 				target := strings.Trim(match[1], "<>")
-				if target == "" || strings.HasPrefix(target, "#") || strings.Contains(target, "://") || strings.HasPrefix(target, "mailto:") {
+				if target == "" || strings.Contains(target, "://") || strings.HasPrefix(target, "mailto:") {
 					continue
 				}
-				target, _, _ = strings.Cut(target, "#")
-				resolved := filepath.Clean(filepath.Join(filepath.Dir(path), filepath.FromSlash(target)))
-				if _, err := os.Stat(resolved); err != nil {
+				linkPath, fragment, _ := strings.Cut(target, "#")
+				resolved := path
+				if linkPath != "" {
+					resolved = filepath.Clean(filepath.Join(filepath.Dir(path), filepath.FromSlash(linkPath)))
+				}
+				info, err := os.Stat(resolved)
+				if err != nil {
 					t.Errorf("link %q resolves to %s: %v", match[1], resolved, err)
+					continue
+				}
+				if info.IsDir() {
+					if fragment == "" {
+						continue
+					}
+					resolved = filepath.Join(resolved, "README.md")
+					if _, err := os.Stat(resolved); err != nil {
+						t.Errorf("link %q resolves to directory without README.md: %v", match[1], err)
+						continue
+					}
+				}
+				if fragment != "" && filepath.Ext(resolved) == ".md" {
+					decoded, err := url.PathUnescape(fragment)
+					if err != nil {
+						t.Errorf("link %q has invalid escaped anchor: %v", match[1], err)
+						continue
+					}
+					if !markdownAnchors(t, resolved)[decoded] {
+						t.Errorf("link %q has no heading anchor %q in %s", match[1], decoded, resolved)
+					}
 				}
 			}
 		})
 	}
+}
+
+func markdownAnchors(t *testing.T, path string) map[string]bool {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read Markdown target %s: %v", path, err)
+	}
+	anchors := make(map[string]bool)
+	seen := make(map[string]int)
+	inFence := false
+	fence := ""
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+			marker := trimmed[:3]
+			if !inFence {
+				inFence, fence = true, marker
+			} else if marker == fence {
+				inFence, fence = false, ""
+			}
+			continue
+		}
+		if inFence {
+			continue
+		}
+		if match := markdownTitle.FindStringSubmatch(line); match != nil {
+			base := githubHeadingSlug(match[1])
+			if base != "" {
+				slug := base
+				if duplicate := seen[base]; duplicate > 0 {
+					slug += "-" + strconv.Itoa(duplicate)
+				}
+				seen[base]++
+				anchors[slug] = true
+			}
+		}
+		for _, match := range explicitID.FindAllStringSubmatch(line, -1) {
+			anchors[match[1]] = true
+		}
+	}
+	return anchors
+}
+
+func TestMarkdownAnchorsIgnoreFencedHeadings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "anchors.md")
+	data := []byte("# Real heading\n\n```text\n# Not a heading\n```\n")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	anchors := markdownAnchors(t, path)
+	if !anchors["real-heading"] {
+		t.Fatal("real heading was not indexed")
+	}
+	if anchors["not-a-heading"] {
+		t.Fatal("fenced code was indexed as a heading")
+	}
+}
+
+func githubHeadingSlug(title string) string {
+	// This covers the GitHub heading forms used by the repository: lowercase,
+	// punctuation removal, and whitespace-to-hyphen conversion. Inline code
+	// delimiters are punctuation, so their contents naturally remain.
+	var slug strings.Builder
+	for _, r := range strings.ToLower(title) {
+		switch {
+		case unicode.IsLetter(r), unicode.IsNumber(r), r == '_', r == '-':
+			slug.WriteRune(r)
+		case unicode.IsSpace(r):
+			slug.WriteByte('-')
+		}
+	}
+	return slug.String()
 }
 
 func TestCurrentAuthorityUsesCanonicalAPI(t *testing.T) {
@@ -117,6 +221,9 @@ func TestCurrentAuthorityUsesCanonicalAPI(t *testing.T) {
 		{name: "unsupported bundled auth claim", pattern: regexp.MustCompile(`JWT \(RS256\), API keys, Basic auth`)},
 		{name: "obsolete XSS header claim", pattern: regexp.MustCompile(`X-XSS-Protection: 1; mode=block`)},
 		{name: "stale health listener example", pattern: regexp.MustCompile(`localhost:808[01]/healthz`)},
+		{name: "removed MCP log-level action", pattern: regexp.MustCompile(`\bset_log_level\b`)},
+		{name: "removed MCP resource builder", pattern: regexp.MustCompile(`\b(?:mcp\.)?NewResource\s*\(`)},
+		{name: "unqualified MCP tool builder", pattern: regexp.MustCompile(`(?:^|[^[:alnum:]_.])NewTool\s*\(`)},
 	}
 
 	for _, relative := range currentAuthorityFiles(t, root) {
@@ -147,6 +254,94 @@ func TestCurrentAuthorityUsesCanonicalAPI(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestReleaseAuthoringRequiresFutureMajorAfterV21(t *testing.T) {
+	root := repoRoot(t)
+
+	changelog, err := os.ReadFile(filepath.Join(root, "CHANGELOG.md"))
+	if err != nil {
+		t.Fatalf("read changelog: %v", err)
+	}
+	preamble, _, ok := strings.Cut(string(changelog), "\n## [")
+	if !ok {
+		t.Fatal("CHANGELOG.md has no release entries")
+	}
+
+	stub, err := os.ReadFile(filepath.Join(root, "scripts", "changelog-stub.sh"))
+	if err != nil {
+		t.Fatalf("read changelog stub: %v", err)
+	}
+
+	for name, content := range map[string]string{
+		"CHANGELOG preamble": preamble,
+		"changelog stub":     string(stub),
+	} {
+		t.Run(name, func(t *testing.T) {
+			lower := strings.Join(strings.Fields(strings.ToLower(content)), " ")
+			for _, required := range []string{"after v2.1.0", "new major version", "major module path"} {
+				if !strings.Contains(lower, required) {
+					t.Errorf("must require %q for post-v2.1 release authoring", required)
+				}
+			}
+			for _, stale := range []string{"v1 breakage", "future /v2"} {
+				if strings.Contains(lower, stale) {
+					t.Errorf("contains stale release guidance %q", stale)
+				}
+			}
+		})
+	}
+}
+
+func TestMCPPackageDocStartsWithCanonicalOverview(t *testing.T) {
+	cmd := exec.Command("go", "list", "-f", "{{.Doc}}", "./mcp")
+	cmd.Dir = repoRoot(t)
+	cmd.Env = append(os.Environ(), "GOWORK=off")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go list MCP package doc: %v\n%s", err, output)
+	}
+
+	const want = "Package mcp implements the Model Context Protocol (MCP) over JSON-RPC 2.0."
+	if !strings.HasPrefix(strings.TrimSpace(string(output)), want) {
+		t.Fatalf("MCP package doc must start with canonical overview %q; got %q", want, strings.TrimSpace(string(output)))
+	}
+}
+
+func TestMCPRemoteAccessUsesHTTPOverSSHForward(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(repoRoot(t), "docs", "MCP_GUIDE.md"))
+	if err != nil {
+		t.Fatalf("read MCP guide: %v", err)
+	}
+	content := string(data)
+
+	for _, required := range []string{
+		"ssh -N -o StrictHostKeyChecking=yes -L 127.0.0.1:18080:127.0.0.1:8080 prod-server",
+		`"url": "http://127.0.0.1:18080/mcp"`,
+		"does not add application",
+	} {
+		if !strings.Contains(content, required) {
+			t.Errorf("MCP remote-access guide must contain %q", required)
+		}
+	}
+	if strings.Contains(content, `"command": "ssh"`) {
+		t.Error("MCP remote-access guide must not present ssh plus curl as a stdio MCP server")
+	}
+}
+
+func TestV1MigrationScanTargetsHyperServeNewServer(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(repoRoot(t), "docs", "MIGRATING_V2.md"))
+	if err != nil {
+		t.Fatalf("read v1 migration guide: %v", err)
+	}
+	content := string(data)
+
+	if !strings.Contains(content, `(?:hyperserve|server|serverpkg)\.NewServer\(`) {
+		t.Error("v1 migration scan must target known HyperServe NewServer qualifiers")
+	}
+	if strings.Contains(content, "|NewServer|") {
+		t.Error("v1 migration scan must not flag unrelated app.NewServer or httptest.NewServer calls")
 	}
 }
 

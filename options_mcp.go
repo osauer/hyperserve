@@ -67,9 +67,14 @@ func WithMCPOriginValidator(validator func(*http.Request) bool) Option {
 	}
 }
 
-// WithMCPEndpoint configures the MCP endpoint path. Default is "/mcp".
+// WithMCPEndpoint configures the MCP endpoint path. The path must be a clean,
+// unescaped, non-root literal without a trailing slash and must not be the
+// reserved /.well-known/mcp.json discovery path. Default is "/mcp".
 func WithMCPEndpoint(endpoint string) Option {
 	return func(srv *Server) error {
+		if err := validateMCPEndpoint(endpoint); err != nil {
+			return err
+		}
 		srv.options.MCPEndpoint = endpoint
 		return nil
 	}
@@ -86,9 +91,9 @@ func WithMCPFileToolRoot(rootDir string) Option {
 
 // WithMCPToolCallTimeout sets the per-tool execution budget enforced by the
 // MCP handler. Tools that exceed the timeout return context.DeadlineExceeded
-// to the caller; see the caveat in contextToolWrapper for what happens to
-// the underlying goroutine. Zero or negative values fall back to the
-// package default (30s).
+// to the caller. Go cannot stop an uncooperative function: a tool that ignores
+// its context can continue in a background goroutine until it returns. Zero or
+// negative values fall back to the package default (30s).
 func WithMCPToolCallTimeout(d time.Duration) Option {
 	return func(srv *Server) error {
 		srv.options.MCPToolCallTimeout = d
@@ -136,9 +141,10 @@ func WithMCPBuiltinTools(enabled bool) Option {
 	}
 }
 
-// WithMCPBuiltinResources toggles the built-in MCP resources (Config,
-// Metrics, System, ServerLog, ServerHealth). Default off. Same
-// blank-import requirement as WithMCPBuiltinTools.
+// WithMCPBuiltinResources toggles the standard built-in MCP resources:
+// Config, Metrics, System, and ServerLog. ServerHealth belongs to the
+// MCPObservability preset. Default off. Same blank-import requirement as
+// WithMCPBuiltinTools.
 func WithMCPBuiltinResources(enabled bool) Option {
 	return func(srv *Server) error {
 		srv.options.MCPResourcesEnabled = enabled

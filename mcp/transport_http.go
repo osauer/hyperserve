@@ -3,6 +3,7 @@ package mcp
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -38,8 +39,13 @@ func (t *httpTransport) Receive() (*jsonrpc.Request, error) {
 	if !strings.Contains(t.r.Header.Get("Content-Type"), "application/json") {
 		return nil, fmt.Errorf("%w: Content-Type must be application/json", ErrUnsupportedContentType)
 	}
+	t.r.Body = http.MaxBytesReader(t.w, t.r.Body, mcpHTTPMaxBody)
+	body, err := io.ReadAll(t.r.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read request body: %w", err)
+	}
 	var request jsonrpc.Request
-	if err := json.NewDecoder(t.r.Body).Decode(&request); err != nil {
+	if err := json.Unmarshal(body, &request); err != nil {
 		return nil, fmt.Errorf("failed to decode request: %w", err)
 	}
 	return &request, nil

@@ -233,6 +233,9 @@ func TestMetricsResource(t *testing.T) {
 			t.Errorf("missing field %q in metrics payload", field)
 		}
 	}
+	if got := metrics["uptime"]; got != "0s" {
+		t.Errorf("pre-Run uptime = %v, want 0s", got)
+	}
 	if got, want := metrics["totalRequests"], float64(100); got != want {
 		t.Errorf("totalRequests: want %v, got %v", want, got)
 	}
@@ -308,5 +311,23 @@ func TestServerLogResource(t *testing.T) {
 	}
 	if len(uris) != 1 || uris[0] != resource.URI() {
 		t.Errorf("List = %v, want [%s]", uris, resource.URI())
+	}
+}
+
+func TestStreamingLogResourceDescribesSnapshotSemantics(t *testing.T) {
+	t.Parallel()
+
+	resource := &StreamingLogResource{ServerLogResource: NewServerLogResource(3)}
+	if resource.URI() != "logs://server/stream" {
+		t.Fatalf("URI = %q, want stable development URI", resource.URI())
+	}
+	description := strings.ToLower(resource.Name() + " " + resource.Description())
+	for _, required := range []string{"snapshot", "re-read"} {
+		if !strings.Contains(description, required) {
+			t.Errorf("resource metadata %q must describe %q semantics", description, required)
+		}
+	}
+	if strings.Contains(description, "real-time") || strings.Contains(description, "streaming") {
+		t.Errorf("resource metadata %q promises updates the resource does not implement", description)
 	}
 }
