@@ -24,6 +24,52 @@ Entries tier by audience:
 Shape is enforced by `make changelog-lint RELEASE_VERSION=vX.Y.Z`; scaffold a
 new entry with `make changelog-stub RELEASE_VERSION=vX.Y.Z`.
 
+## [2.0.3] - 2026-08-27 08:38 CEST
+
+Documentation and generated projects now present HyperServe's middleware,
+security, and lifecycle boundaries without duplicate defaults or demonstration
+capabilities that an application did not explicitly choose.
+
+### What's new
+
+- The README now distinguishes the imported `server` package from a configured
+  `srv`, and explains why construction uses `With...` while ordered request
+  policy uses `Use` or `UsePrefix`.
+- Examples now follow a focused learning path from one handler through
+  middleware, binding, configuration, and readiness before composition-heavy
+  references.
+- Generated services no longer register request logging twice or expose
+  built-in MCP tools and resources without an application authorization policy.
+
+### Changed
+
+- Expanded the middleware guide with ordinary global middleware,
+  prefix-scoped rate limiting, nested policy, and the immutable options snapshot
+  used by `HeadersMiddleware`.
+- Applied browser headers globally in generated projects, retained API-only
+  rate limiting, and added a generated behavior test for both route classes.
+- Added repository checks for every main-module example, README link targets,
+  and known stale example claims.
+
+### Fixed
+
+- Replaced misleading FIPS, post-quantum, authentication, health-address, and
+  browser-header claims with the narrower behavior the examples actually run.
+- Removed an unused vendored `htmx.js` file that contained a GitHub HTML page
+  rather than JavaScript; the valid minified asset remains.
+- Corrected asset-relative run commands and current MCP Streamable HTTP request
+  metadata in the affected examples.
+
+### Verification
+
+- `make check`
+- `go test -race ./...`
+- `go test -race ./...` in the standalone authentication example module
+- `make release-smoke RELEASE_VERSION=v2.0.3`
+- live deferred-initialization 200/503-to-200 transition witness
+- live MCP 2026-07-28 `tools/list` request witness
+- Pandoc rendering of the root and example entry-point READMEs
+
 ## [2.0.2] - 2026-08-27 07:13 CEST
 
 Request handling now compiles configured middleware once before serving, and

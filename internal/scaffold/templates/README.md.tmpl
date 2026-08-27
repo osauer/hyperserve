@@ -1,7 +1,8 @@
 # {{ .ServiceTitle }}
 
-Generated with `hyperserve-init`. This project bootstraps a HyperServe service
-with explicit security middleware and optional MCP automation surfaces.
+Generated with `hyperserve-init`. This project starts with ordinary HTTP
+handlers, browser security headers, route-scoped rate limiting, health checks,
+and optional MCP transport.
 
 ## Quick Start
 
@@ -18,13 +19,13 @@ Configuration lives in `configs/default.json`. Override any value with environme
 - `HS_MCP_ENABLED=true` enables Model Context Protocol support.
 - `SERVER_ADDR=":9090"` changes the HTTP listener.
 
-`SecureWeb` is already registered on `/web`; it supplies the browser security
-headers. HyperServe omits its `Server` identification header by default.
+`HeadersMiddleware` applies browser security headers to every application
+route. HyperServe omits its `Server` identification header by default.
 
 MCP is disabled unless the project was generated with `--with-mcp` or enabled
-later through configuration. The generated MCP endpoint includes operational
-resources such as recent logs and has no application-specific authorization
-policy. Protect `/mcp` with authentication middleware before exposing it.
+later through configuration. The generated endpoint starts without built-in
+tools or resources because the generator cannot choose an authorization
+policy. Protect `/mcp` before registering application capabilities.
 
 ## Deployment
 

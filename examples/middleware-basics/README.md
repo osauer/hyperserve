@@ -8,12 +8,12 @@ to a route prefix.
 and panic recovery. The example adds three things:
 
 - a normal `net/http` wrapper that marks every response;
-- the `SecureWeb` header stack for every route;
+- browser security headers for every route;
 - rate limiting only for `/api` and its descendants.
 
 ```go
 srv.Use(exampleHeader)
-srv.Use(server.SecureWeb(srv.Options()))
+srv.Use(server.HeadersMiddleware(srv.Options()))
 srv.UsePrefix("/api", server.RateLimitMiddleware(srv))
 ```
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -21,31 +22,18 @@ func main() {
 		log.Fatalf("Failed to create server: %v", err)
 	}
 
-	// Add security headers middleware for our static content
-	// This adds headers like X-Content-Type-Options, X-Frame-Options, etc.
 	srv.Use(serverpkg.HeadersMiddleware(srv.Options()))
 
-	// Serve static files from the ./static directory
-	// When someone visits /, it will automatically serve static/index.html
 	if err := srv.HandleStatic("/"); err != nil {
 		log.Fatalf("Static files unavailable: %v", err)
 	}
 
-	// You can also add custom routes alongside static files
-	srv.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
+	srv.GET("/api/status", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status": "ok", "message": "Server is running"}`))
+		fmt.Fprintln(w, `{"status":"ok"}`)
 	})
 
-	// Start the server
-	log.Println("Starting static file server on http://localhost:8080")
-	log.Println("Serving files from ./static directory")
-	log.Println("Try these URLs:")
-	log.Println("  http://localhost:8080/            (index.html)")
-	log.Println("  http://localhost:8080/about.html")
-	log.Println("  http://localhost:8080/api/status  (custom route)")
-	log.Println("")
-	log.Println("Press Ctrl+C to stop")
+	log.Println("static example listening on http://localhost:8080")
 
 	if err := srv.Run(ctx); err != nil {
 		log.Fatalf("Server failed: %v", err)

@@ -11,12 +11,13 @@ in real time as the server streams events. Demonstrates:
 
 ## Run
 
-```bash
-go run ./examples/htmx-stream &
-open http://localhost:8080
+```sh
+cd examples/htmx-stream
+go run .
 ```
 
-A random integer streams to the page every 100 ms. Close the tab and the
+Open <http://localhost:8080>. A random integer streams to the page every
+100 ms. Close the tab and the
 goroutine exits — context cancellation is the only stop signal.
 
 ## Notes

@@ -415,4 +415,4 @@ empty in every real deployment.
 - [MCP_GUIDE.md](./MCP_GUIDE.md) — full MCP reference, namespaces, presets, SSE flow
 - [WEBSOCKET_GUIDE.md](./WEBSOCKET_GUIDE.md) — origin checking, Sec-WebSocket-Key, frame limits
 - [SECURITY.md](../SECURITY.md) — vulnerability reporting
-- [examples/auth/](../examples/auth/) — JWT, Bearer, Basic, API-key, role gating
+- [examples/auth/](../examples/auth/) — OpenID Connect adapted to HyperServe's bearer-principal boundary

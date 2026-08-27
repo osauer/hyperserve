@@ -1,28 +1,25 @@
-# Deferred-init lifecycle
+# Deferred initialization
 
-Demonstrates serving `/healthz` immediately while a long-running bootstrap
-(`warmCaches`) runs in the background. Application routes return **503 Service
-Unavailable** until both the deferred init and the `OnReady` hook succeed; then
-the server flips to ready and traffic flows.
-
-The pattern is for processes that need to register with an orchestrator (k8s
-readiness, ALB target health, etc.) *before* they finish their slow startup
-work — warming a cache, opening a long-lived database connection, fetching
-config from a remote secret store.
+This example keeps liveness separate from traffic readiness while a slow
+startup task runs. The process is alive immediately, but application traffic
+does not become ready until `WithDeferredInit` and every `WithOnReady` hook
+succeeds.
 
 ## Run
 
 ```bash
-go run ./examples/deferred-init &
+go run ./examples/deferred-init
 ```
 
-In another shell:
+From another terminal while it starts:
 
 ```bash
-curl -i http://localhost:8080/healthz      # 200 immediately
-curl -i http://localhost:8080/api/users    # 503 until ready (~3s), then 200
+curl -i http://localhost:9080/healthz/     # 200 immediately
+curl -i http://localhost:9080/readyz/      # 503, then 200 after about 3 seconds
+curl -i http://localhost:8080/api/users    # 503, then the JSON response
 ```
 
-The 503 is the contract — your orchestrator probes `/healthz` for liveness
-and `/api/...` for traffic readiness. Don't probe traffic routes with
-liveness intervals.
+The separate `:9080` listener is the stable probe surface. Liveness answers
+whether the process should be restarted; readiness answers whether it should
+receive traffic. The `/api/users` route is registered by an `OnReady` hook to
+show that route setup can depend on successful initialization.

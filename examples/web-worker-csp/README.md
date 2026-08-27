@@ -1,70 +1,35 @@
-# Web Worker CSP Example
+# Web Workers under Content Security Policy
 
-This example demonstrates how to enable Web Worker support with Content Security Policy (CSP) in HyperServe.
+HyperServe's browser-header middleware blocks `blob:` worker sources by
+default. This example opts into them for an application that deliberately
+creates Web Workers from blob URLs.
 
-## What this example shows
+## Run
 
-- How to enable Web Worker support using `WithCSPWebWorkerSupport()`
-- How to create Web Workers using `blob:` URLs 
-- How CSP headers are configured to allow Web Workers
-- Simulation of real-world usage (like Tone.js audio libraries)
+The assets are relative to this directory:
 
-## The Problem
-
-Many modern web applications use Web Workers for performance optimization. Libraries like:
-- **Tone.js** - Web Audio API library for audio synthesis
-- **PDF.js** - PDF rendering library
-- **Custom audio/video processing libraries**
-
-These libraries create Web Workers using `blob:` URLs, which are blocked by default by Content Security Policy (CSP) for security reasons.
-
-## The Solution
-
-HyperServe provides `WithCSPWebWorkerSupport()` to enable `blob:` URLs in the CSP `worker-src` and `child-src` directives.
-
-## Running the Example
-
-```bash
+```sh
 cd examples/web-worker-csp
-go run main.go
+go run .
 ```
 
-Visit: http://localhost:8080
+Open <http://localhost:8080>, start the worker, and inspect the response's
+`Content-Security-Policy` header.
 
-## What to Test
-
-1. **Test Web Worker** - Creates a simple Web Worker using blob: URL
-2. **Test Tone.js (Simulated)** - Simulates how Tone.js creates timing workers
-3. **Show CSP Headers** - Displays the actual CSP headers sent by the server
-
-## Key Code
+## Configuration
 
 ```go
-// Enable Web Worker support
-srv, err := server.NewServer(
-    server.WithCSPWebWorkerSupport(),
-)
+srv, err := server.NewServer(server.WithCSPWebWorkerSupport())
+if err != nil {
+    log.Fatal(err)
+}
 
-// Apply security headers with Web Worker support
 srv.Use(server.HeadersMiddleware(srv.Options()))
 ```
 
-## CSP Configuration
+`WithCSPWebWorkerSupport` changes the configured CSP value; it does not attach
+middleware by itself. `HeadersMiddleware` reads the finalized snapshot and adds
+`worker-src 'self' blob:` and `child-src 'self' blob:` to responses.
 
-When Web Worker support is enabled, the CSP header includes:
-- `worker-src 'self' blob:`
-- `child-src 'self' blob:`
-
-When disabled (default), Web Workers with blob: URLs will be blocked.
-
-## Security Note
-
-Web Worker support is **disabled by default** for security reasons. Only enable it when your application specifically needs to use Web Workers with blob: URLs.
-
-## Real-World Usage
-
-This feature is essential for:
-- Digital Audio Workstations (DAWs) using Tone.js
-- PDF viewers using PDF.js
-- Video/audio processing applications
-- Any application using Web Workers for performance optimization
+Leave the option off unless the application needs blob-backed workers. It
+widens the set of script execution sources allowed by the browser policy.

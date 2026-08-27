@@ -19,10 +19,10 @@ Traditional approaches:
 
 ## Decision
 
-Run health check endpoints on a separate HTTP server on a different port:
-- Main server: User traffic on configured port (default 8080)
-- Health server: Health checks on port+1 (default 8081)
-- Endpoints: `/healthz`, `/livez`, `/readyz`
+Run health endpoints on a separate HTTP server with its own address:
+- Main server: user traffic on the configured address (default `:8080`)
+- Health server: operational checks on the configured health address (default `:9080`)
+- Endpoints: `/healthz/`, `/livez/`, `/readyz/`
 
 The health server is minimal with no middleware, ensuring reliable responses.
 
@@ -42,10 +42,9 @@ The health server is minimal with no middleware, ensuring reliable responses.
 - **Discovery**: Users might not know about health port
 
 ### Mitigation
-- Automatic port selection (main port + 1)
-- Clear logging of health server startup
-- Documentation of health endpoints
-- Allow disabling health server if not needed
+- Deterministic default address
+- Explicit override through `WithHealthAddr`
+- Health server disabled until `WithHealthServer` is passed
 
 ## Implementation Details
 
@@ -53,9 +52,9 @@ The health server is minimal with no middleware, ensuring reliable responses.
 - Shares the same graceful shutdown mechanism
 - Minimal HTTP server with no middleware
 - Returns appropriate HTTP status codes:
-  - `/healthz`: Generic health check (200 if healthy)
-  - `/livez`: Liveness probe (200 if process is alive)
-  - `/readyz`: Readiness probe (200 if ready for traffic)
+  - `/healthz/`: Generic health check (200 if healthy)
+  - `/livez/`: Liveness probe (200 if process is alive)
+  - `/readyz/`: Readiness probe (200 if ready for traffic)
 
 ## Examples
 
@@ -70,26 +69,25 @@ spec:
       - name: app
         ports:
         - containerPort: 8080  # Main traffic
-        - containerPort: 8081  # Health checks
+        - containerPort: 9080  # Health checks
         livenessProbe:
           httpGet:
-            path: /livez
-            port: 8081
+            path: /livez/
+            port: 9080
         readinessProbe:
           httpGet:
-            path: /readyz
-            port: 8081
+            path: /readyz/
+            port: 9080
 ```
 
 ```go
-// Server with health server explicitly enabled
-srv, _ := server.NewServer(
-    server.WithPort(8080),     // Main server on 8080
-    server.WithHealthServer(), // Health server on 8081
+srv, err := server.NewServer(
+	server.WithAddr("127.0.0.1:8080"),
+	server.WithHealthServer(),
+	server.WithHealthAddr("127.0.0.1:9080"),
 )
-
-// Optional: Custom health checks
-srv.SetReadinessCheck(func() bool {
-    return database.IsConnected()
-})
 ```
+
+Use `WithDeferredInit` when readiness depends on a database, cache, or other
+startup dependency. HyperServe keeps readiness false until that callback and
+the registered `WithOnReady` hooks succeed.

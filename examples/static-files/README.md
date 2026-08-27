@@ -1,144 +1,44 @@
-# Static Files Example
+# Static files and an API route
 
-This example shows how to serve static files (HTML, CSS, JavaScript) with HyperServe. It demonstrates a common use case of serving a website with both static content and API endpoints.
+This example serves a selected asset directory at `/` and keeps a normal JSON
+handler at `/api/status`. HyperServe opens the asset directory through
+`os.Root`; startup fails if the configured root is unavailable.
 
-## What This Example Shows
+## Run
 
-- Configuring HyperServe to serve static files
-- Proper directory structure for web assets
-- Adding security headers for static content
-- Mixing static file serving with custom API routes
-- Client-side JavaScript interacting with server endpoints
+The paths are relative to this example directory:
 
-## Directory Structure
-
-```
-02-static-files/
-├── main.go          # Server code
-├── static/          # Static files selected explicitly by main.go
-│   ├── index.html   # Homepage
-│   ├── about.html   # About page
-│   ├── css/
-│   │   └── style.css
-│   └── js/
-│       └── app.js
+```sh
+cd examples/static-files
+go run .
 ```
 
-## Running the Example
+Try the page, the API, and one response header:
 
-```bash
-go run main.go
-```
-
-The server will start on http://localhost:8080
-
-## Testing the Server
-
-### Browse the Website
-
-Open http://localhost:8080 in your browser. You'll see:
-- The homepage (index.html)
-- Styled with CSS
-- Interactive JavaScript that calls the API
-
-### Test with Curl
-
-```bash
-# Get the homepage
+```sh
 curl http://localhost:8080/
-
-# Get a specific file
-curl http://localhost:8080/about.html
-
-# Get CSS file
-curl http://localhost:8080/css/style.css
-
-# Call the API endpoint
 curl http://localhost:8080/api/status
+curl -I http://localhost:8080/index.html | grep X-Content-Type-Options
 ```
 
-### Check Security Headers
-
-```bash
-curl -I http://localhost:8080/index.html
-```
-
-You'll see security headers like:
-- `X-Content-Type-Options: nosniff`
-- `X-Frame-Options: DENY`
-- `X-XSS-Protection: 1; mode=block`
-
-## Key Concepts
-
-### 1. Static File Serving
+## Server setup
 
 ```go
-server, err := server.NewServer(server.WithStaticDir("./static"))
+srv, err := server.NewServer(server.WithStaticDir("./static"))
 if err != nil {
     log.Fatal(err)
 }
 
-// Register the explicitly configured root at the URL root.
-if err := server.HandleStatic("/"); err != nil {
+srv.Use(server.HeadersMiddleware(srv.Options()))
+
+if err := srv.HandleStatic("/"); err != nil {
     log.Fatal(err)
 }
 ```
 
-HyperServe serves files through an `os.Root` confined to the configured static
-directory. A missing or inaccessible root stops startup instead of selecting a
-weaker file server.
+`WithStaticDir` selects the filesystem capability. `HandleStatic` decides where
+that capability appears in the URL space. The middleware is a separate request
+pipeline decision and therefore uses `Use` after construction.
 
-### 2. Automatic index.html
-
-When you request `/`, HyperServe automatically serves `/index.html` if it exists.
-
-### 3. Security Headers
-
-```go
-srv.Use(server.HeadersMiddleware(srv.Options()))
-```
-
-This middleware adds important security headers to all responses.
-
-### 4. Mixed Routes
-
-You can have both static files and custom API endpoints:
-- `/` → serves static files
-- `/api/status` → custom handler
-
-## Try These Modifications
-
-1. **Add a new page**: Create `static/contact.html`
-2. **Add images**: Put images in `static/images/` and reference them in HTML
-3. **Custom 404**: Add a custom 404 handler for missing files
-4. **File upload**: Add an endpoint to handle file uploads
-
-## Common Patterns
-
-### Serving from Different Directories
-
-```go
-// Create server with custom static directory
-server, err := server.NewServer(
-    server.WithStaticDir("./public"),
-)
-```
-
-### Adding Cache Headers
-
-```go
-srv.Use(func(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        // Cache static assets for 1 hour
-        if strings.HasPrefix(r.URL.Path, "/css/") || 
-           strings.HasPrefix(r.URL.Path, "/js/") {
-            w.Header().Set("Cache-Control", "public, max-age=3600")
-        }
-        next.ServeHTTP(w, r)
-	})
-})
-```
-
-## What's Next?
-
-Now that you can serve static files, move on to [json-api](../json-api/) to learn about building REST APIs with JSON.
+The complete program also registers `/api/status`. Go's `ServeMux` selects that
+more-specific route before the `/` static fallback.

@@ -12,8 +12,8 @@ This example demonstrates different discovery policies for controlling how MCP t
 
 ## Running the Example
 
-```bash
-go run main.go
+```sh
+go run ./examples/mcp-discovery
 ```
 
 This starts three servers demonstrating different policies:

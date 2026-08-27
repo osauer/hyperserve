@@ -32,6 +32,7 @@ func TestGenerateCreatesProject(t *testing.T) {
 	assertExists(t, dest, "go.sum")
 	assertExists(t, dest, "cmd/server/main.go")
 	assertExists(t, dest, "internal/app/server.go")
+	assertExists(t, dest, "internal/app/server_test.go")
 	assertExists(t, dest, "configs/default.json")
 	assertExists(t, dest, "Dockerfile")
 
@@ -60,6 +61,21 @@ func TestGenerateCreatesProject(t *testing.T) {
 	}
 	if !strings.Contains(string(goSum), "golang.org/x/time v0.15.0") {
 		t.Fatalf("go.sum missing runtime dependency checksum: %s", goSum)
+	}
+
+	serverSource, err := os.ReadFile(filepath.Join(dest, "internal/app/server.go"))
+	if err != nil {
+		t.Fatalf("read generated server: %v", err)
+	}
+	serverContent := string(serverSource)
+	if strings.Contains(serverContent, "RequestLoggerMiddleware") {
+		t.Fatal("generated server registers HyperServe's default request logger twice")
+	}
+	if !strings.Contains(serverContent, "srv.Use(server.HeadersMiddleware(srv.Options()))") {
+		t.Fatal("generated server does not apply headers to the global middleware scope")
+	}
+	if strings.Contains(serverContent, "WithMCPBuiltin") {
+		t.Fatal("generated server enables MCP capabilities without an authorization policy")
 	}
 
 	dockerfile, err := os.ReadFile(filepath.Join(dest, "Dockerfile"))

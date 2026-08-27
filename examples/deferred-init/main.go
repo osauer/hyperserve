@@ -1,16 +1,17 @@
 // Deferred-init example.
 //
-// Demonstrates serving /healthz immediately while long-running bootstrap work
-// (warmCaches) runs in the background. Application routes return 503 until
-// bootstrap and the OnReady hook both succeed, then the server flips to ready.
+// Demonstrates keeping the health listener live while long-running bootstrap
+// work runs in the background. Application routes return 503 until bootstrap
+// and the OnReady hook both succeed, then the server flips to ready.
 //
 // Run it:
 //
-//	go run examples/deferred-init/main.go
+//	go run ./examples/deferred-init
 //
 // Then in another shell:
 //
-//	curl -i http://localhost:8080/healthz  # 200 immediately
+//	curl -i http://localhost:9080/healthz/   # 200 immediately
+//	curl -i http://localhost:9080/readyz/    # 503, then 200
 //	curl -i http://localhost:8080/api/users  # 503 until ready (~3s), then 200
 package main
 
@@ -33,9 +34,10 @@ func main() {
 	srv, err := server.NewServer(
 		server.WithAddr(":8080"),
 		server.WithHealthServer(),
+		server.WithHealthAddr(":9080"),
 
-		// Long-running bootstrap. Listener is up while this runs; /healthz
-		// returns 200 but application routes return 503.
+		// The listeners are up while this runs. Health stays 200, readiness and
+		// application traffic stay 503.
 		server.WithDeferredInit(func(ctx context.Context, _ *server.Server) error {
 			log.Println("[bootstrap] warming caches...")
 			return warmCaches(ctx)
@@ -50,7 +52,7 @@ func main() {
 		}),
 
 		// Optional: keep the listener up even if bootstrap fails, so an
-		// operator can introspect /healthz and call CompleteDeferredInit
+		// operator can inspect health and call CompleteDeferredInit
 		// manually after fixing the underlying issue.
 		server.WithDeferredInitStopOnFailure(false),
 	)
@@ -58,7 +60,7 @@ func main() {
 		log.Fatalf("NewServer: %v", err)
 	}
 
-	log.Println("starting on :8080 — /healthz live, /api/users 503 until ready")
+	log.Println("application on :8080; health and readiness on :9080")
 	if err := srv.Run(ctx); err != nil {
 		log.Fatalf("Run: %v", err)
 	}

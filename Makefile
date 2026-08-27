@@ -10,7 +10,7 @@ LDFLAGS := -ldflags "-X github.com/osauer/hyperserve/v2/pkg/server.Version=$(VER
 MAIN_BRANCH ?= main
 RELEASE_TEST_JOBS ?= 2
 
-.PHONY: build install test test-race fuzz-smoke benchmark-load clean version help check check-examples check-canonical-examples check-compatibility-examples mcp-conformance vet fmt modernize modernize-check staticcheck govulncheck govulncheck-tools changelog-lint changelog-stub release-notes release-publish release-smoke release
+.PHONY: build install test test-race fuzz-smoke benchmark-load clean version help check check-docs check-examples check-canonical-examples check-compatibility-examples mcp-conformance vet fmt modernize modernize-check staticcheck govulncheck govulncheck-tools changelog-lint changelog-stub release-notes release-publish release-smoke release
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets:\n"} \
@@ -173,7 +173,7 @@ release: ## Tag, push, and publish a release: make release RELEASE_VERSION=vX.Y.
 # tells you the exact command if missing. Modernize is different — it's
 # pinned via the `tool` directive in tools/go.mod and invoked from that module, so it
 # auto-downloads on first use and stays reproducible across machines/CI.
-check: vet staticcheck govulncheck govulncheck-tools modernize-check check-examples check-canonical-examples check-compatibility-examples mcp-conformance ## gofmt + vet + staticcheck + govulncheck + modernize-check + example gates
+check: vet staticcheck govulncheck govulncheck-tools modernize-check check-docs check-examples check-canonical-examples check-compatibility-examples mcp-conformance ## gofmt + vet + staticcheck + govulncheck + modernize-check + docs/example gates
 	@# gofmt over tracked + untracked-but-not-gitignored .go files. Same
 	@# pattern as ibkr — `git ls-files` respects .gitignore so this skips
 	@# /dist, agent worktrees, etc. The intermediate exists-check filters
@@ -226,8 +226,11 @@ check-examples: ## go vet + build + govulncheck in each standalone examples/*/ m
 		(cd $$mod && go vet ./... && go build ./... && govulncheck ./...) || exit 1; \
 	done
 
-check-canonical-examples: ## Build the release-gated observability, current MCP, and API examples
-	go test ./examples/devops ./examples/mcp-extensions ./examples/json-api
+check-docs: ## Verify entry-point links and reject known stale example claims
+	go test ./internal/doccheck
+
+check-canonical-examples: ## Build and test every example in the main module
+	go test ./examples/...
 
 check-compatibility-examples: ## Build deprecated transport compatibility examples
 	go test ./examples/mcp-sse

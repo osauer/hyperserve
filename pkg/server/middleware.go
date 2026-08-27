@@ -241,7 +241,7 @@ func defaultMiddleware(server *Server) MiddlewareStack {
 		recoveryMiddleware(server.logger)}
 }
 
-// SecureWeb returns security-header middleware for browser-facing routes.
+// SecureWeb is a convenience alias for [HeadersMiddleware].
 // Pass the Options snapshot from the Server whose TLS, CSP, CORS, and optional
 // Server header policy should be applied.
 func SecureWeb(options Options) Middleware {
@@ -432,8 +432,8 @@ func generateCSP(options Options) string {
 	return strings.Join(directives, "; ")
 }
 
-// HeadersMiddleware returns a middleware function that adds security headers to responses.
-// Includes headers for XSS protection, content type sniffing prevention, HSTS, CSP, and CORS.
+// HeadersMiddleware returns middleware for content-type, framing, referrer,
+// permissions, cross-origin, HSTS, CSP, and configured CORS policy.
 // Automatically handles CORS preflight requests.
 func HeadersMiddleware(options Options) Middleware {
 	return func(next http.Handler) http.Handler {

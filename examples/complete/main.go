@@ -42,7 +42,7 @@ func main() {
 	srv, err := serverpkg.NewServer(
 		// Basic configuration
 		serverpkg.WithAddr(":8080"),
-		serverpkg.WithHealthServer(), // Health checks on :8081
+		serverpkg.WithHealthServer(), // Health checks on :9080
 
 		// Advanced features
 		serverpkg.WithMCPSupport("complete-example", "1.0.0"),
@@ -60,8 +60,8 @@ func main() {
 	// Apply middleware stacks
 	// Metrics, request logging, and recovery are already applied by NewServer.
 
-	// SecureWeb adds security headers to every route.
-	srv.Use(serverpkg.SecureWeb(srv.Options()))
+	// HeadersMiddleware adds the configured browser headers to every route.
+	srv.Use(serverpkg.HeadersMiddleware(srv.Options()))
 
 	verifier := auth.TokenVerifierFunc(verifyToken)
 	apiIdentity := auth.Bearer(verifier)
@@ -236,11 +236,11 @@ func sseHandler(w http.ResponseWriter, r *http.Request) {
 func getFeatureList() []map[string]string {
 	return []map[string]string{
 		{"name": "Graceful Shutdown", "status": "context-driven", "endpoint": "srv.Run(ctx)"},
-		{"name": "Health Checks", "status": "configured", "endpoint": "http://localhost:8081/healthz"},
+		{"name": "Health Checks", "status": "configured", "endpoint": "http://localhost:9080/healthz/"},
 		{"name": "Request Logging", "status": "automatic", "endpoint": "Server default"},
 		{"name": "Panic Recovery", "status": "automatic", "endpoint": "Server default"},
 		{"name": "Metrics Collection", "status": "automatic", "endpoint": "Server default"},
-		{"name": "Security Headers", "status": "configured", "endpoint": "All routes via SecureWeb"},
+		{"name": "Security Headers", "status": "configured", "endpoint": "All routes via HeadersMiddleware"},
 		{"name": "Authentication", "status": "configured", "endpoint": "/api/* via auth.Require"},
 		{"name": "Rate Limiting", "status": "configured", "endpoint": "/api/* middleware"},
 		{"name": "Server-Sent Events", "status": "active", "endpoint": "/api/stream"},
@@ -265,7 +265,7 @@ func printStartupBanner() {
 	fmt.Println("  http://localhost:8080/api/upload    - File upload")
 	fmt.Println("  http://localhost:8080/api/metrics   - Metrics info")
 	fmt.Println("  http://localhost:8080/mcp           - MCP endpoint")
-	fmt.Println("  http://localhost:8081/healthz       - Health check")
+	fmt.Println("  http://localhost:9080/healthz/      - Health check")
 	fmt.Println("\nAuthentication:")
 	fmt.Println("  Use these Bearer tokens for /api/user:")
 	fmt.Println("  - demo-token-123 (user: alice)")

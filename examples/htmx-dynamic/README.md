@@ -7,22 +7,21 @@ HTMX-triggered requests. Demonstrates:
 - Serving static assets (the HTMX `<script>` tag) from `./static`.
 - Returning a partial (not a full page) for HTMX to swap in.
 
-The pattern is for teams that want HTMX-style interactivity without a
-JavaScript bundler — server-rendered HTML, server-owned state, plus the
-small `htmx.js` script loaded once.
+The pattern keeps rendering and state on the server while a small vendored
+HTMX script replaces selected page fragments.
 
 ## Run
 
-```bash
-go run ./examples/htmx-dynamic &
-open http://localhost:8080
+```sh
+cd examples/htmx-dynamic
+go run .
 ```
 
-Click the button; HTMX issues a `GET /load-content`; the server returns a
-template fragment; HTMX swaps it into the DOM. No SPA, no bundler.
+Open <http://localhost:8080> and click the button. HTMX issues a
+`GET /load-content`; the server returns a template fragment for that element.
 
 ## Files
 
 - `main.go` — server, two routes (`/` full page, `/load-content` fragment).
 - `templates/` — Go `html/template` source for both shapes.
-- `static/` — `htmx.js` (vendored so the example runs offline).
+- `static/` — `htmx.min.js` plus the small example configuration scripts.

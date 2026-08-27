@@ -1,4 +1,4 @@
-// Enterprise example demonstrating FIPS 140-3 compliance and enhanced security features
+// Command enterprise demonstrates HyperServe's restricted TLS handshake policy.
 package main
 
 import (
@@ -8,9 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"time"
 
-	"github.com/osauer/hyperserve/v2/pkg/auth"
 	serverpkg "github.com/osauer/hyperserve/v2/pkg/server"
 )
 
@@ -18,185 +16,28 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	// Create server with enterprise security features
 	srv, err := serverpkg.NewServer(
-		// This example accepts supported deployment environment variables.
-		serverpkg.WithEnvironment(),
-
-		// Basic configuration
-		serverpkg.WithAddr(":8443"),
-		serverpkg.WithHealthServer(),
-
-		// Enable FIPS 140-3 mode for government compliance
-		serverpkg.WithFIPSMode(),
-
-		// Enable TLS with certificates
 		serverpkg.WithTLS("cert.pem", "key.pem"),
-
-		// Configure rate limiting
-		serverpkg.WithRateLimit(100, 200),
-
-		// Set strict timeouts
-		serverpkg.WithTimeouts(30*time.Second, 30*time.Second, 120*time.Second),
-
-		// Set template and static directories
-		serverpkg.WithTemplateDir("./templates"),
+		serverpkg.WithFIPSMode(),
+		serverpkg.WithHealthServer(),
+		serverpkg.WithHealthAddr(":9080"),
 	)
 	if err != nil {
-		log.Fatal("Failed to create server:", err)
+		log.Fatal(err)
 	}
 
-	// Apply security middleware stack to all routes
-	srv.Use(serverpkg.SecureWeb(srv.Options()))
+	srv.Use(serverpkg.HeadersMiddleware(srv.Options()))
+	srv.GET("/", describePolicy)
 
-	apiAuth := auth.Bearer(auth.TokenVerifierFunc(verifyToken))
-	srv.UsePrefix("/api", auth.Require(apiAuth), serverpkg.RateLimitMiddleware(srv))
-
-	// Public endpoints
-	srv.HandleFunc("/", homeHandler)
-	srv.HandleFunc("/health", healthHandler)
-
-	// Protected API endpoints
-	srv.HandleFunc("/api/status", apiStatusHandler)
-	srv.HandleFunc("/api/data", apiDataHandler)
-
-	// Serve static files securely (uses os.Root in Go 1.24)
-	if err := srv.HandleStatic("/static/"); err != nil {
-		log.Fatalf("Static files unavailable: %v", err)
-	}
-
-	log.Println("Starting enterprise server with FIPS 140-3 mode...")
-	log.Println("Server features:")
-	log.Println("- FIPS 140-3 compliant TLS")
-	log.Println("- Post-quantum resistant key exchange")
-	log.Println("- Timing-safe authentication")
-	log.Println("- Secure file serving with os.Root")
-	log.Println("- Swiss Tables optimized rate limiting")
-
+	log.Println("TLS example listening on https://localhost:8443")
+	log.Println("health checks listening on http://localhost:9080/healthz/")
 	if err := srv.Run(ctx); err != nil {
-		log.Fatal("Server failed:", err)
+		log.Fatal(err)
 	}
 }
 
-// validateToken demonstrates timing-safe token validation
-func verifyToken(_ context.Context, token string) (auth.Principal, error) {
-	// In production, this would check against a database or JWT
-	// The middleware already uses crypto/subtle for timing protection
-	validTokens := map[string]bool{
-		"enterprise-key-123": true,
-		"admin-token-456":    true,
-	}
-
-	// Check if token exists
-	if valid, exists := validTokens[token]; exists && valid {
-		return auth.Principal{Issuer: "enterprise-example", Subject: token}, nil
-	}
-
-	// Simulate database lookup time to prevent timing attacks
-	time.Sleep(10 * time.Millisecond)
-	return auth.Principal{}, auth.ErrUnauthenticated
-}
-
-func homeHandler(w http.ResponseWriter, r *http.Request) {
-	html := `
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Enterprise HyperServe</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 40px; }
-        .feature { background: #f0f0f0; padding: 10px; margin: 10px 0; }
-        .secure { color: green; font-weight: bold; }
-    </style>
-</head>
-<body>
-    <h1>Enterprise HyperServe Demo</h1>
-    <p>This server is running with enterprise-grade security features:</p>
-    
-    <div class="feature">
-        <span class="secure">✓</span> FIPS 140-3 Compliant Mode
-    </div>
-    
-    <div class="feature">
-        <span class="secure">✓</span> Post-Quantum Key Exchange
-    </div>
-    
-    <div class="feature">
-        <span class="secure">✓</span> Timing-Safe Authentication
-    </div>
-    
-    <div class="feature">
-        <span class="secure">✓</span> Secure File Serving (os.Root)
-    </div>
-    
-    <h2>Test Endpoints</h2>
-    <ul>
-        <li><a href="/health">/health</a> - Health check (public)</li>
-        <li><a href="/api/status">/api/status</a> - API status (requires auth)</li>
-        <li><a href="/api/data">/api/data</a> - Sample data (requires auth)</li>
-    </ul>
-    
-    <h2>Test with curl</h2>
-    <pre>
-# Public endpoint
-curl https://localhost:8443/health
-
-# Protected endpoint (will fail without auth)
-curl https://localhost:8443/api/status
-
-# Protected endpoint with auth
-curl -H "Authorization: Bearer enterprise-key-123" https://localhost:8443/api/status
-    </pre>
-</body>
-</html>
-`
-	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprint(w, html)
-}
-
-func healthHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprintf(w, `{"status":"healthy","fips_mode":true,"timestamp":"%s"}`, time.Now().Format(time.RFC3339))
-}
-
-func apiStatusHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprintf(w, `{
-		"status": "operational",
-		"security": {
-			"fips_mode": true,
-			"ech_enabled": true,
-			"post_quantum": true,
-			"timing_safe_auth": true
-		},
-		"timestamp": "%s"
-	}`, time.Now().Format(time.RFC3339))
-}
-
-func apiDataHandler(w http.ResponseWriter, r *http.Request) {
-	// Demonstrate secure data handling
-	data := map[string]any{
-		"data": []map[string]any{
-			{"id": 1, "value": "Enterprise data 1", "classified": false},
-			{"id": 2, "value": "Enterprise data 2", "classified": true},
-		},
-		"metadata": map[string]any{
-			"total":      2,
-			"filtered":   0,
-			"encryption": "AES-256-GCM",
-		},
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	// In production, use json.NewEncoder(w).Encode(data)
-	fmt.Fprintf(w, `%v`, data)
-}
-
-func init() {
-	// Set GOFIPS140 environment variable for FIPS mode
-	// This should be done at the system level in production
-	os.Setenv("GOFIPS140", "1")
-
-	// Ensure we're using a FIPS-compliant random source
-	// Go 1.24 handles this automatically when GOFIPS140 is set
+func describePolicy(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	fmt.Fprintln(w, "TLS uses the cipher suites and curves selected by WithFIPSMode.")
+	fmt.Fprintln(w, "This setting alone is not FIPS 140-3 compliance.")
 }

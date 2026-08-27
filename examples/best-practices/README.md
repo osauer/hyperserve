@@ -1,8 +1,9 @@
-# HyperServe composition example
+# Composition reference
 
 This example combines the major server features in one application: explicit
 configuration precedence, health checks, middleware, bearer authentication,
-templates, static files, SSE, and MCP.
+templates, SSE, and MCP. It is a reference application, not the next step after
+hello world; use the focused examples when learning one feature.
 
 The useful patterns are about ownership:
 
@@ -14,7 +15,7 @@ The useful patterns are about ownership:
 - long-lived SSE handlers stop when the request context is cancelled;
 - the MCP endpoint is protected by the same identity middleware as the API.
 
-Run from this directory, which contains the example templates and static root:
+Run from this directory, which contains the example templates:
 
 ```sh
 go run .

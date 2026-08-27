@@ -3,8 +3,7 @@ package app
 import (
 	"fmt"
 
-	_ "github.com/osauer/hyperserve/v2/pkg/mcp/builtin"
-	server "github.com/osauer/hyperserve/v2/pkg/server"
+	"github.com/osauer/hyperserve/v2/pkg/server"
 	"golang.org/x/time/rate"
 )
 
@@ -29,11 +28,7 @@ func NewServer(cfg Config) (*server.Server, error) {
 	)
 
 	if cfg.EnableMCP {
-		opts = append(opts,
-			server.WithMCPSupport(cfg.ServiceName, version),
-			server.WithMCPBuiltinTools(true),
-			server.WithMCPBuiltinResources(true),
-		)
+		opts = append(opts, server.WithMCPSupport(cfg.ServiceName, version))
 	}
 
 	srv, err := server.NewServer(opts...)
@@ -44,9 +39,9 @@ func NewServer(cfg Config) (*server.Server, error) {
 	return srv, nil
 }
 
-// RegisterMiddleware applies opinionated middleware stacks for secure defaults.
+// RegisterMiddleware adds application policy to HyperServe's default metrics,
+// request logging, and panic recovery middleware.
 func RegisterMiddleware(srv *server.Server) {
-	srv.Use(server.RequestLoggerMiddleware)
-	srv.UsePrefix("/web", server.SecureWeb(srv.Options()))
+	srv.Use(server.HeadersMiddleware(srv.Options()))
 	srv.UsePrefix("/api", server.RateLimitMiddleware(srv))
 }

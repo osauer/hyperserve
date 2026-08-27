@@ -31,7 +31,7 @@ func main() {
 	}
 
 	// Add security headers to every route.
-	srv.Use(serverpkg.SecureWeb(srv.Options()))
+	srv.Use(serverpkg.HeadersMiddleware(srv.Options()))
 
 	// Static content route (e.g., CSS, JS)
 	if err := srv.HandleStatic("/static/"); err != nil {

@@ -1,6 +1,4 @@
-// Package main demonstrates best practices for using serverpkg.
-// This example shows how to properly leverage hyperserve's built-in features
-// without reimplementing functionality that already exists.
+// Package main demonstrates several HyperServe features in one process.
 package main
 
 import (
@@ -11,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -49,14 +48,14 @@ func (t *CustomTool) Execute(params map[string]any) (any, error) {
 		"uptime":  time.Since(startTime).String(),
 	}
 	if verbose {
-		status["requests_handled"] = requestCount
+		status["requests_handled"] = requestCount.Load()
 	}
 	return status, nil
 }
 
 var (
 	startTime    = time.Now()
-	requestCount int64
+	requestCount atomic.Int64
 )
 
 func main() {
@@ -74,26 +73,25 @@ func main() {
 		serverpkg.WithEnvironment(),       // Deployment overrides the baseline above.
 
 		// Application-owned capabilities and security policy
-		serverpkg.WithHealthServer(), // Health checks on :8081
+		serverpkg.WithHealthServer(),
+		serverpkg.WithHealthAddr(":9080"),
 
 		// Feature configuration
 		serverpkg.WithMCPSupport("best-practices", "1.0.0"), // Enable MCP
-		serverpkg.WithMCPFileToolRoot("./safe-directory"),   // Sandboxed file access
 		serverpkg.WithTemplateDir("./templates"),            // Template support
 	)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// BEST PRACTICE: compose named authentication with ordinary middleware.
+	// Name each authentication step so the policy reads left to right.
 	verifier := auth.TokenVerifierFunc(verifyToken)
 	apiIdentity := auth.Bearer(verifier)
 	requireIdentity := auth.Require(apiIdentity)
-	srv.Use(serverpkg.SecureWeb(srv.Options()))
+	srv.Use(serverpkg.HeadersMiddleware(srv.Options()))
 	srv.UsePrefix("/api", requireIdentity, serverpkg.RateLimitMiddleware(srv))
 	srv.UsePrefix("/mcp", requireIdentity)
 
-	// BEST PRACTICE: Register custom MCP tools properly
 	if srv.MCPEnabled() {
 		if err := srv.RegisterMCPTool(&CustomTool{}); err != nil {
 			log.Printf("Warning: Failed to register custom MCP tool: %v", err)
@@ -101,27 +99,21 @@ func main() {
 	}
 
 	// Web routes
-	srv.HandleFunc("/", handleHome)
+	srv.GET("/", handleHome)
 	srv.HandleFuncDynamic("/about", "about.html", func(r *http.Request) any {
 		return AppData{
 			Title:     "About",
-			Message:   "Best practices example",
+			Message:   "Composition reference",
 			Timestamp: time.Now(),
 		}
 	})
 
 	// API routes
-	srv.HandleFunc("/api/data", handleAPIData)
-	srv.HandleFunc("/api/stream", handleSSEStream)
-
-	// Static files with proper caching headers
-	srv.UsePrefix("/static/", serverpkg.HeadersMiddleware(srv.Options()))
-	if err := srv.HandleStatic("/static/"); err != nil {
-		log.Fatalf("Static files unavailable: %v", err)
-	}
+	srv.GET("/api/data", handleAPIData)
+	srv.GET("/api/stream", handleSSEStream)
 
 	fmt.Println("Server starting on http://localhost:8080")
-	fmt.Println("Health checks on http://localhost:8081/healthz")
+	fmt.Println("Health checks on http://localhost:9080/healthz/")
 	fmt.Println("MCP endpoint on http://localhost:8080/mcp")
 	fmt.Println("Press Ctrl+C for graceful shutdown")
 
@@ -138,30 +130,28 @@ func verifyToken(_ context.Context, token string) (auth.Principal, error) {
 	return auth.Principal{Issuer: "best-practices", Subject: "demo-user"}, nil
 }
 
-// handleHome demonstrates a simple handler
 func handleHome(w http.ResponseWriter, r *http.Request) {
-	requestCount++
+	requestCount.Add(1)
 	w.Header().Set("Content-Type", "text/html")
 	fmt.Fprintf(w, `
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Hyperserve Best Practices</title>
+	    <title>HyperServe composition</title>
 </head>
 <body>
-    <h1>Hyperserve Best Practices Example</h1>
-    <p>This example demonstrates proper usage of hyperserve's built-in features.</p>
-    <h2>Features in Use:</h2>
-    <ul>
-        <li>✅ Context-driven graceful shutdown (try Ctrl+C)</li>
-        <li>✅ Built-in request logging (check console)</li>
-        <li>✅ Rate limiting (100 req/s)</li>
-        <li>✅ Health checks (<a href="http://localhost:8081/healthz">/healthz</a>)</li>
-        <li>✅ MCP support (<a href="/api/mcp-test">/api/mcp-test</a>)</li>
-        <li>✅ SSE streaming (<a href="/api/stream">/api/stream</a>)</li>
-        <li>✅ Security headers (check DevTools)</li>
-    </ul>
-    <h2>Try These:</h2>
+	    <h1>HyperServe composition example</h1>
+	    <p>Several independent server concerns share one lifecycle.</p>
+	    <h2>Features in use</h2>
+	    <ul>
+	        <li>Context-driven graceful shutdown</li>
+	        <li>Default request logging, metrics, and recovery</li>
+	        <li>Rate limiting and authentication on /api</li>
+	        <li>Health checks on <a href="http://localhost:9080/healthz/">:9080/healthz/</a></li>
+	        <li>MCP protected by the same identity middleware</li>
+	        <li>SSE streaming that follows request cancellation</li>
+	    </ul>
+	    <h2>Try it</h2>
     <ul>
         <li><a href="/api/data">API endpoint with auth</a> (needs Bearer token)</li>
         <li><a href="/about">Template rendering</a></li>
@@ -173,24 +163,20 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
 `)
 }
 
-// handleAPIData demonstrates a protected API endpoint
 func handleAPIData(w http.ResponseWriter, r *http.Request) {
 	// The /api prefix middleware has already established a principal.
-	requestCount++
+	requestCount.Add(1)
 
 	data := map[string]any{
-		"message":    "This is protected data",
-		"timestamp":  time.Now(),
-		"request_id": r.Header.Get("X-Request-ID"), // Added by middleware
+		"message":   "This is protected data",
+		"timestamp": time.Now(),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(data)
 }
 
-// handleSSEStream demonstrates proper SSE usage
 func handleSSEStream(w http.ResponseWriter, r *http.Request) {
-	// BEST PRACTICE: Use hyperserve's SSE helpers
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -201,17 +187,15 @@ func handleSSEStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Send events using hyperserve's SSE format
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
-			// BEST PRACTICE: Use NewSSEMessage helper
 			data := map[string]any{
 				"time":     time.Now().Format(time.RFC3339),
-				"requests": requestCount,
+				"requests": requestCount.Load(),
 			}
 			msg := serverpkg.NewSSEMessage(data)
 			msg.Event = "time-update"

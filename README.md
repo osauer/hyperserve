@@ -5,38 +5,24 @@
 [![Go reference](https://pkg.go.dev/badge/github.com/osauer/hyperserve/v2.svg)](https://pkg.go.dev/github.com/osauer/hyperserve/v2)
 [![License: MIT](https://img.shields.io/github/license/osauer/hyperserve)](LICENSE)
 
-HyperServe is a Go server library built on `net/http`. It leaves routing and
-handlers alone, then fills in the work that tends to collect around them:
-request binding and validation, middleware, health and readiness, shutdown,
-templates and static files, Server-Sent Events, WebSockets, and optional Model
-Context Protocol (MCP).
+HyperServe is a Go server library built on `net/http`. It keeps standard
+handlers and `ServeMux` patterns, then coordinates the work around them:
+middleware, typed input, health and readiness, shutdown, static files,
+templates, Server-Sent Events, WebSockets, and optional MCP.
 
-Most Go services start comfortably with a mux and a few handlers. Later they
-need probes, coordinated shutdown, request limits, validation, streaming, or
-another listener. You can wire those pieces separately. HyperServe is for
-applications that would rather keep them in one server with one configuration
-and shutdown path, without taking on a framework-specific router or request
-context.
+Use it when those pieces should share one configuration and lifecycle. If a
+small service only needs routes and JSON, plain `net/http` is usually the better
+choice. HyperServe does not provide an ORM, browser sessions, or application
+authorization.
 
-For a small service with a handful of routes, plain `net/http` is usually the
-better choice. HyperServe also does not provide an ORM, a frontend framework,
-browser sessions, or application authorization. Its `auth` package establishes
-an identity; the application still decides what that identity may do.
+HyperServe requires Go 1.27. Public package APIs on the v2 module line follow
+[semantic versioning](./docs/API_STABILITY.md).
 
 ## Quick start
-
-HyperServe requires Go 1.27.
 
 ```sh
 go get github.com/osauer/hyperserve/v2@latest
 ```
-
-Public package APIs on the v2 module line follow
-[semantic versioning](./docs/API_STABILITY.md).
-Applications upgrading from v1 should start with the
-[v2 migration guide](./docs/MIGRATING_V2.md).
-See the [examples](./examples/) for runnable variants and the
-[production guide](./docs/PRODUCTION.md) before deployment.
 
 ```go
 package main
@@ -53,8 +39,6 @@ import (
 )
 
 func main() {
-    // This executable turns Ctrl+C into cancellation. HyperServe follows ctx;
-    // it does not install process-signal handlers of its own.
     ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
     defer stop()
 
@@ -63,14 +47,10 @@ func main() {
         log.Fatal(err)
     }
 
-    // Routes use Go's method-aware ServeMux patterns, and handlers remain
-    // ordinary net/http functions—there is no framework-specific context.
     srv.GET("/hello/{name}", func(w http.ResponseWriter, r *http.Request) {
         fmt.Fprintf(w, "Hello, %s!\n", r.PathValue("name"))
     })
 
-    // The application owns cancellation; HyperServe owns orderly cleanup of
-    // the listeners and workers it starts.
     if err := srv.Run(ctx); err != nil {
         log.Fatal(err)
     }
@@ -89,141 +69,134 @@ Then, from another terminal:
 curl -sS http://localhost:8080/hello/Ada
 ```
 
-Expected response:
+The response is `Hello, Ada!`. The executable turns Ctrl+C into cancellation;
+HyperServe follows that context and drains the resources it started. Handlers
+continue to use `r.Context()` for request cancellation and request-scoped data.
 
-```text
-Hello, Ada!
-```
+The [hello-world example](./examples/hello-world/) contains the same shape as a
+runnable repository program.
 
-That is the basic shape: keep standard `net/http` handlers while HyperServe
-applies request logging, request metrics, and panic recovery. Cancelling the
-application context stops the listeners, workers, filesystem roots, and
-shutdown hooks owned by that server.
+## The server model
 
-For typed request bodies, validation, and JSON responses, continue with the
-[binding example](./examples/binding/). Those helpers are optional; they do not
-replace Go's handler or request types.
+HyperServe separates four decisions:
 
-## Why use it?
+| Phase | API | Purpose |
+|---|---|---|
+| Configure | `server.NewServer(server.With...())` | Choose addresses, timeouts, policy values, and optional capabilities. |
+| Attach middleware | `srv.Use(...)`, `srv.UsePrefix(...)` | Build the ordered request pipeline globally or for one path tree. |
+| Register routes | `srv.GET(...)`, `srv.Handle(...)` | Add standard `net/http` handlers and method-aware `ServeMux` patterns. |
+| Run | `srv.Run(ctx)` | Serve until the application context is cancelled or the server exits. |
 
-HyperServe does not introduce an application model. Routes use Go's
-method-aware `ServeMux` patterns, handlers are `http.Handler` values, and
-request cancellation travels through `context.Context`. Existing handlers and
-`httptest` continue to work.
+`server` is the imported package in these examples; `srv` is one configured
+`*server.Server`. Constructor options are applied from left to right. Middleware
+must be registered before `Run` or before the first request through `Handler`.
 
-It also keeps the pieces it starts on the same lifecycle. The HTTP server,
-health listener, shutdown hooks, internal workers, filesystem roots, and MCP
-streams are closed through the same shutdown path. Startup failures run that
-cleanup too.
+`With...` options choose server configuration during construction. Middleware
+is executable request behavior whose order and path scope matter, so it stays
+visible in `Use` or `UsePrefix`. Putting it behind a constructor option would
+hide its position in the request pipeline and make route scope less explicit.
 
-Configuration is explicit. A bare `NewServer()` does not read a configuration
-file, environment variables, or specially named asset directories. Applications
-opt into those sources and decide their precedence.
+## Middleware patterns
 
-There is still an ownership line. HyperServe handles transport and server
-mechanics, and can establish a request identity. The application chooses the
-identity provider and credential policy, then owns authorization, data access,
-browser sessions, WebSocket reconnection, and deployment topology.
+`NewServer` installs request metrics, structured request logging, and panic
+recovery. Add application policy with ordinary middleware of type
+`func(http.Handler) http.Handler`.
 
-## Routes, pages, and assets
+### Add global middleware
 
-Existing handlers can be registered directly. The assembled server is also
-available as an `http.Handler`:
+This middleware adds one response header to every route:
 
 ```go
-// No adapter is needed for an existing handler.
-srv.Handle("/admin/", existingHandler)
+func responseHeader(name, value string) server.Middleware {
+    return func(next http.Handler) http.Handler {
+        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+            w.Header().Set(name, value)
+            next.ServeHTTP(w, r)
+        })
+    }
+}
 
-// This includes the mux and HyperServe middleware. It can be wrapped, mounted
-// in another server, or passed directly to httptest.
+srv.Use(responseHeader("X-Service-Version", "2026-08"))
+```
+
+Middleware runs in registration order; the first item is the outermost wrapper.
+Middleware from another package works without an adapter when it has the same
+standard handler shape.
+
+### Apply policy to a path tree
+
+Configuration and scope are separate. Here the constructor configures a
+limiter, while `UsePrefix` applies it only to `/api` and its descendants:
+
+```go
+srv, err := server.NewServer(server.WithRateLimit(20, 40))
+if err != nil {
+    log.Fatal(err)
+}
+
+srv.UsePrefix("/api", server.RateLimitMiddleware(srv))
+```
+
+The prefix is segment-aware: it matches `/api/users`, not `/apiv2`. Several
+middleware values form one ordered stack:
+
+```go
+srv.UsePrefix("/api", requireIdentity, server.RateLimitMiddleware(srv))
+srv.UsePrefix("/api/admin", requireAdmin)
+```
+
+The [middleware example](./examples/middleware-basics/) provides a runnable
+custom wrapper, global middleware, prefix middleware, and recovery path. The
+[authentication example](./examples/auth/) shows how `requireIdentity` is built.
+
+### Derive browser headers from server configuration
+
+Browser headers depend on the server's TLS, CSP, CORS, and optional `Server`
+header settings. Build the middleware from the finalized configuration, then
+attach it to the request pipeline:
+
+```go
+headers := server.HeadersMiddleware(srv.Options())
+srv.Use(headers)
+```
+
+`Options()` returns an independent snapshot; changing it does not reconfigure
+the server. Keeping the snapshot explicit prevents middleware from reading
+mutable server state. TLS, browser sessions, and authorization remain separate
+application decisions.
+
+## Routes, input, and files
+
+Method helpers use Go's method-aware `ServeMux` patterns and path values.
+Existing handlers can be registered directly, and the assembled server remains
+an ordinary `http.Handler`:
+
+```go
+srv.Handle("/admin/", existingHandler)
 handler := srv.Handler()
 ```
 
-`GET`, `POST`, `PUT`, `PATCH`, and the other method helpers use standard
-`ServeMux` patterns, including path values. `Handle` and `HandleFunc` remain
-available when one handler covers several methods.
-
 `JSONHandler` is the short path for typed JSON endpoints. `BindJSON`,
-`BindQuery`, `BindForm`, and `Validate` are available when a handler needs
-custom headers, streaming, or its own response shape. See the
-[binding example](./examples/binding/).
+`BindQuery`, `BindForm`, and `Validate` are available when a handler owns its
+response shape. Start with the focused [binding example](./examples/binding/),
+then see the larger [JSON API](./examples/json-api/).
 
-For HTML applications, HyperServe can render `html/template` files and serve
-static assets. Disk roots are off until the application selects them with
-`WithTemplateDir` or `WithStaticDir`. Static files are confined with
-`os.Root`; `HandleStatic` returns an error and leaves the route closed
-if the root cannot be opened. Embedded assets can be served through an ordinary
-handler.
+Disk-backed templates and static files are off until the application selects a
+root with `WithTemplateDir` or `WithStaticDir`. Static files are confined with
+`os.Root`, and `HandleStatic` fails instead of silently opening a weaker file
+server. See [static files and an API route](./examples/static-files/).
 
-## SSE or WebSockets?
+## Lifecycle and configuration
 
-Use HTTP for normal request/response work. For a long-lived connection, the
-direction of communication usually decides:
+The application owns process signals and the root context because a library
+cannot decide whether one signal should stop one server, several servers, or a
+larger host. `Run(ctx)` blocks until cancellation or server exit.
+`Shutdown(ctx)` is available when another component coordinates the deadline;
+MCP over standard input/output uses the separate `RunStdio()` entry point.
 
-| Need | Use |
-| --- | --- |
-| The server pushes progress, notifications, logs, or dashboard updates | Server-Sent Events (SSE) |
-| The client and server can both send at any time | WebSocket |
-
-`SSEMessage` formats event names and string, byte, or JSON data:
+Configuration sources are opt-in and later options win:
 
 ```go
-// HyperServe formats the event. The application still chooses authorization,
-// event cadence, buffering, and resume behavior.
-msg := server.NewSSEMessage(map[string]any{
-    "progress": 75,
-    "status":   "indexing",
-})
-msg.Event = "progress"
-
-fmt.Fprint(w, msg)
-flusher.Flush() // Send this event without closing the response.
-```
-
-An SSE handler must stop when the request context is cancelled and use server
-and proxy timeouts that permit a long response. The
-[HTMX + SSE example](./examples/htmx-stream/) includes the full loop.
-
-For WebSockets, the server-owned upgrader applies the default same-origin check
-and records the upgrade with the server's request metrics:
-
-```go
-// Prefer the server-owned upgrader to a standalone websocket.Upgrader: it
-// keeps the same-origin default and records upgrades with server metrics.
-upgrader := srv.WebSocketUpgrader()
-```
-
-Server and outbound client connections have a 1 MiB message limit unless the
-application changes it. `websocket.Dial` accepts caller-owned HTTP clients and
-supports headers, subprotocols, TLS verification, and bounded redirects.
-Reconnect behavior is left to the application. See the
-[WebSocket guide](./docs/WEBSOCKET_GUIDE.md) and
-[browser echo example](./examples/websocket-demo/).
-
-## Startup, shutdown, and configuration
-
-`Run(ctx)` blocks until the context is cancelled or the server exits. The
-application owns process signals because a library cannot know whether one
-signal should stop one server, several servers, or a larger application.
-`RunStdio()` is the explicit entry point for MCP over standard input/output.
-`Shutdown(ctx)` is available when another component coordinates the deadline.
-
-In a standalone `main`, `context.Background()` is a natural root. If a service
-runner or a larger application already provides a parent context, pass that to
-`Run`, or use it as the parent of `signal.NotifyContext`. The context passed to
-`Run` controls the server's lifetime; it is not copied into requests. Handlers
-continue to use `r.Context()` for request cancellation and request-scoped data.
-
-`WithHealthServer` puts health, readiness, and liveness on a separate
-listener. `WithDeferredInit` keeps readiness false while a database, cache, or
-other dependency starts.
-
-Configuration options are applied from left to right:
-
-```go
-// Configuration sources are ignored unless the application opts into them.
-// Options run in order, so the final address cannot be replaced by the file
-// or environment.
 srv, err := server.NewServer(
     server.WithConfigFile(configPath),
     server.WithEnvironment(),
@@ -231,95 +204,46 @@ srv, err := server.NewServer(
 )
 ```
 
-`NewServer()` already applies HyperServe's defaults, so most applications pass
-only the options they want to change. `DefaultOptions()` with `WithOptions` is
-for an embedding application that deliberately wants to inspect, modify, and
-bind one complete configuration snapshot. The [configuration
-example](./examples/configuration/) covers the precedence rules.
+The final address is an application invariant; neither the file nor the
+environment can replace it. A bare `NewServer()` reads neither source. The
+[configuration example](./examples/configuration/) demonstrates conflicts and
+the [deferred-init example](./examples/deferred-init/) connects dependency
+startup to readiness.
 
-## Security
+## Streaming and optional protocols
 
-Browser security headers are opt-in:
+Use the protocol that matches the communication pattern:
 
-```go
-// Build browser headers from this server's configuration, then apply them to
-// every route. TLS, sessions, and authorization remain separate decisions.
-srv.Use(server.SecureWeb(srv.Options()))
-```
+| Need | Starting point |
+|---|---|
+| The server pushes progress, notifications, or dashboard updates | [Server-Sent Events](./examples/htmx-stream/) |
+| Client and server can both send at any time | [WebSocket guide](./docs/WEBSOCKET_GUIDE.md) |
+| The service exposes tools or resources to MCP clients | [MCP guide](./docs/MCP_GUIDE.md) |
 
-Here, `server` is the imported HyperServe package and `srv` is the configured
-`*server.Server` created by `server.NewServer`. `SecureWeb` accepts the
-defensive snapshot returned by `srv.Options()` because its headers depend on
-that server's TLS, CSP, CORS, and optional `Server` header settings. Keeping the
-snapshot explicit also leaves the result as ordinary, reusable `net/http`
-middleware rather than coupling it to mutable server state.
-
-Authentication composes from small, named pieces:
-
-```go
-verifier := auth.TokenVerifierFunc(verifyToken)
-bearerIdentity := auth.Bearer(verifier)
-requireIdentity := auth.Require(bearerIdentity)
-srv.UsePrefix("/api", requireIdentity, server.RateLimitMiddleware(srv))
-```
-
-`Use` applies middleware to every request. `UsePrefix` reserves application
-policy for one path tree, such as `/api` and its descendants.
-
-`SecureWeb` emits a Content Security Policy and other defensive browser
-headers, applies configured CORS policy, and emits HSTS when HyperServe serves
-TLS. Construct it after passing all options to `server.NewServer`, as shown
-above. `auth.Require` validates credentials and stores an issuer/subject
-principal on the request. It does not define users, roles, sessions, login
-redirects, or resource authorization. The
-[federated authentication example](./examples/auth/) connects that seam to an
-OpenID Connect provider without adding OIDC dependencies to the runtime module.
-
-The [production guide](./docs/PRODUCTION.md) documents TLS, proxies, health
-endpoints, filesystem roots, and the remaining application responsibilities.
-
-## MCP
-
-MCP is optional and does not change the HTTP or WebSocket APIs:
-
-```go
-// MCP shares the HTTP server's middleware and shutdown path. Enabling the
-// endpoint does not enable demonstration tools or resources.
-srv, err := server.NewServer(
-    server.WithMCPSupport("payments", "1.0.0"),
-)
-```
-
-Applications must add authorization middleware in front of `/mcp`. HyperServe
-supports Streamable HTTP, request-scoped SSE subscriptions, stdio, typed tools,
-resources, namespaces, and discovery. Transport versions, limits, and
-authorization boundaries are in the [MCP guide](./docs/MCP_GUIDE.md).
+Long-lived handlers must stop when `r.Context()` is cancelled. WebSocket
+reconnection, SSE resume policy, and MCP authorization remain application
+decisions.
 
 ## Packages and trade-offs
 
 | Import path | Purpose |
-| --- | --- |
+|---|---|
 | `github.com/osauer/hyperserve/v2/pkg/server` | HTTP server, middleware, lifecycle, pages, and MCP wiring |
 | `github.com/osauer/hyperserve/v2/pkg/auth` | Provider-neutral request authentication and stable principals |
 | `github.com/osauer/hyperserve/v2/pkg/websocket` | WebSocket upgrader, connection, and outbound dialer |
 | `github.com/osauer/hyperserve/v2/pkg/mcp` | MCP handler, transports, discovery, tools, and resources |
-| `github.com/osauer/hyperserve/v2/pkg/mcp/builtin` | Opt-in demonstration tools and resources |
 | `github.com/osauer/hyperserve/v2/pkg/jsonrpc` | Standalone JSON-RPC 2.0 engine |
 
 The runtime module has one external dependency, `golang.org/x/time`, for rate
 limiting. WebSocket, JSON-RPC, and MCP are maintained in this repository. That
-means fewer packages for an application to assemble, but more protocol code for
-HyperServe to maintain.
+reduces the number of packages an application assembles, while giving
+HyperServe more protocol and security code to maintain.
 
-The `server`, `auth`, `websocket`, `mcp`, and `jsonrpc` package APIs follow
-semantic versioning on the v2 module line. Examples, generated layouts,
-commands, and builtin demonstrations are maintained and tested but are not
-stable import surfaces. See [API stability](./docs/API_STABILITY.md).
-
-HyperServe does not publish a general throughput number. Its microbenchmarks and
-reproducible loopback load profiles are useful for comparing revisions on the
-same machine, not for predicting an application's production performance. See the
-[performance guide](./docs/PERFORMANCE.md).
+Examples, generated layouts, commands, and demonstrations are tested but are
+not stable import surfaces. HyperServe publishes no general throughput number;
+repository benchmarks compare revisions on the same machine. See
+[API stability](./docs/API_STABILITY.md) and
+[performance methodology](./docs/PERFORMANCE.md).
 
 ## Scaffold a service
 
@@ -330,17 +254,17 @@ cd payments
 go run ./cmd/server
 ```
 
-The generator creates a Go module, server entry point, and tests. MCP is off
-because the generator cannot choose the application's authorization policy.
+The generator creates a Go module, server entry point, focused middleware,
+health checks, and tests. MCP is off by default because the generator cannot
+choose the application's authorization policy. When explicitly enabled, the
+generated endpoint starts without built-in tools or resources.
 
 ## Documentation
 
-- [Examples](./examples/) — runnable programs grouped by task
+- [Examples](./examples/) — focused programs followed by composition references
 - [Go reference](https://pkg.go.dev/github.com/osauer/hyperserve/v2) — exported API documentation
 - [Migrate from v1](./docs/MIGRATING_V2.md) — breaking changes and direct replacements
-- [Production guide](./docs/PRODUCTION.md) — deployment and security boundaries
-- [MCP guide](./docs/MCP_GUIDE.md) — tools, resources, transports, and discovery
-- [WebSocket guide](./docs/WEBSOCKET_GUIDE.md) — server and client behavior
+- [Production guide](./docs/PRODUCTION.md) — deployment, TLS, proxies, and security boundaries
 - [Architecture](./ARCHITECTURE.md) — package, configuration, and lifecycle design
 - [Contributing](./CONTRIBUTING.md) — local workflow and pull requests
 - [Security policy](./SECURITY.md) — supported releases and private reporting
