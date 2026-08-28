@@ -4,18 +4,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/osauer/hyperserve/v2/auth"
+	"github.com/osauer/hyperserve/v2/jsonrpc"
 	"github.com/osauer/hyperserve/v2/mcp"
 )
 
@@ -405,8 +403,9 @@ func BenchmarkJSON(b *testing.B) {
 	}
 }
 
-// BenchmarkMCPJSONRPCProcessing measures raw JSON-RPC request processing performance
-func BenchmarkMCPJSONRPCProcessing(b *testing.B) {
+// BenchmarkMCPJSONRPCOverHTTP measures JSON-RPC decoding, dispatch, encoding,
+// and the in-process HTTP transport for a minimal MCP ping.
+func BenchmarkMCPJSONRPCOverHTTP(b *testing.B) {
 	srv, err := New(
 		WithAddr(":0"),
 		WithMCPSupport("benchmark-server", "1.0.0"),
@@ -427,184 +426,7 @@ func BenchmarkMCPJSONRPCProcessing(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(requestData))
-	req.Header.Set("Content-Type", "application/json")
-
-	b.ReportAllocs()
-	for b.Loop() {
-		w := httptest.NewRecorder()
-		srv.mcpHandler.ServeHTTP(w, req)
-	}
-}
-
-// BenchmarkMCPToolExecution measures tool execution performance for different tools
-func BenchmarkMCPToolExecution(b *testing.B) {
-	// Create temporary directory for file tools
-	tempDir := b.TempDir()
-	testFile := filepath.Join(tempDir, "benchmark.txt")
-	testContent := strings.Repeat("benchmark test content ", 100) // ~2KB of text
-	if err := os.WriteFile(testFile, []byte(testContent), 0644); err != nil {
-		b.Fatal(err)
-	}
-
-	srv, err := New(
-		WithAddr(":0"),
-		WithMCPSupport("benchmark-server", "1.0.0"),
-		WithMCPFileToolRoot(tempDir),
-	)
-	if err != nil {
-		b.Fatal(err)
-	}
-
-	tests := []struct {
-		name    string
-		request map[string]any
-	}{
-		{
-			name: "Calculator",
-			request: map[string]any{
-				"jsonrpc": "2.0",
-				"method":  "tools/call",
-				"params": map[string]any{
-					"name": "mcp__hyperserve__calculator",
-					"arguments": map[string]any{
-						"operation": "multiply",
-						"a":         123.456,
-						"b":         789.123,
-					},
-				},
-				"id": 1,
-			},
-		},
-		{
-			name: "FileRead",
-			request: map[string]any{
-				"jsonrpc": "2.0",
-				"method":  "tools/call",
-				"params": map[string]any{
-					"name": "mcp__hyperserve__read_file",
-					"arguments": map[string]any{
-						"path": "benchmark.txt",
-					},
-				},
-				"id": 2,
-			},
-		},
-		{
-			name: "ListDirectory",
-			request: map[string]any{
-				"jsonrpc": "2.0",
-				"method":  "tools/call",
-				"params": map[string]any{
-					"name": "mcp__hyperserve__list_directory",
-					"arguments": map[string]any{
-						"path": ".",
-					},
-				},
-				"id": 3,
-			},
-		},
-		{
-			name: "Calculator",
-			request: map[string]any{
-				"jsonrpc": "2.0",
-				"method":  "tools/call",
-				"params": map[string]any{
-					"name": "mcp__hyperserve__calculator",
-					"arguments": map[string]any{
-						"operation": "add",
-						"a":         2.0,
-						"b":         3.0,
-					},
-				},
-				"id": 4,
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		b.Run(tt.name, func(b *testing.B) {
-			requestData, err := json.Marshal(tt.request)
-			if err != nil {
-				b.Fatal(err)
-			}
-
-			req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(requestData))
-			req.Header.Set("Content-Type", "application/json")
-
-			b.ResetTimer()
-			b.ReportAllocs()
-			for i := 0; i < b.N; i++ {
-				w := httptest.NewRecorder()
-				srv.mcpHandler.ServeHTTP(w, req)
-			}
-		})
-	}
-}
-
-// BenchmarkMCPResourceAccess measures resource access performance
-func BenchmarkMCPResourceAccess(b *testing.B) {
-	srv, err := New(
-		WithAddr(":0"),
-		WithMCPSupport("benchmark-server", "1.0.0"),
-	)
-	if err != nil {
-		b.Fatal(err)
-	}
-
-	// Generate some metrics by making requests
-	srv.totalRequests.Store(1000)
-	srv.totalResponseTime.Store(50000000) // 50ms in nanoseconds
-
-	tests := []struct {
-		name string
-		uri  string
-	}{
-		{
-			name: "ConfigResource",
-			uri:  "config://server/options",
-		},
-		{
-			name: "MetricsResource",
-			uri:  "metrics://server/stats",
-		},
-		{
-			name: "SystemResource",
-			uri:  "system://runtime/info",
-		},
-		{
-			name: "LogsResource",
-			uri:  "logs://server/recent",
-		},
-	}
-
-	for _, tt := range tests {
-		b.Run(tt.name, func(b *testing.B) {
-			request := map[string]any{
-				"jsonrpc": "2.0",
-				"method":  "resources/read",
-				"params": map[string]any{
-					"uri": tt.uri,
-				},
-				"id": 1,
-			}
-
-			requestData, err := json.Marshal(request)
-			if err != nil {
-				b.Fatal(err)
-			}
-
-			req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(requestData))
-			req.Header.Set("Content-Type", "application/json")
-
-			b.ResetTimer()
-			b.ReportAllocs()
-			for i := 0; i < b.N; i++ {
-				w := httptest.NewRecorder()
-				srv.mcpHandler.ServeHTTP(w, req)
-			}
-		})
-	}
+	benchmarkMCPHTTP(b, srv.mcpHandler, requestData, nil)
 }
 
 // BenchmarkMCPInitializeHandshake measures the MCP initialization handshake performance
@@ -636,14 +458,7 @@ func BenchmarkMCPInitializeHandshake(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(requestData))
-	req.Header.Set("Content-Type", "application/json")
-
-	b.ReportAllocs()
-	for b.Loop() {
-		w := httptest.NewRecorder()
-		srv.mcpHandler.ServeHTTP(w, req)
-	}
+	benchmarkMCPHTTP(b, srv.mcpHandler, requestData, nil)
 }
 
 // BenchmarkMCPWithMiddleware measures MCP performance with typical middleware stack
@@ -656,8 +471,10 @@ func BenchmarkMCPWithMiddleware(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	// Add middleware stack
-	srv.Use(RequestLoggerMiddleware)
+	// Keep structured logging in the measured stack without making terminal I/O
+	// part of the result or emitting one line per benchmark iteration.
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	srv.Use(requestLoggerMiddleware(logger))
 	srv.UsePrefix("/mcp", auth.Require(testBearerAuthenticator("benchmark-token")))
 
 	request := map[string]any{
@@ -671,16 +488,10 @@ func BenchmarkMCPWithMiddleware(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(requestData))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer benchmark-token")
-
-	b.ReportAllocs()
-	for b.Loop() {
-		w := httptest.NewRecorder()
-		handler := srv.middleware.applyToMux(srv.mux)
-		handler.ServeHTTP(w, req)
-	}
+	handler := srv.middleware.applyToMux(srv.mux)
+	benchmarkMCPHTTP(b, handler, requestData, func(req *http.Request) {
+		req.Header.Set("Authorization", "Bearer benchmark-token")
+	})
 }
 
 func testBearerAuthenticator(want string) auth.Authenticator {
@@ -692,47 +503,51 @@ func testBearerAuthenticator(want string) auth.Authenticator {
 	}))
 }
 
-// BenchmarkMCPLargePayload measures performance with large JSON-RPC payloads
-func BenchmarkMCPLargePayload(b *testing.B) {
-	srv, err := New(
-		WithAddr(":0"),
-		WithMCPSupport("benchmark-server", "1.0.0"),
-	)
-	if err != nil {
-		b.Fatal(err)
+// benchmarkMCPHTTP measures request construction plus in-process HTTP/MCP
+// handling. A new request is mandatory on every iteration because Body is a
+// stream; reusing it benchmarks EOF handling after the first request.
+func benchmarkMCPHTTP(b *testing.B, handler http.Handler, requestData []byte, prepare func(*http.Request)) {
+	b.Helper()
+	serve := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(requestData))
+		req.Header.Set("Content-Type", "application/json")
+		if prepare != nil {
+			prepare(req)
+		}
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		return w
 	}
 
-	// Create large arguments for calculator (realistic but large payload)
-	largeArgs := make(map[string]any)
-	for i := range 1000 {
-		largeArgs[fmt.Sprintf("param_%d", i)] = float64(i) * 1.23456789
-	}
-	largeArgs["operation"] = "add"
-	largeArgs["a"] = 10.0
-	largeArgs["b"] = 20.0
-
-	request := map[string]any{
-		"jsonrpc": "2.0",
-		"method":  "tools/call",
-		"params": map[string]any{
-			"name":      "calculator",
-			"arguments": largeArgs,
-		},
-		"id": 1,
-	}
-
-	requestData, err := json.Marshal(request)
-	if err != nil {
-		b.Fatal(err)
-	}
-
-	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(requestData))
-	req.Header.Set("Content-Type", "application/json")
-
+	validateMCPBenchmarkResponse(b, serve())
 	b.ReportAllocs()
 	for b.Loop() {
-		w := httptest.NewRecorder()
-		srv.mcpHandler.ServeHTTP(w, req)
+		w := serve()
+		b.StopTimer()
+		validateMCPBenchmarkResponse(b, w)
+		b.StartTimer()
+	}
+}
+
+func validateMCPBenchmarkResponse(b *testing.B, w *httptest.ResponseRecorder) {
+	b.Helper()
+	if w.Code != http.StatusOK {
+		b.Fatalf("MCP response status = %d, want %d; body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+	var response jsonrpc.Response
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		b.Fatalf("decode MCP response: %v; body=%s", err, w.Body.String())
+	}
+	if response.Error != nil {
+		b.Fatalf("MCP JSON-RPC error = %+v", response.Error)
+	}
+	if response.Result == nil {
+		b.Fatal("MCP response has neither result nor error")
+	}
+	if result, ok := response.Result.(map[string]any); ok {
+		if isError, _ := result["isError"].(bool); isError {
+			b.Fatalf("MCP tool result reported isError: %s", w.Body.String())
+		}
 	}
 }
 
