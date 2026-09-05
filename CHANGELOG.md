@@ -27,7 +27,9 @@ Entries tier by audience:
 Shape is enforced by `make changelog-lint RELEASE_VERSION=vX.Y.Z`; scaffold a
 new entry with `make changelog-stub RELEASE_VERSION=vX.Y.Z`.
 
-## [Unreleased]
+## [2.1.4] - 2026-09-05 20:16 CEST
+
+This patch completes the SSE formatter with optional application-owned event IDs.
 
 ### What's new
 
@@ -40,6 +42,18 @@ new entry with `make changelog-stub RELEASE_VERSION=vX.Y.Z`.
   do not reset the client's last event ID. IDs containing CR, LF, NUL, or
   invalid UTF-8 are omitted entirely. Applications retain ownership of event
   sequencing, persistence, and replay from `Last-Event-ID`.
+
+### Changed
+
+- Scaffold, examples, and installation instructions target v2.1.4.
+
+### Verification
+
+- Byte-for-byte SSE formatting and injection tests, JSON compatibility tests,
+  and a runnable `SSEMessage` example.
+- `make check`, `make test-race`, and `make fuzz-smoke`.
+- A disposable external HTTP consumer tested with the race detector against
+  the release candidate, including omitted and invalid IDs and explicit reset.
 
 ## [2.1.3] - 2026-09-05 19:29 CEST
 

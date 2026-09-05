@@ -1,6 +1,6 @@
 # Production deployment
 
-_Last updated: 2026-09-05 for HyperServe v2.1.3._
+_Last updated: 2026-09-05 for HyperServe v2.1.4._
 
 This guide covers process ownership, reverse proxies, TLS, health checks, MCP,
 rate limiting, and the checks to run before deploying a HyperServe application.
