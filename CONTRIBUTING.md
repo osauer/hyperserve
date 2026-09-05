@@ -98,6 +98,9 @@ make changelog-lint RELEASE_VERSION=vX.Y.Z
 `make release-publish` promotes the `What's new` section into the GitHub
 Release body. Breaking releases must put the warning, migration guide, and
 rollback pin before any upgrade command.
+Later compatible releases link to the migration guide instead of repeating
+the historical warning. Only the latest stable release receives fixes; see
+[the support policy](docs/API_STABILITY.md).
 
 The canonical release path is
 `make release RELEASE_VERSION=vX.Y.Z`. It verifies the pushed candidate's

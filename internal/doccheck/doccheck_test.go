@@ -345,41 +345,6 @@ func TestV1MigrationScanTargetsHyperServeNewServer(t *testing.T) {
 	}
 }
 
-func TestAPIStabilityDisclosesControlledV21Reset(t *testing.T) {
-	root := repoRoot(t)
-	path := filepath.Join(root, "docs", "API_STABILITY.md")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read API stability policy: %v", err)
-	}
-	content := string(data)
-	lower := strings.ToLower(content)
-
-	for _, required := range []string{
-		"v2.1.0",
-		"2026-08-27",
-		"narrow",
-		"controlled",
-		"compatibility reset",
-		"github.com/osauer/hyperserve/v2@v2.0.3",
-	} {
-		if !strings.Contains(lower, strings.ToLower(required)) {
-			t.Errorf("API stability policy must disclose %q", required)
-		}
-	}
-
-	futureMajor := regexp.MustCompile(`(?is)(?:after v2\.1\.0|later|subsequent|future).{0,160}breaking.{0,160}(?:new|future) major`)
-	if !futureMajor.MatchString(content) {
-		t.Error("API stability policy must restore the rule that later breaking changes require a future major version")
-	}
-
-	reset := strings.Index(lower, "v2.1.0")
-	semver := strings.Index(lower, "semantic version")
-	if semver >= 0 && reset > semver && !strings.Contains(lower[:semver], "normally") {
-		t.Error("a SemVer promise before the v2.1.0 reset must be explicitly qualified as the normal rule")
-	}
-}
-
 func TestHistoricalAuthorityExemptions(t *testing.T) {
 	for _, relative := range []string{
 		"CHANGELOG.md",

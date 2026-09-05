@@ -2,14 +2,11 @@
 
 ## Supported versions
 
-The latest release on the `github.com/osauer/hyperserve/v2` module line
-receives security fixes. Older v2 tags and the v1 module are not generally
-maintained, though reports that clearly affect a maintained downstream
-deployment are still useful.
+Only the latest stable HyperServe release receives bug fixes and security
+updates. Fixes ship in the next release; older releases receive no backports.
+Older tags remain available for reproducible builds.
 
-The v2.1.0 package reset is documented in
-[Migrating to v2.1](docs/MIGRATING_V2_1.md). It does not weaken the normal
-policy: future breaking public API changes require a new major module path.
+See [API stability](docs/API_STABILITY.md) for versioning and migration guidance.
 
 ## Reporting a vulnerability
 

@@ -14,14 +14,6 @@ service only needs routes and JSON, plain `net/http` is usually the better
 choice. HyperServe does not provide an ORM, browser sessions, identity-provider
 setup, or application authorization.
 
-> [!WARNING]
-> HyperServe v2.1.0 is a dated, controlled breaking reset within the existing
-> `/v2` module path. That is outside ordinary semantic-version compatibility.
-> Read [Migrating to v2.1](./docs/MIGRATING_V2_1.md) before upgrading an
-> existing v2 application. To roll back, pin
-> `github.com/osauer/hyperserve/v2@v2.0.3`. Future breaking changes require a
-> new major module path.
-
 ## Quick start
 
 HyperServe requires Go 1.27.
@@ -201,6 +193,10 @@ the standalone rate-limit gate. WebSocket, JSON-RPC, and MCP are maintained in
 this repository. That keeps the shipped graph small while making HyperServe
 responsible for more protocol and security code.
 
+Only the latest stable release receives bug fixes and security updates.
+Older tags remain available for reproducible builds; there are no parallel
+maintenance branches.
+
 Examples, generated layouts, commands, and demonstrations are tested but are
 not stable import surfaces. Repository benchmarks compare revisions on the
 same machine; HyperServe publishes no universal throughput claim. See
@@ -224,7 +220,7 @@ application's authorization policy. See [scaffolding](./docs/SCAFFOLDING.md).
 
 - [Examples](./examples/) — focused runnable programs
 - [Migrating from v1](./docs/MIGRATING_V2.md) — v1 to the current v2 API
-- [Migrating to v2.1](./docs/MIGRATING_V2_1.md) — the controlled in-place reset
+- [Migrating from v2.0.x](./docs/MIGRATING_V2_1.md) — earlier package and configuration changes
 - [Production guide](./docs/PRODUCTION.md) — deployment, TLS, proxies, and security boundaries
 - [Architecture](./ARCHITECTURE.md) — package, configuration, and lifecycle design
 - [Project structure](./PROJECT_STRUCTURE.md) — code map and package graph

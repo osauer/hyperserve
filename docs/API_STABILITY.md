@@ -1,32 +1,20 @@
 # API Stability
 
-HyperServe normally follows semantic versioning on the
-`github.com/osauer/hyperserve/v2` module line:
+HyperServe maintains one release line: only the latest stable release receives
+bug fixes and security updates. Development happens on `main`, and fixes ship
+in the next release. Older tags remain available for reproducible builds, with
+no backports or parallel maintenance branches.
+
+The current module path is `github.com/osauer/hyperserve/v2`. Releases from
+the current API follow semantic versioning:
 
 - patch releases fix defects without intentionally breaking exported behavior;
 - minor releases add compatible APIs and behavior;
 - future breaking exported API changes require a new major module path.
 
-## The v2.1.0 exception
-
-On 2026-08-27, v2.1.0 makes one explicitly controlled compatibility reset
-inside `/v2`. It replaces the intermediate `pkg/...` public layout with the
-branded root package and concern-specific subpackages, renames `NewServer` to
-`New`, and moves rate limiting out of `Server`.
-
-That is not ordinary SemVer compatibility. It was accepted as a narrow,
-one-time correction before the intermediate shape accumulated more consumers.
-It does not establish permission for another breaking minor release.
-
-Before upgrading an existing v2 application, read
-[Migrating to v2.1](./MIGRATING_V2_1.md). To roll back:
-
-```sh
-go get github.com/osauer/hyperserve/v2@v2.0.3
-```
-
-After v2.1.0, the normal rule resumes: a breaking public API change requires a
-future major version and corresponding module path.
+The earlier v2.1.0 package migration is documented in
+[Migrating from v2.0.x](./MIGRATING_V2_1.md). Historical changes and rollback
+instructions live in that guide and the changelog.
 
 ## Stable public packages
 
