@@ -165,7 +165,7 @@ func (c *lowConn) ReadMessage() (messageType int, data []byte, err error) {
 			c.closeMu.Lock()
 			if !c.closeSent {
 				c.closeSent = true
-				_ = c.WriteControl(OpcodeClose, frame.Payload) // Best effort close frame
+				_ = c.writeControlReply(OpcodeClose, frame.Payload) // Best effort close frame
 			}
 			c.closeMu.Unlock()
 
@@ -190,7 +190,7 @@ func (c *lowConn) ReadMessage() (messageType int, data []byte, err error) {
 				continue
 			}
 			// Default: respond with pong.
-			if err := c.WriteControl(OpcodePong, frame.Payload); err != nil {
+			if err := c.writeControlReply(OpcodePong, frame.Payload); err != nil {
 				return 0, nil, err
 			}
 
@@ -286,6 +286,13 @@ func (c *lowConn) WriteControl(opcode int, data []byte) error {
 	return c.WriteFrame(frame)
 }
 
+// Automatic replies cannot retain a connection indefinitely under backpressure.
+func (c *lowConn) writeControlReply(opcode int, data []byte) error {
+	stop := time.AfterFunc(5*time.Second, c.abort)
+	defer stop.Stop()
+	return c.WriteControl(opcode, data)
+}
+
 // Close closes the WebSocket connection
 func (c *lowConn) Close() error {
 	return c.CloseWithStatus(CloseNormalClosure, "")
@@ -305,6 +312,11 @@ func (c *lowConn) CloseWithStatus(code int, reason string) error {
 	}
 	binary.BigEndian.PutUint16(payload, uint16(code))
 	copy(payload[2:], reason)
+
+	// Close must also release a reader or writer stuck on a control frame.
+	// Arm this before taking either lock; deadlines alone cannot bound locks.
+	stop := time.AfterFunc(5*time.Second, c.abort)
+	defer stop.Stop()
 
 	c.closeMu.Lock()
 	defer c.closeMu.Unlock()

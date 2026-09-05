@@ -119,6 +119,7 @@ func dialHTTPClient(ctx context.Context, u *url.URL, header http.Header, opts *D
 	client := *opts.HTTPClient
 
 	originalCheckRedirect := client.CheckRedirect
+	stripCredentials := false
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		normalizeHTTPRedirectScheme(req.URL)
 		if len(via) >= maxRedirects {
@@ -137,7 +138,8 @@ func dialHTTPClient(ctx context.Context, u *url.URL, header http.Header, opts *D
 		if secureURLScheme(previous.Scheme) && !secureURLScheme(req.URL.Scheme) {
 			return fmt.Errorf("%w: refusing wss to ws redirect", ErrBadHandshake)
 		}
-		if !sameOrigin(previous, req.URL) {
+		stripCredentials = stripCredentials || !sameOrigin(previous, req.URL)
+		if stripCredentials {
 			deleteHeaderFold(req.Header, "Authorization")
 			deleteHeaderFold(req.Header, "Cookie")
 			deleteHeaderFold(req.Header, "Proxy-Authorization")

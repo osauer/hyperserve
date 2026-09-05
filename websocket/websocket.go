@@ -65,7 +65,8 @@ type Upgrader struct {
 	// MaxMessageSize is the maximum size for a message read from the peer
 	MaxMessageSize int64
 
-	// HandshakeTimeout specifies the duration for the handshake to complete
+	// HandshakeTimeout bounds writing the upgrade response after the
+	// application-owned BeforeUpgrade hook returns.
 	HandshakeTimeout time.Duration
 
 	// BeforeUpgrade is called after origin check but before sending upgrade response
@@ -110,7 +111,7 @@ func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeade
 	}
 
 	// Perform handshake
-	netConn, buf, err := PerformHandshake(w, r, opts)
+	netConn, buf, err := performHandshake(w, r, opts, u.HandshakeTimeout)
 	if err != nil {
 		if u.Error != nil {
 			status := http.StatusBadRequest
@@ -125,12 +126,6 @@ func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeade
 			u.Error(w, r, status, err)
 		}
 		return nil, err
-	}
-
-	// Apply handshake timeout if specified
-	if u.HandshakeTimeout > 0 {
-		netConn.SetDeadline(time.Now().Add(u.HandshakeTimeout))
-		defer netConn.SetDeadline(time.Time{})
 	}
 
 	// Create WebSocket connection
@@ -375,11 +370,9 @@ func withContextIO(ctx context.Context, setDeadline func(time.Time) error, abort
 	}
 	done := make(chan struct{})
 	stop := context.AfterFunc(ctx, func() {
-		if setDeadline == nil {
-			abort()
-		} else {
-			_ = setDeadline(time.Now())
-		}
+		// A read can be writing an automatic pong or close reply. Closing
+		// the transport interrupts both directions, including wrapped I/O.
+		abort()
 		close(done)
 	})
 	err := fn()

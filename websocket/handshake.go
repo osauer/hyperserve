@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 )
 
 const (
@@ -76,6 +77,10 @@ func ValidateHandshake(r *http.Request) error {
 
 // PerformHandshake performs the WebSocket handshake
 func PerformHandshake(w http.ResponseWriter, r *http.Request, opts *HandshakeOptions) (net.Conn, *bufio.ReadWriter, error) {
+	return performHandshake(w, r, opts, 0)
+}
+
+func performHandshake(w http.ResponseWriter, r *http.Request, opts *HandshakeOptions, timeout time.Duration) (net.Conn, *bufio.ReadWriter, error) {
 	// Validate the handshake
 	if err := ValidateHandshake(r); err != nil {
 		return nil, nil, err
@@ -111,6 +116,13 @@ func PerformHandshake(w http.ResponseWriter, r *http.Request, opts *HandshakeOpt
 	conn, buf, err := hijacker.Hijack()
 	if err != nil {
 		return nil, nil, err
+	}
+	if timeout > 0 {
+		if err := conn.SetWriteDeadline(time.Now().Add(timeout)); err != nil {
+			_ = conn.Close()
+			return nil, nil, err
+		}
+		defer conn.SetWriteDeadline(time.Time{})
 	}
 
 	// Generate accept key
