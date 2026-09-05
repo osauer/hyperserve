@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"sync/atomic"
+	"unicode/utf8"
 )
 
 // Consolidate error responses to maintain a consistent format.
@@ -32,11 +33,17 @@ func (srv *Server) templateHandler(templateName string, data any) http.HandlerFu
 	}
 }
 
-// SSEMessage represents a Server-Sent Events message with an optional event type and data payload.
-// It follows the SSE format with event and data fields that can be sent to clients.
+// SSEMessage represents a Server-Sent Events message with a data payload,
+// an optional event type, and an optional event ID.
 type SSEMessage struct {
 	Event string `json:"event"` // Optional: Allows sending multiple event types
 	Data  any    `json:"data"`  // The actual data payload
+
+	// ID sets the client's last event ID. Empty IDs are omitted, leaving the
+	// client's previous ID unchanged; they do not emit an empty-ID reset.
+	// String omits IDs containing CR, LF, NUL, or invalid UTF-8 rather than
+	// changing their value. Applications own ID assignment and replay.
+	ID string `json:"id,omitempty"`
 }
 
 // NewSSEMessage creates a new SSE message with the given data and a default "message" event type.
@@ -56,6 +63,11 @@ func (sse *SSEMessage) String() string {
 	if event != "" {
 		b.WriteString("event: ")
 		b.WriteString(event)
+		b.WriteByte('\n')
+	}
+	if sse.ID != "" && !strings.ContainsAny(sse.ID, "\r\n\x00") && utf8.ValidString(sse.ID) {
+		b.WriteString("id: ")
+		b.WriteString(sse.ID)
 		b.WriteByte('\n')
 	}
 	data := strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(sseDataString(sse.Data))

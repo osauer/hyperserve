@@ -27,6 +27,20 @@ Entries tier by audience:
 Shape is enforced by `make changelog-lint RELEASE_VERSION=vX.Y.Z`; scaffold a
 new entry with `make changelog-stub RELEASE_VERSION=vX.Y.Z`.
 
+## [Unreleased]
+
+### What's new
+
+- Attach application-owned event IDs to SSE messages without changing existing
+  messages that omit the ID.
+
+### Added
+
+- `SSEMessage.ID` emits an optional `id:` field. Empty IDs omit the field and
+  do not reset the client's last event ID. IDs containing CR, LF, NUL, or
+  invalid UTF-8 are omitted entirely. Applications retain ownership of event
+  sequencing, persistence, and replay from `Last-Event-ID`.
+
 ## [2.1.3] - 2026-09-05 19:29 CEST
 
 This patch reduces allocation and contention in MCP, WebSocket, metrics,
