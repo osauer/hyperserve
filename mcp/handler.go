@@ -783,7 +783,10 @@ func (h *Handler) handleToolsCall(params any) (any, error) {
 }
 
 func (h *Handler) handleToolsCallContext(parent context.Context, params any) (any, error) {
-	var callParams ToolCallParams
+	var callParams struct {
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+	}
 
 	if params != nil {
 		paramBytes, err := json.Marshal(params)
@@ -800,6 +803,15 @@ func (h *Handler) handleToolsCallContext(parent context.Context, params any) (an
 		return nil, fmt.Errorf("tool not found: %s", callParams.Name)
 	}
 
+	jsonTool, directJSON := tool.(interface {
+		executeJSON(context.Context, json.RawMessage) (any, error)
+	})
+	var arguments map[string]any
+	if !directJSON && len(callParams.Arguments) > 0 {
+		if err := json.Unmarshal(callParams.Arguments, &arguments); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal call params: %w", err)
+		}
+	}
 	timeout := h.toolCallTimeout
 	if timeout <= 0 {
 		timeout = defaultToolCallTimeout
@@ -821,7 +833,11 @@ func (h *Handler) handleToolsCallContext(parent context.Context, params any) (an
 			}
 			resultCh <- result
 		}()
-		result.value, result.err = ctxTool.ExecuteWithContext(ctx, callParams.Arguments)
+		if directJSON {
+			result.value, result.err = jsonTool.executeJSON(ctx, callParams.Arguments)
+		} else {
+			result.value, result.err = ctxTool.ExecuteWithContext(ctx, arguments)
+		}
 	}()
 
 	var result any

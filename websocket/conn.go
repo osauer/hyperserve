@@ -28,11 +28,10 @@ type lowConn struct {
 	isServer bool
 
 	// Message assembly
-	messageMu      sync.Mutex
-	messageBuffer  []byte
-	messageType    int
-	messageActive  bool
-	maxMessageSize int64
+	messageMu     sync.Mutex
+	messageBuffer []byte
+	messageType   int
+	messageActive bool
 
 	// Wire writes
 	writeMu sync.Mutex
@@ -58,12 +57,11 @@ func newLowConn(conn io.ReadWriteCloser, buf *bufio.ReadWriter, isServer bool, m
 
 func newLowConnWithNetConn(conn io.ReadWriteCloser, netConn net.Conn, buf *bufio.ReadWriter, isServer bool, maxMessageSize int64) *lowConn {
 	return &lowConn{
-		conn:           conn,
-		netConn:        netConn,
-		reader:         NewFrameReader(buf.Reader, maxMessageSize),
-		writer:         NewFrameWriter(buf.Writer, isServer),
-		isServer:       isServer,
-		maxMessageSize: maxMessageSize,
+		conn:     conn,
+		netConn:  netConn,
+		reader:   NewFrameReader(buf.Reader, maxMessageSize),
+		writer:   NewFrameWriter(buf.Writer, isServer),
+		isServer: isServer,
 	}
 }
 
@@ -94,9 +92,17 @@ func (c *lowConn) ReadMessage() (messageType int, data []byte, err error) {
 	defer c.messageMu.Unlock()
 
 	for {
-		frame, err := c.ReadFrame()
-		if err != nil {
+		var frame Frame
+		if err := c.reader.readFrame(&frame, c.messageBuffer, c.messageActive); err != nil {
+			if errors.Is(err, ErrMessageTooBig) {
+				c.messageBuffer = nil
+				c.messageActive = false
+			}
 			return 0, nil, err
+		}
+
+		if frame.Masked != c.isServer {
+			return 0, nil, ErrMaskingViolation
 		}
 
 		switch frame.Opcode {
@@ -126,12 +132,8 @@ func (c *lowConn) ReadMessage() (messageType int, data []byte, err error) {
 			if !c.messageActive {
 				return 0, nil, ErrUnexpectedContinuation
 			}
-			if int64(len(c.messageBuffer))+int64(len(frame.Payload)) > c.maxMessageSize {
-				c.messageBuffer = nil
-				c.messageActive = false
-				return 0, nil, ErrMessageTooBig
-			}
-			c.messageBuffer = append(c.messageBuffer, frame.Payload...)
+
+			c.messageBuffer = frame.Payload
 
 			if frame.Fin {
 				if c.messageType == OpcodeText && !utf8.Valid(c.messageBuffer) {

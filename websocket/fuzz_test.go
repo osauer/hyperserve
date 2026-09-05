@@ -3,6 +3,7 @@ package websocket
 import (
 	"bufio"
 	"bytes"
+	"io"
 	"testing"
 )
 
@@ -18,6 +19,8 @@ func FuzzWebSocketFrameParse(f *testing.F) {
 		{0x81, 0x02, 'h', 'i'},
 		// Close frame with 1000 (normal).
 		{0x88, 0x02, 0x03, 0xe8},
+		// Fragmented binary message with an interleaved ping.
+		{0x02, 2, 1, 2, 0x89, 0, 0x80, 2, 3, 4},
 		// Truncated header.
 		{0x81},
 		// Empty.
@@ -36,5 +39,12 @@ func FuzzWebSocketFrameParse(f *testing.F) {
 		fr := NewFrameReader(reader, 1<<16)
 		// Don't care about correctness — just that we don't panic.
 		_, _ = fr.ReadFrame()
+		// Exercise accumulation and interleaved controls with the same bound.
+		reader.Reset(bytes.NewReader(data))
+		conn := &lowConn{
+			reader: NewFrameReader(reader, 1<<16),
+			writer: NewFrameWriter(bufio.NewWriter(io.Discard), false),
+		}
+		_, _, _ = conn.ReadMessage()
 	})
 }

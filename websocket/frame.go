@@ -66,6 +66,7 @@ type Frame struct {
 type FrameReader struct {
 	reader         *bufio.Reader
 	maxMessageSize int64
+	scratch        [8]byte
 }
 
 // NewFrameReader creates a new frame reader
@@ -81,83 +82,116 @@ func NewFrameReader(r *bufio.Reader, maxMessageSize int64) *FrameReader {
 
 // ReadFrame reads a single frame from the reader
 func (fr *FrameReader) ReadFrame() (*Frame, error) {
-	// Read frame header (2 bytes minimum)
-	header := make([]byte, 2)
-	if _, err := io.ReadFull(fr.reader, header); err != nil {
+	frame := new(Frame)
+	if err := fr.readFrame(frame, nil, false); err != nil {
 		return nil, err
 	}
+	return frame, nil
+}
 
-	frame := &Frame{
-		Fin:    (header[0] & 0x80) != 0,
-		RSV1:   (header[0] & 0x40) != 0,
-		RSV2:   (header[0] & 0x20) != 0,
-		RSV3:   (header[0] & 0x10) != 0,
-		Opcode: int(header[0] & 0x0F),
-		Masked: (header[1] & 0x80) != 0,
+// readFrame appends continuation payloads directly to the message accumulator.
+// Public ReadFrame still returns an independently owned single-frame payload.
+func (fr *FrameReader) readFrame(frame *Frame, message []byte, active bool) error {
+	header := fr.scratch[:2]
+	if _, err := io.ReadFull(fr.reader, header); err != nil {
+		return err
+	}
+	*frame = Frame{
+		Fin: header[0]&0x80 != 0, RSV1: header[0]&0x40 != 0,
+		RSV2: header[0]&0x20 != 0, RSV3: header[0]&0x10 != 0,
+		Opcode: int(header[0] & 0x0f), Masked: header[1]&0x80 != 0,
 	}
 
 	// Validate frame
 	if err := frame.validate(); err != nil {
-		return nil, err
+		return err
 	}
 
 	// Read payload length
 	payloadLen := int64(header[1] & 0x7F)
 	if payloadLen == 126 {
 		// Extended 16-bit length
-		var len16 uint16
-		if err := binary.Read(fr.reader, binary.BigEndian, &len16); err != nil {
-			return nil, err
+		if _, err := io.ReadFull(fr.reader, fr.scratch[:2]); err != nil {
+			return err
 		}
-		payloadLen = int64(len16)
+		payloadLen = int64(binary.BigEndian.Uint16(fr.scratch[:2]))
 		if payloadLen < 126 {
-			return nil, ErrNonCanonicalLength
+			return ErrNonCanonicalLength
 		}
 	} else if payloadLen == 127 {
 		// Extended 64-bit length
-		var len64 uint64
-		if err := binary.Read(fr.reader, binary.BigEndian, &len64); err != nil {
-			return nil, err
+		if _, err := io.ReadFull(fr.reader, fr.scratch[:8]); err != nil {
+			return err
 		}
+		len64 := binary.BigEndian.Uint64(fr.scratch[:8])
 		// Check for int64 overflow
 		if len64 > math.MaxInt64 {
-			return nil, errors.New("payload length exceeds maximum int64 value")
+			return errors.New("payload length exceeds maximum int64 value")
 		}
 		payloadLen = int64(len64)
 		if payloadLen < 65536 {
-			return nil, ErrNonCanonicalLength
+			return ErrNonCanonicalLength
 		}
 	}
 
 	// Check message size limit
 	if payloadLen > fr.maxMessageSize {
-		return nil, ErrMessageTooBig
+		return ErrMessageTooBig
 	}
 	if frame.IsControl() && payloadLen > 125 {
-		return nil, ErrControlFrameTooBig
+		return ErrControlFrameTooBig
 	}
 
 	// Read mask key if present
 	if frame.Masked {
-		if _, err := io.ReadFull(fr.reader, frame.MaskKey[:]); err != nil {
-			return nil, err
+		if _, err := io.ReadFull(fr.reader, fr.scratch[:4]); err != nil {
+			return err
 		}
+		copy(frame.MaskKey[:], fr.scratch[:4])
 	}
 
-	// Read payload
-	if payloadLen > 0 {
-		frame.Payload = make([]byte, payloadLen)
-		if _, err := io.ReadFull(fr.reader, frame.Payload); err != nil {
-			return nil, err
+	start := 0
+	if active && frame.Opcode == OpcodeContinuation {
+		if payloadLen > fr.maxMessageSize-int64(len(message)) {
+			return ErrMessageTooBig
 		}
-
-		// Unmask payload if needed
+		start = len(message)
+	}
+	maxInt := int(^uint(0) >> 1)
+	if payloadLen > int64(maxInt-start) {
+		return ErrMessageTooBig
+	}
+	size := start + int(payloadLen)
+	if active && frame.Opcode == OpcodeContinuation {
+		if size > cap(message) {
+			// Double within the configured limit instead of repeatedly copying
+			// large messages through small capacity increments.
+			capacity := maxInt
+			if cap(message) <= maxInt/2 {
+				capacity = 2 * cap(message)
+			}
+			capacity = max(size, capacity)
+			if int64(capacity) > fr.maxMessageSize {
+				capacity = int(fr.maxMessageSize)
+			}
+			grown := make([]byte, size, capacity)
+			copy(grown, message)
+			message = grown
+		}
+		frame.Payload = message[:size]
+	} else if size > 0 {
+		frame.Payload = make([]byte, size)
+	}
+	payload := frame.Payload[start:]
+	if len(payload) > 0 {
+		if _, err := io.ReadFull(fr.reader, payload); err != nil {
+			return err
+		}
 		if frame.Masked {
-			maskPayload(frame.Payload, frame.MaskKey)
+			maskPayload(payload, frame.MaskKey)
 		}
 	}
-
-	return frame, nil
+	return nil
 }
 
 // FrameWriter writes WebSocket frames

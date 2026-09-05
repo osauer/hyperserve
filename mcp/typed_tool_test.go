@@ -535,3 +535,43 @@ func TestNewTypedTool_RegistersThroughHandler(t *testing.T) {
 		t.Errorf("content[0].text = %v", first["text"])
 	}
 }
+
+func TestTypedToolDispatchArgumentValidation(t *testing.T) {
+	type args struct {
+		Value int `json:"value" validate:"min=1"`
+	}
+	h := NewHandler(ServerInfo{Name: "test", Version: "1"})
+	calls := 0
+	h.RegisterTool(NewTypedTool("strict", "", func(_ context.Context, a args) (any, error) { calls++; return a, nil }))
+	for _, raw := range []string{`{"name":"strict","arguments":{"value":1,"extra":2}}`, `{"name":"strict","arguments":[1]}`, `{"name":"strict","arguments":{"value":0}}`} {
+		var params any
+		if err := json.Unmarshal([]byte(raw), &params); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := h.handleToolsCall(params); err == nil {
+			t.Errorf("accepted %s", raw)
+		}
+	}
+	if calls != 0 {
+		t.Fatal("invalid arguments reached tool")
+	}
+	if _, err := h.handleToolsCall(map[string]any{"name": "strict", "arguments": map[string]any{"value": 2}}); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatal("valid arguments did not reach tool")
+	}
+}
+
+func TestTypedToolDispatchEmptyPointerArguments(t *testing.T) {
+	type args struct {
+		Value int `json:"value"`
+	}
+	h := NewHandler(ServerInfo{Name: "test", Version: "1"})
+	h.RegisterTool(NewTypedTool("pointer", "", func(_ context.Context, a *args) (any, error) { t.Fatal("nil input reached tool"); return nil, nil }))
+	for _, input := range []any{nil, map[string]any{}} {
+		if _, err := h.handleToolsCall(map[string]any{"name": "pointer", "arguments": input}); err == nil {
+			t.Errorf("accepted empty input %v", input)
+		}
+	}
+}

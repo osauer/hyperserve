@@ -127,8 +127,8 @@ type Server struct {
 	customLogger           bool
 	isReady                atomic.Bool
 	isRunning              atomic.Bool
-	totalRequests          atomic.Uint64
-	totalResponseTime      atomic.Int64
+	totalRequests          metricCounter[uint64]
+	totalResponseTime      metricCounter[int64]
 	totalWebSocketUpgrades atomic.Uint64
 	serverStart            time.Time
 	routesMu               sync.RWMutex

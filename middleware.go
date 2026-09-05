@@ -69,10 +69,12 @@ type middlewareDispatcher struct {
 // middleware wraps the node exactly once; ServeHTTP selects the most-specific
 // matching child or falls through to the standard library mux.
 type compiledMiddlewareNode struct {
-	prefix   string
-	children []*compiledMiddlewareNode
-	fallback http.Handler
-	handler  http.Handler
+	prefix         string
+	children       []*compiledMiddlewareNode
+	maxChildPrefix int
+	childIndex     map[string]*compiledMiddlewareNode
+	fallback       http.Handler
+	handler        http.Handler
 }
 
 // newMiddlewareRegistry creates a new registry with optional global middleware.
@@ -119,7 +121,20 @@ func (mwr *middlewareRegistry) compile(mux *http.ServeMux) http.Handler {
 		nodes = append(nodes, node)
 	}
 
-	root.handler = applyMiddlewareStack(mwr.middleware[globalMiddlewareRoute], root)
+	for _, node := range append(nodes, root) {
+		if len(node.children) > 16 {
+			node.childIndex = make(map[string]*compiledMiddlewareNode, len(node.children))
+			for _, child := range node.children {
+				node.childIndex[child.prefix] = child
+				node.maxChildPrefix = max(node.maxChildPrefix, len(child.prefix))
+			}
+		}
+	}
+	var next http.Handler = root
+	if len(root.children) == 0 {
+		next = mux
+	}
+	root.handler = applyMiddlewareStack(mwr.middleware[globalMiddlewareRoute], next)
 	return root.handler
 }
 
@@ -138,6 +153,14 @@ func (d *middlewareDispatcher) ServeHTTP(w http.ResponseWriter, r *http.Request)
 }
 
 func (node *compiledMiddlewareNode) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if node.childIndex != nil {
+		if child := node.indexedChild(r.URL.Path); child != nil {
+			child.handler.ServeHTTP(w, r)
+		} else {
+			node.fallback.ServeHTTP(w, r)
+		}
+		return
+	}
 	for _, child := range slices.Backward(node.children) {
 		if pathPrefixMatches(r.URL.Path, child.prefix) {
 			child.handler.ServeHTTP(w, r)
@@ -145,6 +168,30 @@ func (node *compiledMiddlewareNode) ServeHTTP(w http.ResponseWriter, r *http.Req
 		}
 	}
 	node.fallback.ServeHTTP(w, r)
+}
+
+// indexedChild probes exact and slash-boundary prefixes, longest first.
+// Lookup work depends on the request path, not the number of sibling scopes.
+func (node *compiledMiddlewareNode) indexedChild(path string) *compiledMiddlewareNode {
+	if len(path) <= node.maxChildPrefix {
+		if child := node.childIndex[path]; child != nil {
+			return child
+		}
+	}
+	for i := min(len(path)-1, node.maxChildPrefix); i >= 0; i-- {
+		if path[i] != '/' {
+			continue
+		}
+		if i < node.maxChildPrefix {
+			if child := node.childIndex[path[:i+1]]; child != nil {
+				return child
+			}
+		}
+		if child := node.childIndex[path[:i]]; child != nil {
+			return child
+		}
+	}
+	return node.childIndex[""]
 }
 
 // pathPrefixMatches reports whether `key` is a path-segment prefix of
@@ -258,6 +305,8 @@ type header struct {
 // MetricsMiddleware returns a middleware function that collects request metrics.
 // It tracks total request count and response times for performance monitoring.
 func MetricsMiddleware(srv *Server) Middleware {
+	srv.totalRequests.init()
+	srv.totalResponseTime.init()
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			srv.totalRequests.Add(1)

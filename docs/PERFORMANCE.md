@@ -8,6 +8,11 @@ connection reuse, and scheduler.
 
 - repository-root `benchmark_test.go` — routing, middleware dispatch, typed
   handlers, MCP wiring, and representative request paths;
+- root `performance_test.go` — sibling-prefix breadth and concurrent metrics;
+- `mcp/performance_test.go` — successful typed calls over both HTTP protocols,
+  including large arguments and isolated parsing stages;
+- `websocket/performance_test.go` — masked messages with varying fragmentation;
+- `mcp/builtin/performance_test.go` — log snapshot serialization;
 - `ratelimit/benchmark_test.go` — quota lookup and entry-footprint evidence;
 - `benchmarks/load` — loopback HTTP workload profiles.
 
@@ -16,6 +21,8 @@ Run in-process benchmarks:
 ```sh
 go test -run '^$' -bench . -benchmem .
 go test -run '^$' -bench . -benchmem ./ratelimit
+go test -run '^$' -bench 'Benchmark(MCP|FragmentedRead|LogSnapshot)' -benchmem ./mcp ./websocket ./mcp/builtin
+go test -run '^$' -bench BenchmarkMetricsParallel -benchmem -cpu=1,4,14 .
 ```
 
 Run the maintained loopback profiles:
@@ -51,6 +58,13 @@ memory claim.
   pooling, custom routers, assembly, or new configuration knobs.
 - Race detection and correctness tests remain mandatory; benchmark speed does
   not waive behavior.
+
+The default metrics counters distribute writes over 32 padded stripes per
+counter. This uses about 8 KiB per server and makes each getter sum 32 atomics.
+Totals are unsampled; concurrent reads are observations during ongoing writes,
+not a transaction across counters. The deprecated setters replace the stripe
+sets, preserving a reset boundary for concurrent additions. Include serial
+request cost and getter cost when evaluating this throughput tradeoff.
 
 ## Profiling
 

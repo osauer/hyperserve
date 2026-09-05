@@ -1,9 +1,9 @@
 package mcp
 
 import (
-	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"io"
@@ -277,60 +277,10 @@ func validJSONRPCID(id any) bool {
 }
 
 func validateUniqueJSON(data []byte) error {
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	var visit func() error
-	visit = func() error {
-		token, err := decoder.Token()
-		if err != nil {
-			return err
-		}
-		delim, ok := token.(json.Delim)
-		if !ok {
-			return nil
-		}
-		switch delim {
-		case '{':
-			seen := make(map[string]struct{})
-			for decoder.More() {
-				keyToken, err := decoder.Token()
-				if err != nil {
-					return err
-				}
-				key, ok := keyToken.(string)
-				if !ok {
-					return fmt.Errorf("JSON object key is not a string")
-				}
-				if _, duplicate := seen[key]; duplicate {
-					return fmt.Errorf("duplicate JSON object key %q", key)
-				}
-				seen[key] = struct{}{}
-				if err := visit(); err != nil {
-					return err
-				}
-			}
-			_, err = decoder.Token()
-			return err
-		case '[':
-			for decoder.More() {
-				if err := visit(); err != nil {
-					return err
-				}
-			}
-			_, err = decoder.Token()
-			return err
-		default:
-			return fmt.Errorf("unexpected JSON delimiter %q", delim)
-		}
-	}
-	if err := visit(); err != nil {
-		return err
-	}
-	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return fmt.Errorf("request body contains more than one JSON value")
-		}
-		return err
+	// Match encoding/json's UTF-8 replacement behavior, while rejecting
+	// duplicate names at every depth without materializing interface tokens.
+	if !jsontext.Value(data).IsValid(jsontext.AllowInvalidUTF8(true)) {
+		return errors.New("invalid JSON or duplicate object name")
 	}
 	return nil
 }

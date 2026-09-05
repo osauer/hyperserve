@@ -114,11 +114,27 @@ func (t *typedTool[In, Out]) Execute(params map[string]any) (any, error) {
 
 // ExecuteWithContext implements ToolWithContext.
 func (t *typedTool[In, Out]) ExecuteWithContext(ctx context.Context, params map[string]any) (any, error) {
-	var args In
+	var raw json.RawMessage
 	if len(params) > 0 {
-		raw, err := json.Marshal(params)
+		var err error
+		raw, err = json.Marshal(params)
 		if err != nil {
 			return nil, fmt.Errorf("encode arguments: %w", err)
+		}
+	}
+	return t.executeJSON(ctx, raw)
+}
+
+// executeJSON avoids a map decode and re-encode in the tool dispatcher.
+func (t *typedTool[In, Out]) executeJSON(ctx context.Context, raw json.RawMessage) (any, error) {
+	var args In
+	raw = bytes.TrimSpace(raw)
+	// Empty arguments retain the zero-value behavior of ExecuteWithContext,
+	// including validation of nil pointer inputs.
+	emptyObject := len(raw) >= 2 && raw[0] == '{' && raw[len(raw)-1] == '}' && len(bytes.TrimSpace(raw[1:len(raw)-1])) == 0
+	if len(raw) > 0 && !bytes.Equal(raw, []byte("null")) && !emptyObject {
+		if raw[0] != '{' {
+			return nil, fmt.Errorf("decode arguments: expected an object")
 		}
 		dec := json.NewDecoder(bytes.NewReader(raw))
 		dec.DisallowUnknownFields()

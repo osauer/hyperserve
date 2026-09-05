@@ -155,16 +155,15 @@ func (r *ServerLogResource) MimeType() string { return "application/json" }
 
 func (r *ServerLogResource) Read() (any, error) {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-
 	logsCopy := make([]logEntry, len(r.logs))
 	copy(logsCopy, r.logs)
+	r.mu.RUnlock()
 
 	logData := map[string]any{
 		"logs":      logsCopy,
 		"count":     len(logsCopy),
 		"max_size":  r.maxSize,
-		"truncated": len(r.logs) >= r.maxSize,
+		"truncated": len(logsCopy) >= r.maxSize,
 	}
 	jsonBytes, err := json.Marshal(logData)
 	if err != nil {
