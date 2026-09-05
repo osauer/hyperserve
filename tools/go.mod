@@ -4,7 +4,7 @@ go 1.27
 
 require (
 	github.com/modelcontextprotocol/go-sdk v1.7.0
-	github.com/osauer/hyperserve/v2 v2.1.0
+	github.com/osauer/hyperserve/v2 v2.1.1
 )
 
 require (

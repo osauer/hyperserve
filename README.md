@@ -5,10 +5,9 @@
 [![Go reference](https://pkg.go.dev/badge/github.com/osauer/hyperserve/v2.svg)](https://pkg.go.dev/github.com/osauer/hyperserve/v2)
 [![License: MIT](https://img.shields.io/github/license/osauer/hyperserve)](LICENSE)
 
-HyperServe is a Go server library built on `net/http`. It keeps standard
-handlers and `ServeMux` patterns while coordinating middleware, typed input,
-readiness, graceful shutdown, static files, templates, Server-Sent Events,
-WebSockets, and optional MCP.
+HyperServe is a Go server library built on `net/http`. It brings middleware,
+typed input, readiness, graceful shutdown, and optional streaming protocols
+under one server while keeping standard handlers and `ServeMux` patterns.
 
 Use it when those concerns should share one HTTP boundary and lifecycle. If a
 service only needs routes and JSON, plain `net/http` is usually the better
@@ -28,8 +27,12 @@ setup, or application authorization.
 HyperServe requires Go 1.27.
 
 ```sh
-go get github.com/osauer/hyperserve/v2@v2.1.0
+mkdir hello && cd hello
+go mod init example.com/hello
+go get github.com/osauer/hyperserve/v2@v2.1.1
 ```
+
+Save this as `main.go`:
 
 ```go
 package main
@@ -41,12 +44,13 @@ import (
     "net/http"
     "os"
     "os/signal"
+    "syscall"
 
     "github.com/osauer/hyperserve/v2"
 )
 
 func main() {
-    ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+    ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
     defer stop()
 
     app, err := hyperserve.New()
@@ -65,7 +69,7 @@ func main() {
 ```
 
 Run `go run .`, then request
-`http://localhost:8080/hello/Ada`. The application turns Ctrl+C into
+`http://localhost:8080/hello/Ada`. The application turns Ctrl+C or SIGTERM into
 cancellation; HyperServe follows that context and drains the resources it
 started. Handlers continue to use `r.Context()` for request lifetime.
 
@@ -85,33 +89,17 @@ For the next step, use the [examples](./examples/), the
 Constructor options are applied from left to right. Register middleware before
 `Run` or before the first request through `Handler`.
 
-### Middleware is a request wrapper
+### Middleware
 
 HyperServe middleware has the standard
-`func(http.Handler) http.Handler` shape. A wrapper can act before a request
-reaches the next handler, after it returns, or both:
+`func(http.Handler) http.Handler` shape. `New` installs request metrics,
+structured request logging, and panic recovery. Add application policy with
+`Use` or `UsePrefix`; the first registered wrapper is the outermost one.
+Middleware from another package works without an adapter.
 
-```go
-func responseHeader(name, value string) hyperserve.Middleware {
-    return func(next http.Handler) http.Handler {
-        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            w.Header().Set(name, value)
-            next.ServeHTTP(w, r)
-        })
-    }
-}
+### Rate limiting
 
-app.Use(responseHeader("X-Service-Version", "2026-08"))
-```
-
-`New` installs request metrics, structured request logging, and panic
-recovery. Add application policy explicitly. The first registered wrapper is
-the outermost one, and middleware from another package works without an
-adapter.
-
-### Rate limiting: create a gate, then place the gate in front of a path
-
-Rate limiting is owned by the `ratelimit` package, not by `Server`:
+Create a limiter, then attach it to the path that shares the quota:
 
 ```go
 import "github.com/osauer/hyperserve/v2/ratelimit"
@@ -166,10 +154,8 @@ the running application.
 
 ## Lifecycle and configuration
 
-The application owns process signals and the root context because a library
-cannot decide whether one signal should stop one server, several servers, or a
-larger host. `Run(ctx)` follows the supplied context; request handlers use
-`r.Context()`. `Shutdown(ctx)` is available when another component
+The application owns process signals and the root context.
+`Shutdown(ctx)` is available when another component
 coordinates the deadline. MCP over standard input/output uses `RunStdio()`.
 
 Configuration files and process environment are opt-in:
@@ -183,10 +169,8 @@ app, err := hyperserve.New(
 ```
 
 Later options win, so the final address above is an application invariant. A
-bare `New()` reads neither source. Retired server-owned limiter inputs
-`rate_limit`, `burst`, `HS_RATE_LIMIT`, and `HS_BURST_LIMIT` return an
-error when their source is explicitly bound; migrate them to
-`ratelimit.Config`.
+bare `New()` reads neither source. See the
+[migration guide](./docs/MIGRATING_V2_1.md) for retired configuration keys.
 
 ## Streaming and optional protocols
 
@@ -226,7 +210,7 @@ same machine; HyperServe publishes no universal throughput claim. See
 ## Scaffold a service
 
 ```sh
-go install github.com/osauer/hyperserve/v2/cmd/hyperserve-init@v2.1.0
+go install github.com/osauer/hyperserve/v2/cmd/hyperserve-init@v2.1.1
 hyperserve-init --module github.com/acme/payments
 cd payments
 go run ./cmd/server
@@ -247,5 +231,6 @@ application's authorization policy. See [scaffolding](./docs/SCAFFOLDING.md).
 - [Contributing](./CONTRIBUTING.md) — local workflow and pull requests
 - [Security policy](./SECURITY.md) — supported releases and private reporting
 
-MIT — see [LICENSE](./LICENSE). Bugs and usage questions belong in
-[GitHub Issues](https://github.com/osauer/hyperserve/issues).
+MIT — see [LICENSE](./LICENSE). Report bugs in
+[GitHub Issues](https://github.com/osauer/hyperserve/issues); ask usage questions in
+[Discussions](https://github.com/osauer/hyperserve/discussions).

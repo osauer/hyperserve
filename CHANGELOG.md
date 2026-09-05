@@ -27,6 +27,69 @@ Entries tier by audience:
 Shape is enforced by `make changelog-lint RELEASE_VERSION=vX.Y.Z`; scaffold a
 new entry with `make changelog-stub RELEASE_VERSION=vX.Y.Z`.
 
+## [2.1.1] - 2026-09-05 12:17 CEST
+
+This patch repairs request-boundary, WebSocket, and MCP defects and makes the
+README and generated services easier to use correctly.
+
+### What's new
+
+- Prevent credential restoration across WebSocket redirects and response-copy
+  recursion with INFO logging; restore cancellation under transport backpressure.
+- Preserve MCP request identity and cancellation across supported HTTP paths,
+  return structured typed results, and stop stdio after terminal I/O errors.
+- Drain generated services on SIGTERM, verify benchmark listener ownership,
+  and simplify the README with a complete first-run example.
+
+### Security
+
+- WebSocket redirects keep Authorization, Cookie, and Proxy-Authorization
+  stripped after crossing an origin, including subsequent same-origin hops.
+- INFO request logging can copy limited readers through HTTP/2 response writers
+  without recursive dispatch and unbounded stack growth.
+- Query and form binding respect `json:"-"`; numeric bounds reject NaN values
+  and NaN parameters; SSE data normalizes CR, LF, and CRLF into data lines.
+- `WithFIPSMode` now documents its TLS 1.2 cipher and curve restrictions
+  accurately. TLS 1.3 approved-algorithm policy requires application-enabled
+  Go FIPS mode; ineffective TLS 1.3 cipher entries were removed.
+
+### Fixed
+
+- Canceled WebSocket reads interrupt automatic control-frame writes. Automatic
+  replies and close operations are bounded, and `HandshakeTimeout` bounds the
+  upgrade response write.
+- Initialize-era MCP HTTP dispatch preserves the request context for tools and
+  resources, including authentication values and disconnect cancellation.
+- Typed MCP tool results include `structuredContent` and matching JSON text.
+  Scalar and array results use a `result` property for compatibility with
+  initialize-era MCP. Nested nullable fields have nullable output schemas;
+  top-level nil results with an advertised schema return a tool error.
+- Terminal MCP stdio input/output failures return instead of repeating forever;
+  malformed complete JSON records remain recoverable.
+- Generated applications handle SIGTERM and drain active requests.
+- Load benchmarks verify the child server's identity and expected responses,
+  refuse to overwrite existing results, and publish profiles only after success.
+- MCP benchmarks now measure valid requests for the active protocol.
+- The JSON API example returns snapshots from its concurrent store, the Web
+  Worker example starts without an unconfigured static root, and the MCP CLI
+  example runs its advertised stdio mode.
+
+### Changed
+
+- The README removes repeated middleware and lifecycle explanations, includes
+  module setup, and links usage questions to Discussions.
+- Scaffold and installation instructions target v2.1.1.
+
+### Verification
+
+- focused HTTP/2, TLS negotiation, WebSocket redirect/cancellation/handshake,
+  MCP context/output/stdio, generated SIGTERM, and benchmark ownership tests
+- `make check` and official MCP Go SDK output-schema conformance
+- `go test -race -count=1 -mod=readonly ./...` in the root and standalone auth example
+- `make fuzz-smoke` and `make release-smoke RELEASE_VERSION=v2.1.1`
+- disposable Canary consumer race witness against the final candidate commit
+- exact-SHA GitHub Actions push CI before tagging and publication
+
 ## [2.1.0] - 2026-08-27 19:58 CEST
 
 HyperServe now has one canonical branded root API, concern-specific public
