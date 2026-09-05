@@ -138,7 +138,8 @@ func TestMCPOptimizationsIntegration(t *testing.T) {
 		}
 		select {
 		case <-cancelled:
-		default:
+		// The dispatcher may return before the canceled tool is scheduled.
+		case <-time.After(time.Second):
 			t.Error("tool did not observe timeout cancellation")
 		}
 	})
