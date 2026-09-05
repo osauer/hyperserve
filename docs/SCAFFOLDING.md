@@ -7,7 +7,7 @@ gate.
 ## Install and generate
 
 ```sh
-go install github.com/osauer/hyperserve/v2/cmd/hyperserve-init@v2.1.2
+go install github.com/osauer/hyperserve/v2/cmd/hyperserve-init@v2.1.3
 hyperserve-init --module github.com/acme/payments
 cd payments
 go run ./cmd/server
@@ -89,4 +89,4 @@ grep -n '^replace ' go.mod
 
 The second command should print nothing. Release verification additionally
 generates from the public tag in a fresh module cache and confirms the module
-graph resolves `github.com/osauer/hyperserve/v2 v2.1.2`.
+graph resolves `github.com/osauer/hyperserve/v2 v2.1.3`.

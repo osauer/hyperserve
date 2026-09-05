@@ -27,6 +27,44 @@ Entries tier by audience:
 Shape is enforced by `make changelog-lint RELEASE_VERSION=vX.Y.Z`; scaffold a
 new entry with `make changelog-stub RELEASE_VERSION=vX.Y.Z`.
 
+## [2.1.3] - 2026-09-05 19:29 CEST
+
+This patch reduces allocation and contention in MCP, WebSocket, metrics,
+and prefix middleware paths.
+
+### What's new
+
+- Large typed MCP calls and fragmented WebSocket messages use fewer temporary
+  allocations while retaining protocol and input validation.
+- Reading an MCP log snapshot allows concurrent log writes during JSON encoding.
+- Wide middleware prefix registrations and concurrent metrics updates do less
+  work on the request path.
+
+### Changed
+
+- Typed MCP calls avoid an intermediate argument map and re-encoding. Duplicate
+  JSON object names remain rejected at every depth by the standard JSON validator.
+- WebSocket continuation payloads are read directly into a bounded message
+  buffer. Returned messages and standalone frames retain independent ownership.
+- Metrics writes use padded counter stripes to reduce CPU contention. Totals
+  remain unsampled; the tradeoff is about 8 KiB per server, more work in getters,
+  and a small increase in isolated request overhead.
+- Middleware nodes with many sibling scopes use indexed prefix lookup while
+  preserving segment boundaries, nesting, and middleware order.
+- Scaffold, examples, and installation instructions target v2.1.3.
+
+### Fixed
+
+- MCP log snapshots release the shared buffer lock before serialization and
+  derive count and truncation metadata from the copied snapshot.
+
+### Verification
+
+- `make check`, including official MCP SDK conformance and release-gate fixtures.
+- `make test-race` and `make fuzz-smoke`.
+- Repeated baseline/candidate benchmarks and bounded loopback HTTP comparisons;
+  the loopback workload showed no material throughput change.
+
 ## [2.1.2] - 2026-09-05 13:52 CEST
 
 This patch corrects MCP diagnostics and validation, preserves log context,

@@ -21,7 +21,7 @@ HyperServe requires Go 1.27.
 ```sh
 mkdir hello && cd hello
 go mod init example.com/hello
-go get github.com/osauer/hyperserve/v2@v2.1.2
+go get github.com/osauer/hyperserve/v2@v2.1.3
 ```
 
 Save this as `main.go`:
@@ -206,7 +206,7 @@ same machine; HyperServe publishes no universal throughput claim. See
 ## Scaffold a service
 
 ```sh
-go install github.com/osauer/hyperserve/v2/cmd/hyperserve-init@v2.1.2
+go install github.com/osauer/hyperserve/v2/cmd/hyperserve-init@v2.1.3
 hyperserve-init --module github.com/acme/payments
 cd payments
 go run ./cmd/server
