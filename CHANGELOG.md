@@ -27,6 +27,56 @@ Entries tier by audience:
 Shape is enforced by `make changelog-lint RELEASE_VERSION=vX.Y.Z`; scaffold a
 new entry with `make changelog-stub RELEASE_VERSION=vX.Y.Z`.
 
+## [2.1.2] - 2026-09-05 13:52 CEST
+
+This patch corrects MCP diagnostics and validation, preserves log context,
+and simplifies tool construction and maintenance.
+
+### What's new
+
+- Keep scoped log attributes and groups in MCP log snapshots and forwarded logs.
+- Reject misspelled validation rules and invalid numeric tool enums; preserve
+  the full unsigned integer range in schemas.
+- Report actual middleware registration scopes and keep built tools independent
+  of later builder changes.
+
+### Fixed
+
+- MCP log resources preserve attributes added by `Logger.With`, nested groups,
+  and resolved log values while sharing one bounded buffer across derived loggers.
+- Unknown `validate` rules return field errors in HTTP binding and typed MCP
+  tools instead of silently accepting input. Other struct tags remain independent.
+- Numeric `oneof` schemas preserve signed and unsigned values as JSON numbers.
+  Invalid, non-finite, and out-of-range options fail during tool construction.
+- `ToolBuilder.Build` snapshots metadata, parameter schemas, and the execution
+  function so reusing the builder cannot alter an already registered tool.
+- The development route inspector replaces misleading per-route `middleware`
+  name lists with top-level `middleware_registrations` containing actual `prefix`
+  and `count` pairs. Registrations include global and middleware-only scopes;
+  route filters leave them intact. Health listener routes remain separate.
+
+### Deprecated
+
+- `Server.SetMetrics` and `Server.AddMetrics` remain available for compatibility.
+  Request middleware owns these counters; tests should exercise `Server.Handler`.
+
+### Changed
+
+- Metrics and middleware tests verify observable behavior; the package-document
+  test no longer freezes an introductory sentence. Comments describe current
+  behavior without retaining refactor history.
+- Scaffold, examples, and installation instructions target v2.1.2.
+
+### Verification
+
+- focused builder, validation, numeric enum, route inspector, and standard
+  `slog.Handler` contract tests
+- `make check` and official MCP Go SDK conformance
+- `go test -race -count=1 -mod=readonly ./...` in the root and standalone auth example
+- `make fuzz-smoke` and `make release-smoke RELEASE_VERSION=v2.1.2`
+- disposable Canary consumer race witness against the final candidate commit
+- exact-SHA GitHub Actions push CI before tagging and publication
+
 ## [2.1.1] - 2026-09-05 12:17 CEST
 
 This patch repairs request-boundary, WebSocket, and MCP defects and makes the

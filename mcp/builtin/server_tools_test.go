@@ -3,6 +3,7 @@ package builtin
 import (
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -49,7 +50,6 @@ func TestRouteInspectorTool(t *testing.T) {
 			t.Errorf("Expected routes to be []map[string]any, got %T", response["routes"])
 		}
 
-		// Should have more than the original 5 hardcoded routes
 		if len(routes) < 4 {
 			t.Errorf("Expected at least 4 routes, got %d", len(routes))
 		}
@@ -100,41 +100,35 @@ func TestRouteInspectorTool(t *testing.T) {
 				t.Errorf("Expected pattern to be string, got %T", route["pattern"])
 				continue
 			}
-			if !contains(pattern, "/api") {
+			if !strings.Contains(pattern, "/api") {
 				t.Errorf("Route %s should contain '/api'", pattern)
 			}
 		}
 	})
 
 	t.Run("middleware_information", func(t *testing.T) {
-		// Test middleware chain reporting
 		result, err := tool.Execute(map[string]any{
 			"include_middleware": true,
+			"pattern":            "/api",
 		})
 		if err != nil {
-			t.Errorf("Execute failed: %v", err)
+			t.Fatalf("Execute failed: %v", err)
 		}
-
-		response, ok := result.(map[string]any)
-		if !ok {
-			t.Errorf("Expected map[string]any, got %T", result)
+		response := result.(map[string]any)
+		want := []map[string]any{
+			{"prefix": "*", "count": 3},
+			{"prefix": "/admin", "count": 1},
+			{"prefix": "/api/test", "count": 1},
+			{"prefix": "/api/users", "count": 1},
+			{"prefix": "/middleware-only", "count": 1},
+			{"prefix": "/static", "count": 1},
 		}
-
-		routes, ok := response["routes"].([]map[string]any)
-		if !ok {
-			t.Errorf("Expected routes to be []map[string]any, got %T", response["routes"])
+		if got := response["middleware_registrations"]; !reflect.DeepEqual(got, want) {
+			t.Errorf("middleware registrations = %#v, want %#v", got, want)
 		}
-
-		// Each route should have middleware information
-		for _, route := range routes {
-			middleware, ok := route["middleware"]
-			if !ok {
-				t.Errorf("Expected middleware information for route %v", route["pattern"])
-			}
-
-			// Middleware should be an array
-			if _, ok := middleware.([]string); !ok {
-				t.Errorf("Expected middleware to be []string, got %T", middleware)
+		for _, route := range response["routes"].([]map[string]any) {
+			if _, exists := route["middleware"]; exists {
+				t.Errorf("route %s must not claim an inferred middleware chain", route["pattern"])
 			}
 		}
 	})
@@ -151,6 +145,11 @@ func TestRouteInspectorTool(t *testing.T) {
 		response, ok := result.(map[string]any)
 		if !ok {
 			t.Errorf("Expected map[string]any, got %T", result)
+		}
+		for _, key := range []string{"middleware_registrations", "middleware_note"} {
+			if _, exists := response[key]; exists {
+				t.Errorf("include_middleware=false returned %q", key)
+			}
 		}
 
 		routes, ok := response["routes"].([]map[string]any)
@@ -359,21 +358,6 @@ func TestRouteInspectorPreservesSamePathAcrossMainAndHealthServers(t *testing.T)
 	if !slices.Equal(methodsByServer["health"], []string{"GET"}) {
 		t.Errorf("health /healthz methods = %v, want [GET]", methodsByServer["health"])
 	}
-}
-
-// Helper function to check if a string contains a substring
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || (len(s) > len(substr) && stringContains(s, substr)))
-}
-
-// Simple string contains implementation
-func stringContains(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
 
 // TestServerControlTool tests the ServerControlTool functionality

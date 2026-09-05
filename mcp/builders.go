@@ -1,43 +1,25 @@
 package mcp
 
-import "fmt"
+import (
+	"fmt"
+	"maps"
+	"slices"
+)
 
-// simpleTool is the function-field Tool implementation that ToolBuilder
-// assembles in Build(). It is intentionally unexported: every consumer in
-// this repo, in examples, and in the tests reaches Tool through the builder
-// path or through NewTypedTool — nobody constructs the struct directly.
-// Exposing it widens the public surface without buying anything.
 type simpleTool struct {
-	NameFunc        func() string
-	DescriptionFunc func() string
-	SchemaFunc      func() map[string]any
-	ExecuteFunc     func(map[string]any) (any, error)
+	name        string
+	description string
+	schema      map[string]any
+	execute     func(map[string]any) (any, error)
 }
 
-func (t *simpleTool) Name() string {
-	if t.NameFunc != nil {
-		return t.NameFunc()
-	}
-	return "unnamed_tool"
-}
-
-func (t *simpleTool) Description() string {
-	if t.DescriptionFunc != nil {
-		return t.DescriptionFunc()
-	}
-	return "No description provided"
-}
-
-func (t *simpleTool) Schema() map[string]any {
-	if t.SchemaFunc != nil {
-		return t.SchemaFunc()
-	}
-	return map[string]any{"type": "object"}
-}
+func (t *simpleTool) Name() string           { return t.name }
+func (t *simpleTool) Description() string    { return t.description }
+func (t *simpleTool) Schema() map[string]any { return t.schema }
 
 func (t *simpleTool) Execute(params map[string]any) (any, error) {
-	if t.ExecuteFunc != nil {
-		return t.ExecuteFunc(params)
+	if t.execute != nil {
+		return t.execute(params)
 	}
 	return nil, fmt.Errorf("execute function not implemented")
 }
@@ -89,12 +71,25 @@ func (b *ToolBuilder) WithExecute(fn func(map[string]any) (any, error)) *ToolBui
 	return b
 }
 
+// Build snapshots the tool's metadata, parameter schema, and execution function.
+// Later changes to the builder do not alter the returned tool.
 func (b *ToolBuilder) Build() Tool {
+	schema := maps.Clone(b.schema)
+	if properties, ok := b.schema["properties"].(map[string]any); ok {
+		copied := make(map[string]any, len(properties))
+		for name, property := range properties {
+			copied[name] = maps.Clone(property.(map[string]any))
+		}
+		schema["properties"] = copied
+	}
+	if required, ok := b.schema["required"].([]string); ok {
+		schema["required"] = slices.Clone(required)
+	}
 	return &simpleTool{
-		NameFunc:        func() string { return b.name },
-		DescriptionFunc: func() string { return b.description },
-		SchemaFunc:      func() map[string]any { return b.schema },
-		ExecuteFunc:     b.executeFunc,
+		name:        b.name,
+		description: b.description,
+		schema:      schema,
+		execute:     b.executeFunc,
 	}
 }
 

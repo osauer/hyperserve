@@ -1094,11 +1094,8 @@ func (srv *Server) CompleteDeferredInit(ctx context.Context, err error) error {
 	return srv.completeDeferredInit(ctx, err, nil)
 }
 
-// Handle registers an http.Handler for the given pattern. Mirrors
-// http.ServeMux.Handle but also tracks the pattern so prefix middleware can
-// find it. Use this when you have an
-// existing http.Handler (e.g., http.FileServer); use HandleFunc for inline
-// handler functions.
+// Handle registers an http.Handler with the server's ServeMux and records
+// the pattern for route inspection. Use HandleFunc for handler functions.
 //
 //	srv.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("./static"))))
 func (srv *Server) Handle(pattern string, handler http.Handler) {
@@ -1122,27 +1119,6 @@ func (srv *Server) hasRoute(pattern string) bool {
 	return ok
 }
 
-// HandleFunc registers the handler function for the given pattern.
-// The pattern follows the standard net/http ServeMux patterns:
-//   - "/path" matches exactly
-//   - "/path/" matches the path and any subpaths
-//   - Patterns are matched in order of specificity
-//
-// Registered handlers automatically benefit from any global middleware
-// (logging, recovery, metrics) plus any route-specific middleware.
-//
-// Example:
-//
-//	srv.HandleFunc("/api/users", func(w http.ResponseWriter, r *http.Request) {
-//	    users := getUsersFromDB()
-//	    json.NewEncoder(w).Encode(users)
-//	})
-//
-//	srv.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-//	    w.WriteHeader(http.StatusOK)
-//	    fmt.Fprintln(w, "OK")
-//	})
-
 // Handler returns an ordinary http.Handler. Middleware registration remains
 // open until the handler serves its first request, then its compiled plan and
 // the server's middleware configuration are frozen.
@@ -1156,6 +1132,8 @@ func (srv *Server) Options() Options {
 	return cloneOptions(srv.options)
 }
 
+// HandleFunc registers a handler function using [http.ServeMux] patterns.
+// Requests pass through global middleware and matching UsePrefix middleware.
 func (srv *Server) HandleFunc(pattern string, handler http.HandlerFunc) {
 	srv.registerRoute(pattern)
 	srv.mux.HandleFunc(pattern, handler)
@@ -1236,16 +1214,19 @@ func (srv *Server) TotalRequests() uint64 { return srv.totalRequests.Load() }
 // TotalResponseTime returns the cumulative response time in microseconds.
 func (srv *Server) TotalResponseTime() int64 { return srv.totalResponseTime.Load() }
 
-// SetMetrics is a test affordance: it overrides the request count and
-// cumulative response time. Production code should never call this; metrics
-// are populated by the request-handling middleware.
+// SetMetrics overrides the request count and cumulative response time in microseconds.
+//
+// Deprecated: metrics are owned by request middleware. Tests should exercise
+// requests through Handler instead of overwriting server counters.
 func (srv *Server) SetMetrics(totalRequests uint64, totalResponseTime int64) {
 	srv.totalRequests.Store(totalRequests)
 	srv.totalResponseTime.Store(totalResponseTime)
 }
 
-// AddMetrics is a test affordance: it adds deltaRequests to the request count
-// and deltaResponseTime to the cumulative response time. See SetMetrics.
+// AddMetrics adds to the request count and cumulative response time in microseconds.
+//
+// Deprecated: metrics are owned by request middleware. Tests should exercise
+// requests through Handler instead of updating server counters.
 func (srv *Server) AddMetrics(deltaRequests uint64, deltaResponseTime int64) {
 	srv.totalRequests.Add(deltaRequests)
 	srv.totalResponseTime.Add(deltaResponseTime)

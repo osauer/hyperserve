@@ -1,24 +1,8 @@
 package hyperserve
 
-// Request binding + struct-tag validation.
-//
-// This is the one feature Gin gives you that net/http doesn't: parse JSON
-// (or form / query) into a Go struct, then validate the fields against
-// `validate:"..."` tags, with structured errors when something is wrong.
-//
-// Design constraints:
-//   - Zero new runtime dependencies. The library still ships with one
-//     transitive dep (golang.org/x/time). Validators are tag-driven over
-//     reflection; no validator/v10, no codegen.
-//   - Stdlib-shaped API: takes the *http.Request you already have, writes
-//     into a destination struct, returns an error. No middleware-driven
-//     side channel; the handler stays in control.
-//   - Honest error type: ValidationError carries one entry per failing
-//     field so handlers can render JSON 400s without string-parsing.
-//
-// The validator core lives in internal/validate so mcp (typed tools)
-// can reuse it without creating an import cycle. The types are re-exported
-// here via aliases so existing callers don't move.
+// Request binding decodes JSON, form, or query data into a Go struct and
+// validates its fields against `validate:"..."` tags. HTTP binding and MCP
+// typed tools share the validator in internal/validate and its error types.
 //
 // Supported `validate` tag verbs:
 //
@@ -32,6 +16,7 @@ package hyperserve
 //
 // Tags compose left-to-right; the first failure wins for a given field.
 // Apply multiple tags with commas: `validate:"required,min=3,max=64"`.
+// Unknown validation rules return an error; unrelated struct tags are ignored.
 
 import (
 	"encoding/json"

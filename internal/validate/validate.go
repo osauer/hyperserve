@@ -16,6 +16,9 @@
 //	email              loose RFC 5322 sanity check on the local-part/domain
 //	oneof=A B C        value must equal one of the (space-separated) options
 //	url                must parse via net/url and have a scheme + host
+//
+// Unknown rules return a validation error. Struct tags other than validate
+// are not interpreted as rules.
 package validate
 
 import (
@@ -104,21 +107,7 @@ func validateStruct(v reflect.Value, parent string, errs *ValidationError) {
 			continue
 		}
 		fv := v.Field(i)
-		// Recurse into nested structs (or struct pointers) so deeply
-		// validated payloads don't need a per-handler walk.
-		if fv.Kind() == reflect.Struct {
-			validateStruct(fv, FieldName(sf, parent), errs)
-			continue
-		}
-		if fv.Kind() == reflect.Pointer && fv.Elem().Kind() == reflect.Struct {
-			if !fv.IsNil() {
-				validateStruct(fv.Elem(), FieldName(sf, parent), errs)
-			}
-		}
 		tag := sf.Tag.Get("validate")
-		if tag == "" {
-			continue
-		}
 		name := FieldName(sf, parent)
 		for rule := range strings.SplitSeq(tag, ",") {
 			rule = strings.TrimSpace(rule)
@@ -136,6 +125,11 @@ func validateStruct(v reflect.Value, parent string, errs *ValidationError) {
 				})
 				break // first failure per field wins
 			}
+		}
+		if fv.Kind() == reflect.Struct {
+			validateStruct(fv, name, errs)
+		} else if fv.Kind() == reflect.Pointer && !fv.IsNil() && fv.Elem().Kind() == reflect.Struct {
+			validateStruct(fv.Elem(), name, errs)
 		}
 	}
 }
@@ -216,10 +210,7 @@ func runRule(verb, param string, v reflect.Value) (string, bool) {
 		}
 		return "must be one of: " + param, false
 	default:
-		// Unknown verbs are silently passed; this keeps custom tag
-		// readers (gorm, db, …) from being mistaken for validate verbs
-		// when the user reuses the field for two purposes.
-		return "", true
+		return fmt.Sprintf("unknown validation rule %q", verb), false
 	}
 }
 

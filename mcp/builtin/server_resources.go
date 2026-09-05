@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"math"
 	"runtime"
+	"slices"
 	"sync"
 	"time"
 
@@ -111,14 +112,21 @@ func (r *ServerHealthResource) List() ([]string, error) { return []string{r.URI(
 // MCP. It implements slog.Handler so it can be injected into one MCP handler's
 // logging chain without intercepting process-wide application logs.
 type ServerLogResource struct {
-	mu      sync.RWMutex
-	logs    []logEntry
-	maxSize int
+	*logBuffer
+	attrs   []slog.Attr
+	groups  []string
 	handler slog.Handler
 }
 
+// Derived slog handlers share the buffer, but own their attribute/group state.
+type logBuffer struct {
+	mu      sync.RWMutex
+	logs    []logEntry
+	maxSize int
+}
+
 type logEntry struct {
-	Time    time.Time      `json:"time"`
+	Time    time.Time      `json:"time,omitzero"`
 	Level   string         `json:"level"`
 	Message string         `json:"msg"`
 	Attrs   map[string]any `json:"attrs,omitempty"`
@@ -131,8 +139,10 @@ func NewServerLogResource(maxSize int) *ServerLogResource {
 		maxSize = 100
 	}
 	return &ServerLogResource{
-		logs:    make([]logEntry, 0, maxSize),
-		maxSize: maxSize,
+		logBuffer: &logBuffer{
+			logs:    make([]logEntry, 0, maxSize),
+			maxSize: maxSize,
+		},
 	}
 }
 
@@ -173,10 +183,17 @@ func (r *ServerLogResource) Handle(ctx context.Context, record slog.Record) erro
 		Message: record.Message,
 		Attrs:   make(map[string]any),
 	}
+	for _, attr := range r.attrs {
+		addLogAttr(entry.Attrs, attr)
+	}
+	attrs := make([]slog.Attr, 0, record.NumAttrs())
 	record.Attrs(func(attr slog.Attr) bool {
-		entry.Attrs[attr.Key] = attr.Value.Any()
+		attrs = append(attrs, attr)
 		return true
 	})
+	for _, attr := range scopedLogAttrs(r.groups, attrs) {
+		addLogAttr(entry.Attrs, attr)
+	}
 
 	r.mu.Lock()
 	if len(r.logs) >= r.maxSize {
@@ -199,8 +216,70 @@ func (r *ServerLogResource) Enabled(ctx context.Context, level slog.Level) bool 
 	return true
 }
 
-func (r *ServerLogResource) WithAttrs(attrs []slog.Attr) slog.Handler { return r }
-func (r *ServerLogResource) WithGroup(name string) slog.Handler       { return r }
+func (r *ServerLogResource) WithAttrs(attrs []slog.Attr) slog.Handler {
+	attrs = resolveLogAttrs(attrs)
+	derived := *r
+	derived.attrs = append(slices.Clone(r.attrs), scopedLogAttrs(r.groups, slices.Clone(attrs))...)
+	if r.handler != nil {
+		derived.handler = r.handler.WithAttrs(attrs)
+	}
+	return &derived
+}
+
+func resolveLogAttrs(attrs []slog.Attr) []slog.Attr {
+	resolved := slices.Clone(attrs)
+	for i := range resolved {
+		value := resolved[i].Value.Resolve()
+		if value.Kind() == slog.KindGroup {
+			value = slog.GroupValue(resolveLogAttrs(value.Group())...)
+		}
+		resolved[i].Value = value
+	}
+	return resolved
+}
+
+func (r *ServerLogResource) WithGroup(name string) slog.Handler {
+	if name == "" {
+		return r
+	}
+	derived := *r
+	derived.groups = append(slices.Clone(r.groups), name)
+	if r.handler != nil {
+		derived.handler = r.handler.WithGroup(name)
+	}
+	return &derived
+}
+
+func scopedLogAttrs(groups []string, attrs []slog.Attr) []slog.Attr {
+	for _, group := range slices.Backward(groups) {
+		attrs = []slog.Attr{slog.GroupAttrs(group, attrs...)}
+	}
+	return attrs
+}
+
+func addLogAttr(dst map[string]any, attr slog.Attr) {
+	attr.Value = attr.Value.Resolve()
+	if attr.Equal(slog.Attr{}) {
+		return
+	}
+	if attr.Value.Kind() != slog.KindGroup {
+		dst[attr.Key] = attr.Value.Any()
+		return
+	}
+	group := dst
+	if attr.Key != "" {
+		group, _ = dst[attr.Key].(map[string]any)
+		if group == nil {
+			group = make(map[string]any)
+		}
+	}
+	for _, child := range attr.Value.Group() {
+		addLogAttr(group, child)
+	}
+	if attr.Key != "" && len(group) > 0 {
+		dst[attr.Key] = group
+	}
+}
 
 // StreamingLogResource keeps the established development URI while exposing
 // the same bounded snapshot semantics as ServerLogResource. Clients re-read

@@ -232,8 +232,6 @@ func normalizeOptions(options *Options) error {
 type Option func(*Server) error
 
 // envBinding maps one HS_ environment variable to one field-write closure.
-// The previous implementation unrolled this as ~180 lines of cut-and-paste
-// branches; a single table is easier to scan and to extend.
 type envBinding struct {
 	name  string
 	apply func(value string, c *Options)

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -201,7 +203,17 @@ func TestMetricsResource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
-	srv.SetMetrics(100, 5000)
+	srv.GET("/activity", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	handler := srv.Handler()
+	for range 100 {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/activity", nil))
+		if recorder.Code != http.StatusNoContent {
+			t.Fatalf("activity response status = %d", recorder.Code)
+		}
+	}
 
 	resource := NewMetricsResource(srv)
 

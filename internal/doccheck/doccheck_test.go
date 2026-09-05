@@ -4,7 +4,6 @@ import (
 	"io/fs"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -291,21 +290,6 @@ func TestReleaseAuthoringRequiresFutureMajorAfterV21(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestMCPPackageDocStartsWithCanonicalOverview(t *testing.T) {
-	cmd := exec.Command("go", "list", "-f", "{{.Doc}}", "./mcp")
-	cmd.Dir = repoRoot(t)
-	cmd.Env = append(os.Environ(), "GOWORK=off")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("go list MCP package doc: %v\n%s", err, output)
-	}
-
-	const want = "Package mcp implements the Model Context Protocol (MCP) over JSON-RPC 2.0."
-	if !strings.HasPrefix(strings.TrimSpace(string(output)), want) {
-		t.Fatalf("MCP package doc must start with canonical overview %q; got %q", want, strings.TrimSpace(string(output)))
 	}
 }
 

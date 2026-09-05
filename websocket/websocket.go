@@ -47,10 +47,6 @@ func newConn(low *lowConn) *Conn {
 }
 
 // Upgrader upgrades HTTP connections to WebSocket connections.
-// The previously-advertised WriteBufferSize, ReadBufferSize, and
-// EnableCompression fields were silent no-ops (never read by Upgrade) and
-// were removed in this release; if you need compression negotiation or
-// buffer tuning, ship a real implementation rather than a label.
 type Upgrader struct {
 	// CheckOrigin returns true if the request Origin header is acceptable
 	// If nil, a safe default is used that checks for same-origin requests

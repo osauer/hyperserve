@@ -410,9 +410,13 @@ func TestMCPResources_ThreadSafety(t *testing.T) {
 		t.Fatalf("Failed to create server: %v", err)
 	}
 
-	// Simulate some server activity to populate metrics
-	srv.SetMetrics(100, srv.TotalResponseTime())
-	srv.SetMetrics(srv.TotalRequests(), 1000000000) // 1 second in nanoseconds
+	srv.GET("/activity", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	handler := srv.Handler()
+	for range 100 {
+		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/activity", nil))
+	}
 
 	resources := []string{
 		"config://server/options",
@@ -554,6 +558,10 @@ func TestMCPConcurrency_DataRace(t *testing.T) {
 	}
 
 	// Test concurrent access to server state that might cause data races
+	srv.GET("/activity", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	handler := srv.Handler()
 	var wg sync.WaitGroup
 	const numGoroutines = 20
 
@@ -603,21 +611,21 @@ func TestMCPConcurrency_DataRace(t *testing.T) {
 	}
 
 	// Concurrent server statistics updates
-	for i := range numGoroutines {
-		wg.Add(1)
-		go func(id int) {
-			defer wg.Done()
-
-			// Simulate request processing that updates server stats
-			srv.AddMetrics(uint64(1), 0)
-			srv.AddMetrics(0, int64(int64(time.Millisecond)))
-		}(i)
+	for range numGoroutines {
+		wg.Go(func() {
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/activity", nil))
+			if recorder.Code != http.StatusNoContent {
+				t.Errorf("activity response status = %d", recorder.Code)
+			}
+		})
 	}
 
 	wg.Wait()
 
-	// If we reach here without the race detector triggering, the test passes
-	t.Log("No data races detected in concurrent MCP operations")
+	if got := srv.TotalRequests(); got != numGoroutines {
+		t.Errorf("total requests = %d, want %d", got, numGoroutines)
+	}
 }
 
 // TestMCPConcurrency_MemoryUsage tests that concurrent requests don't cause memory leaks

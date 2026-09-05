@@ -265,8 +265,16 @@ go build -o myapp
 
 **mcp__hyperserve__route_inspector**
 - List all registered routes
-- View middleware chains
+- View middleware registration scopes and counts
 - Filter routes by pattern
+
+With `include_middleware: true` (the default), the response includes
+`middleware_registrations`, a list of `prefix` and `count` pairs for the main
+server. `*` is global, an empty prefix covers all paths, and other prefixes
+apply at slash boundaries. The route
+filter leaves this list intact, including scopes without registered routes.
+Health routes run on a separate listener. These registration counts do not
+describe a per-request execution trace or identify middleware functions.
 
 **mcp__hyperserve__dev_guide**
 - Reference card for the developer toolkit (tools, resources, workflows).
@@ -394,6 +402,10 @@ Supported `validate` verbs map to JSON Schema as:
 | `min=N` / `max=N`     | string         | `minLength` / `maxLength`   |
 | `min=N` / `max=N`     | array/slice    | `minItems` / `maxItems`     |
 | `len=N`               | string/array   | min and max set to N        |
+
+Numeric `oneof` values retain their JSON number type, including the full
+`uint64` range. Invalid or out-of-range numeric options panic when the tool is
+constructed. Unknown `validate` rules return an error during argument binding.
 
 Validation failures surface through the JSON-RPC tool-call error with the
 same per-field message format produced by `hyperserve.BindJSON`

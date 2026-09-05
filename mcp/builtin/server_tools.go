@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/osauer/hyperserve/v2"
@@ -76,7 +77,7 @@ func NewRouteInspectorTool(srv *hyperserve.Server) *RouteInspectorTool {
 func (t *RouteInspectorTool) Name() string { return "route_inspector" }
 
 func (t *RouteInspectorTool) Description() string {
-	return "List all registered HTTP routes in HyperServe with their patterns and middleware. Use pattern parameter to filter routes (e.g., '/api' shows only API routes)"
+	return "List registered HTTP routes and middleware registration scopes. The pattern parameter filters routes (e.g., '/api' shows API routes)."
 }
 
 func (t *RouteInspectorTool) Schema() map[string]any {
@@ -89,7 +90,7 @@ func (t *RouteInspectorTool) Schema() map[string]any {
 			},
 			"include_middleware": map[string]any{
 				"type":        "boolean",
-				"description": "Include middleware chain information for each route (default: true). Shows security headers, rate limiting, auth middleware, etc.",
+				"description": "Include the main server's middleware registration scopes and counts (default: true). Registrations are not a per-request execution trace.",
 				"default":     true,
 			},
 		},
@@ -104,23 +105,18 @@ func (t *RouteInspectorTool) Execute(params map[string]any) (any, error) {
 	}
 
 	routes := []map[string]any{}
-	middlewareRoutes := t.server.MiddlewareRoutes()
 	for _, route := range t.server.RegisteredRoutes() {
 		routePattern, methods := splitServeMuxPattern(route)
 		if pattern != "" && !strings.Contains(routePattern, pattern) {
 			continue
 		}
-		middlewareStack := middlewareRoutes[route]
-		if len(middlewareStack) == 0 {
-			middlewareStack = middlewareRoutes[routePattern]
-		}
-		routes = append(routes, makeRouteInfo(routePattern, "main", methods, includeMiddleware, middlewareStackNames(middlewareStack)))
+		routes = append(routes, makeRouteInfo(routePattern, "main", methods))
 	}
 
-	// Synthesize known health routes when they aren't visible via middleware registry.
+	// Health routes belong to a separate listener and have no main middleware.
 	if t.server.Options().RunHealthServer {
 		for _, route := range []string{"/healthz", "/readyz", "/livez"} {
-			routes = ensureSyntheticRoute(routes, pattern, route, "health", []string{"GET"}, includeMiddleware, []string{"HealthCheckMiddleware"})
+			routes = ensureSyntheticRoute(routes, pattern, route, "health", []string{"GET"})
 		}
 	}
 
@@ -130,14 +126,32 @@ func (t *RouteInspectorTool) Execute(params map[string]any) (any, error) {
 		if options.MCPLegacyRoutedSSE {
 			methods = []string{"GET", "POST"}
 		}
-		routes = ensureSyntheticRoute(routes, pattern, options.MCPEndpoint, "main", methods, includeMiddleware, []string{"MCPMiddleware"})
+		routes = ensureSyntheticRoute(routes, pattern, options.MCPEndpoint, "main", methods)
 	}
 
-	return map[string]any{
+	result := map[string]any{
 		"routes": routes,
 		"total":  len(routes),
 		"note":   "Routes discovered from registered handlers and known server endpoints",
-	}, nil
+	}
+	if includeMiddleware {
+		stacks := t.server.MiddlewareRoutes()
+		prefixes := make([]string, 0, len(stacks))
+		for prefix := range stacks {
+			prefixes = append(prefixes, prefix)
+		}
+		slices.Sort(prefixes)
+		registrations := make([]map[string]any, 0, len(prefixes))
+		for _, prefix := range prefixes {
+			registrations = append(registrations, map[string]any{
+				"prefix": prefix,
+				"count":  len(stacks[prefix]),
+			})
+		}
+		result["middleware_registrations"] = registrations
+		result["middleware_note"] = "Main server registrations; * is global, the empty prefix covers all paths, and other prefixes match at slash boundaries. Route filters do not filter these registrations."
+	}
+	return result, nil
 }
 
 func splitServeMuxPattern(route string) (string, []string) {
@@ -148,7 +162,7 @@ func splitServeMuxPattern(route string) (string, []string) {
 	return path, []string{method}
 }
 
-func makeRouteInfo(pattern, server string, methods []string, includeMiddleware bool, middlewareNames []string) map[string]any {
+func makeRouteInfo(pattern, server string, methods []string) map[string]any {
 	info := map[string]any{
 		"pattern": pattern,
 		"methods": methods,
@@ -156,30 +170,14 @@ func makeRouteInfo(pattern, server string, methods []string, includeMiddleware b
 	if server != "" {
 		info["server"] = server
 	}
-	if includeMiddleware {
-		info["middleware"] = middlewareNames
-	}
 	return info
-}
-
-func middlewareStackNames(stack hyperserve.MiddlewareStack) []string {
-	names := make([]string, 0, len(stack))
-	for _, mw := range stack {
-		name := fmt.Sprintf("%T", mw)
-		if strings.Contains(name, ".") {
-			parts := strings.Split(name, ".")
-			name = parts[len(parts)-1]
-		}
-		names = append(names, name)
-	}
-	return names
 }
 
 // ensureSyntheticRoute appends a route entry for a server-managed endpoint or
 // corrects the method metadata of an already tracked pattern. Server-managed
 // handlers such as /mcp are registered as plain ServeMux patterns, so their
 // protocol-specific methods cannot be inferred from the pattern alone.
-func ensureSyntheticRoute(routes []map[string]any, filter, route, server string, methods []string, includeMiddleware bool, middlewareNames []string) []map[string]any {
+func ensureSyntheticRoute(routes []map[string]any, filter, route, server string, methods []string) []map[string]any {
 	if filter != "" && !strings.Contains(route, filter) {
 		return routes
 	}
@@ -189,15 +187,10 @@ func ensureSyntheticRoute(routes []map[string]any, filter, route, server string,
 			if server != "" {
 				existing["server"] = server
 			}
-			if includeMiddleware {
-				if existingNames, ok := existing["middleware"].([]string); !ok || len(existingNames) == 0 {
-					existing["middleware"] = middlewareNames
-				}
-			}
 			return routes
 		}
 	}
-	return append(routes, makeRouteInfo(route, server, methods, includeMiddleware, middlewareNames))
+	return append(routes, makeRouteInfo(route, server, methods))
 }
 
 // DevGuideTool surfaces a short reference about the available developer tools.
@@ -240,7 +233,7 @@ func (t *DevGuideTool) Execute(params map[string]any) (any, error) {
 			"description": "HyperServe MCP Developer Tools",
 			"tools": []map[string]any{
 				{"name": "server_control", "purpose": "Inspect server health and configuration status", "actions": serverControlActions()},
-				{"name": "route_inspector", "purpose": "View all registered HTTP routes", "features": []string{"filter by pattern", "show middleware chains"}},
+				{"name": "route_inspector", "purpose": "View registered HTTP routes", "features": []string{"filter routes by pattern", "list middleware registration scopes"}},
 				{"name": "dev_guide", "purpose": "This help tool", "topics": []string{"overview", "tools", "resources", "examples", "workflows"}},
 			},
 			"resources": []map[string]any{
@@ -281,8 +274,8 @@ func (t *DevGuideTool) Execute(params map[string]any) (any, error) {
 				{
 					"uri":         "routes://server/all",
 					"description": "Complete list of registered routes",
-					"contents":    "Route patterns, HTTP methods, middleware chains",
-					"use_case":    "Understand request routing and middleware pipeline",
+					"contents":    "Route patterns and declared HTTP methods",
+					"use_case":    "Understand registered request routes",
 				},
 			},
 		}, nil
@@ -303,7 +296,7 @@ func (t *DevGuideTool) Execute(params map[string]any) (any, error) {
 					"steps": []string{
 						"1. Use route_inspector to list all routes",
 						"2. Check if your path matches any pattern",
-						"3. Inspect the middleware chain for the nearest route",
+						"3. Check which middleware registration prefixes cover the request path",
 					},
 				},
 				{
@@ -311,7 +304,7 @@ func (t *DevGuideTool) Execute(params map[string]any) (any, error) {
 					"steps": []string{
 						"1. Check server status with server_control",
 						"2. Re-read logs://server/stream for recent entries",
-						"3. Check middleware execution in route_inspector",
+						"3. Inspect middleware registration scopes with route_inspector",
 					},
 				},
 			},

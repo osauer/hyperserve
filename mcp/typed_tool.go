@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"reflect"
 	"strconv"
 	"strings"
@@ -64,8 +65,8 @@ type ToolWithOutputSchema interface {
 // and its schema together. The NewTool builder remains available for callers
 // that need to assemble a schema dynamically.
 //
-// Panics at registration if In is not a struct type — the panic is
-// preferable to silently emitting a schema no client can use.
+// Panics at registration if In is not a struct type, fn is nil, or a numeric
+// oneof value cannot be represented by its field type.
 func NewTypedTool[In, Out any](name, description string, fn TypedToolFunc[In, Out]) Tool {
 	if fn == nil {
 		panic("mcp.NewTypedTool: fn is nil")
@@ -265,14 +266,14 @@ func fieldToSchema(t reflect.Type, tag reflect.StructTag) map[string]any {
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		s := map[string]any{"type": "integer"}
 		if vs := oneofValues(validateTag); len(vs) > 0 {
-			s["enum"] = enumFromStrings(vs, true)
+			s["enum"] = enumFromStrings(vs, t)
 		}
 		applyNumericBounds(s, validateTag)
 		return s
 	case reflect.Float32, reflect.Float64:
 		s := map[string]any{"type": "number"}
 		if vs := oneofValues(validateTag); len(vs) > 0 {
-			s["enum"] = enumFromStrings(vs, false)
+			s["enum"] = enumFromStrings(vs, t)
 		}
 		applyNumericBounds(s, validateTag)
 		return s
@@ -369,27 +370,31 @@ func oneofValues(tag string) []string {
 	return nil
 }
 
-// enumFromStrings parses oneof options into typed JSON values. For
-// integer fields it parses each option as int64; for floats it parses as
-// float64. Any parse failure falls back to the raw string list so the
-// schema is still emitted (clients will get a type-confused enum, but
-// that's better than silently dropping the constraint).
-func enumFromStrings(values []string, asInt bool) []any {
+// enumFromStrings preserves numeric enum values without narrowing unsigned
+// integers to int64 or converting invalid values to a different JSON type.
+func enumFromStrings(values []string, t reflect.Type) []any {
 	out := make([]any, 0, len(values))
 	for _, v := range values {
-		if asInt {
-			n, err := strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				return toAnySlice(values)
+		var value any
+		var err error
+		switch t.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			value, err = strconv.ParseInt(v, 10, t.Bits())
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			value, err = strconv.ParseUint(v, 10, t.Bits())
+		default:
+			var number float64
+			number, err = strconv.ParseFloat(v, 64)
+			if err == nil && (math.IsNaN(number) || math.IsInf(number, 0) ||
+				(t.Kind() == reflect.Float32 && math.Abs(number) > math.MaxFloat32)) {
+				err = fmt.Errorf("value must be finite and within range")
 			}
-			out = append(out, n)
-			continue
+			value = number
 		}
-		f, err := strconv.ParseFloat(v, 64)
 		if err != nil {
-			return toAnySlice(values)
+			panic(fmt.Sprintf("mcp.NewTypedTool: invalid oneof value %q for %s: %v", v, t, err))
 		}
-		out = append(out, f)
+		out = append(out, value)
 	}
 	return out
 }
@@ -453,9 +458,7 @@ func applyArrayBounds(s map[string]any, tag string) {
 	}
 }
 
-// numericLiteral keeps whole numbers as int so they encode as `5` instead
-// of `5` (well, JSON renders them the same, but it makes the in-memory
-// shape stable for the schema-gen tests).
+// numericLiteral preserves integral bounds as int64.
 func numericLiteral(f float64) any {
 	if f == float64(int64(f)) {
 		return int64(f)
