@@ -538,31 +538,26 @@ func (srv *Server) tlsConfig() *tls.Config {
 	}
 
 	if srv.options.FIPSMode {
-		// FIPS 140-3 compliant cipher suites and curves only
+		// CipherSuites controls TLS 1.2 only. TLS 1.3 policy belongs to Go.
 		config.CipherSuites = []uint16{
 			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
 			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
 			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-			tls.TLS_AES_128_GCM_SHA256, // TLS 1.3 FIPS approved
-			tls.TLS_AES_256_GCM_SHA384, // TLS 1.3 FIPS approved
 		}
 		config.CurvePreferences = []tls.CurveID{
 			tls.CurveP256,
 			tls.CurveP384,
 		}
-		srv.logger.Info("TLS configured with FIPS-approved cipher suites and curves",
-			"note", "this is not full FIPS 140-3 compliance; see WithFIPSMode docs")
+		srv.logger.Info("TLS configured with AES-GCM for TLS 1.2 and P-256/P-384 curves",
+			"note", "TLS 1.3 cipher policy requires application-enabled Go FIPS mode")
 	} else {
-		// Standard cipher suites including post-quantum ready
+		// Explicit TLS 1.2 suites; Go selects TLS 1.3 suites.
 		config.CipherSuites = []uint16{
 			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
 			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
 			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-			tls.TLS_AES_128_GCM_SHA256,       // TLS 1.3 cipher suite
-			tls.TLS_AES_256_GCM_SHA384,       // TLS 1.3 cipher suite
-			tls.TLS_CHACHA20_POLY1305_SHA256, // TLS 1.3 cipher suite
 		}
 		// CurvePreferences nil enables post-quantum X25519MLKEM768 by default in Go 1.24
 		config.CurvePreferences = nil

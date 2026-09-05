@@ -20,6 +20,7 @@ package validate
 
 import (
 	"fmt"
+	"math"
 	"net/url"
 	"reflect"
 	"slices"
@@ -255,10 +256,13 @@ func numericBound(verb, param string, v reflect.Value, upper bool) (string, bool
 		return "", true
 	case reflect.Float32, reflect.Float64:
 		want, err := strconv.ParseFloat(param, 64)
-		if err != nil {
+		if err != nil || math.IsNaN(want) {
 			return verb + " param not a number", false
 		}
 		got := v.Float()
+		if math.IsNaN(got) {
+			return "must be a number", false
+		}
 		if upper && got > want {
 			return fmt.Sprintf("must be <= %v (got %v)", want, got), false
 		}

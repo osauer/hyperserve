@@ -143,7 +143,10 @@ func decodeValues(values url.Values, dst any) error {
 			if comma := strings.Index(tag, ","); comma >= 0 {
 				tag = tag[:comma]
 			}
-			if tag != "" && tag != "-" {
+			if tag == "-" {
+				continue
+			}
+			if tag != "" {
 				name = tag
 			}
 		}

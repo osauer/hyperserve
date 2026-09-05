@@ -721,19 +721,14 @@ func WithTemplateDir(dir string) Option {
 	}
 }
 
-// WithFIPSMode restricts the TLS handshake to FIPS-approved cipher suites
-// and elliptic curves.
+// WithFIPSMode selects AES-GCM cipher suites for TLS 1.2 and the P-256/P-384
+// elliptic curves. It does not restrict TLS 1.3 cipher suites: crypto/tls
+// controls those independently of tls.Config.CipherSuites.
 //
-// This is NOT full FIPS 140-3 compliance:
-//   - it does not switch the Go toolchain into FIPS mode (build with
-//     GOFIPS140 for that);
-//   - it does not constrain non-TLS crypto (hashes, RNGs, signatures
-//     outside TLS);
-//   - it does not invoke a FIPS-validated cryptographic module.
-//
-// Use this for "TLS handshake uses FIPS-approved primitives." For deployments
-// that require true FIPS 140-3 compliance, combine with a FIPS-validated
-// toolchain build.
+// Applications requiring approved algorithms across TLS versions must enable
+// Go's FIPS mode themselves; see https://go.dev/doc/security/fips140. This
+// option does not change process-wide cryptographic policy or establish
+// FIPS 140-3 compliance.
 func WithFIPSMode() Option {
 	return func(srv *Server) error {
 		srv.options.FIPSMode = true

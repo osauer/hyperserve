@@ -1,6 +1,6 @@
 # Production deployment
 
-_Last updated: 2026-08-27 for HyperServe v2.1.0._
+_Last updated: 2026-09-05 for HyperServe v2.1.1._
 
 This guide covers process ownership, reverse proxies, TLS, health checks, MCP,
 rate limiting, and the checks to run before deploying a HyperServe application.
@@ -122,6 +122,12 @@ headers from an untrusted peer, and all-trusted chains fail closed. Configure
 the proxy to replace or sanitize inbound forwarding headers.
 
 ## TLS and security headers
+
+`WithFIPSMode()` selects AES-GCM suites for TLS 1.2 and P-256/P-384 curves.
+It does not restrict TLS 1.3 cipher suites or enable a validated crypto module.
+Applications requiring approved algorithms across TLS versions must configure
+[Go FIPS mode](https://go.dev/doc/security/fips140) at build and process startup.
+HyperServe does not change that process-wide policy.
 
 `WithTLS(certFile, keyFile)` enables the direct TLS listener and validates that
 both files exist during construction:

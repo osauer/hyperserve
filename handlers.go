@@ -58,9 +58,10 @@ func (sse *SSEMessage) String() string {
 		b.WriteString(event)
 		b.WriteByte('\n')
 	}
-	for line := range strings.SplitSeq(sseDataString(sse.Data), "\n") {
+	data := strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(sseDataString(sse.Data))
+	for line := range strings.SplitSeq(data, "\n") {
 		b.WriteString("data: ")
-		b.WriteString(strings.TrimSuffix(line, "\r"))
+		b.WriteString(line)
 		b.WriteByte('\n')
 	}
 	b.WriteByte('\n')

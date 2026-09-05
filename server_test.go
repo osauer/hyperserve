@@ -162,10 +162,10 @@ func TestFIPSMode(t *testing.T) {
 		t.Error("expected FIPSMode to be enabled")
 	}
 
-	// Verify TLS config has FIPS-compliant settings
+	// Only TLS 1.2 suites can be configured by the option.
 	tlsConfig := srv.tlsConfig()
-	if len(tlsConfig.CipherSuites) != 6 { // FIPS mode has 6 cipher suites
-		t.Errorf("expected 6 FIPS-compliant cipher suites, got %d", len(tlsConfig.CipherSuites))
+	if len(tlsConfig.CipherSuites) != 4 {
+		t.Errorf("expected 4 TLS 1.2 cipher suites, got %d", len(tlsConfig.CipherSuites))
 	}
 	if len(tlsConfig.CurvePreferences) != 2 { // FIPS mode only allows P256 and P384
 		t.Errorf("expected 2 FIPS-compliant curves, got %d", len(tlsConfig.CurvePreferences))

@@ -547,8 +547,8 @@ func (lrw *loggingResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) 
 func (lrw *loggingResponseWriter) ReadFrom(r io.Reader) (n int64, err error) {
 	rf, ok := lrw.ResponseWriter.(io.ReaderFrom)
 	if !ok {
-		// Fall back to default behavior
-		return io.Copy(lrw, r)
+		// Hide ReaderFrom so io.Copy reaches Write instead of recursing.
+		return io.Copy(struct{ io.Writer }{lrw}, r)
 	}
 	n, err = rf.ReadFrom(r)
 	lrw.bytesWritten += int(n)
