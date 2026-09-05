@@ -347,7 +347,11 @@ from `validate:"…"`, descriptions from `mcp:"desc=…"`. Each call decodes
 the incoming arguments into the struct, runs the same validator used by
 the HTTP binding helpers, then invokes the handler. The return type
 drives `outputSchema` on `tools/list` so MCP clients can introspect the
-response shape too.
+response shape too. Successful results with an output schema include
+`structuredContent` and the same JSON in a text content block. Scalars and
+arrays are wrapped as `{"result": ...}` in both the wire schema and result;
+object outputs are returned directly. A nil result with an output schema is
+a tool error; return an empty slice rather than nil for an empty array result.
 
 Prefer **one tool per verb** — narrow args structs let `required` mean
 what it says, and named tools like `create_post` / `delete_post` are

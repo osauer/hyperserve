@@ -2,6 +2,7 @@ package mcpconformance
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	hyperservemcp "github.com/osauer/hyperserve/v2/mcp"
 )
@@ -75,6 +77,15 @@ func (w *captureWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 func TestOfficialSDKStreamableHTTP(t *testing.T) {
 	handler := hyperservemcp.NewHandler(hyperservemcp.ServerInfo{Name: "conformance", Version: "1.4.0"})
 	handler.RegisterTool(echoTool{})
+	type answer struct {
+		Value  int               `json:"value"`
+		Notes  []string          `json:"notes"`
+		Next   *int              `json:"next"`
+		Labels map[string]string `json:"labels"`
+	}
+	handler.RegisterTool(hyperservemcp.NewTypedTool("answer", "typed object", func(context.Context, struct{}) (answer, error) { return answer{Value: 42}, nil }))
+	handler.RegisterTool(hyperservemcp.NewTypedTool("count", "typed scalar", func(context.Context, struct{}) (int, error) { return 42, nil }))
+	handler.RegisterTool(hyperservemcp.NewTypedTool("answers", "typed array", func(context.Context, struct{}) ([]answer, error) { return []answer{{Value: 42}}, nil }))
 	resource := &liveResource{
 		started:  make(chan hyperservemcp.ResourceEmitter, 1),
 		finished: make(chan struct{}, 1),
@@ -108,7 +119,7 @@ func TestOfficialSDKStreamableHTTP(t *testing.T) {
 	defer session.Close()
 
 	tools, err := session.ListTools(ctx, nil)
-	if err != nil || len(tools.Tools) != 1 || tools.Tools[0].Name != "echo" {
+	if err != nil || len(tools.Tools) != 4 {
 		t.Fatalf("ListTools = %+v, %v", tools, err)
 	}
 	call, err := session.CallTool(ctx, &sdkmcp.CallToolParams{
@@ -121,6 +132,44 @@ func TestOfficialSDKStreamableHTTP(t *testing.T) {
 	content, ok := call.Content[0].(*sdkmcp.TextContent)
 	if !ok || content.Text != "hello" {
 		t.Fatalf("CallTool content = %#v", call.Content)
+	}
+	for _, tool := range tools.Tools {
+		if tool.Name == "echo" {
+			continue
+		}
+		result, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: tool.Name, Arguments: map[string]any{}})
+		if err != nil {
+			t.Fatalf("CallTool(%s): %v", tool.Name, err)
+		}
+		if result.IsError || result.StructuredContent == nil || len(result.Content) != 1 {
+			t.Fatalf("typed result = %+v", result)
+		}
+		schemaJSON, err := json.Marshal(tool.OutputSchema)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var schema jsonschema.Schema
+		if err := json.Unmarshal(schemaJSON, &schema); err != nil {
+			t.Fatal(err)
+		}
+		resolved, err := schema.Resolve(nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := resolved.Validate(result.StructuredContent); err != nil {
+			t.Fatalf("%s output violates advertised schema: %v", tool.Name, err)
+		}
+		text, ok := result.Content[0].(*sdkmcp.TextContent)
+		if !ok {
+			t.Fatalf("typed content = %#v", result.Content)
+		}
+		var decoded any
+		if err := json.Unmarshal([]byte(text.Text), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		if err := resolved.Validate(decoded); err != nil {
+			t.Fatalf("%s text violates advertised schema: %v", tool.Name, err)
+		}
 	}
 
 	if err := session.Subscribe(ctx, &sdkmcp.SubscribeParams{URI: "state://service"}); err != nil {

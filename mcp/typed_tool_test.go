@@ -376,7 +376,7 @@ func TestNewTypedTool_OutputSchema_Struct(t *testing.T) {
 		t.Errorf("output schema missing id: %#v", props)
 	}
 	tags, _ := props["tags"].(map[string]any)
-	if tags == nil || tags["type"] != "array" {
+	if tags == nil || !reflect.DeepEqual(tags["type"], []string{"array", "null"}) {
 		t.Errorf("tags property = %#v", tags)
 	}
 }

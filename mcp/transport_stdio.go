@@ -9,7 +9,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"strings"
 	"sync"
 
 	jsonrpc "github.com/osauer/hyperserve/v2/jsonrpc"
@@ -85,12 +84,18 @@ func (t *stdioTransport) Receive() (*jsonrpc.Request, error) {
 	}
 	var request jsonrpc.Request
 	if err := json.Unmarshal(t.scanner.Bytes(), &request); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal request: %w", err)
+		return nil, &stdioParseError{err}
 	}
 	return &request, nil
 }
 
 func (t *stdioTransport) Close() error { return nil }
+
+// A complete malformed record is recoverable; scanner and output errors are not.
+type stdioParseError struct{ error }
+
+func (e *stdioParseError) Error() string { return "failed to unmarshal request: " + e.error.Error() }
+func (e *stdioParseError) Unwrap() error { return e.error }
 
 func createErrorResponse(code int, message string, data any) *jsonrpc.Response {
 	return &jsonrpc.Response{
@@ -103,10 +108,14 @@ func createErrorResponse(code int, message string, data any) *jsonrpc.Response {
 	}
 }
 
-// RunStdioLoop runs the MCP handler in stdio mode until EOF is received.
-// EOF is treated as a normal shutdown signal.
+// RunStdioLoop runs until EOF or a terminal input/output error. Malformed
+// complete JSON records receive a parse error and do not end the session.
 func (h *Handler) RunStdioLoop() error {
 	transport := NewStdioTransport(h.logger)
+	return h.runStdioLoop(transport)
+}
+
+func (h *Handler) runStdioLoop(transport *stdioTransport) error {
 	defer transport.Close()
 	session := newMCPSession(context.Background(), h, transport)
 	defer session.close()
@@ -118,24 +127,17 @@ func (h *Handler) RunStdioLoop() error {
 		err := h.processRequestWithTransportAndSession(transport, session, engine)
 		if errors.Is(err, io.EOF) {
 			h.logger.Debug("MCP stdio server shutting down", "reason", "EOF received")
-			break
+			return nil
 		}
 		if err != nil {
 			h.logger.Error("Error processing request", "error", err)
-			errorCode := jsonrpc.ErrorCodeInternalError
-			if strings.Contains(err.Error(), "unmarshal") || strings.Contains(err.Error(), "parse") {
-				errorCode = jsonrpc.ErrorCodeParseError
-			} else if strings.Contains(err.Error(), "scanner error") {
-				errorCode = jsonrpc.ErrorCodeInvalidRequest
+			if _, ok := errors.AsType[*stdioParseError](err); !ok {
+				return err
 			}
-			errorResponse := createErrorResponse(errorCode, "Request processing error", err.Error())
+			errorResponse := createErrorResponse(jsonrpc.ErrorCodeParseError, "Request processing error", err.Error())
 			if sendErr := transport.Send(errorResponse); sendErr != nil {
-				h.logger.Error("Failed to send error response", "error", sendErr)
-				h.logger.Error("Critical: Unable to send error response to client",
-					"original_error", err.Error(),
-					"send_error", sendErr.Error())
+				return sendErr
 			}
 		}
 	}
-	return nil
 }

@@ -22,6 +22,8 @@ type TypedToolFunc[In, Out any] func(ctx context.Context, args In) (Out, error)
 // return shape. The handler's tools/list path checks this interface via
 // type assertion and surfaces the result as the `outputSchema` field on
 // ToolInfo (MCP spec revision 2025-06-18). Returning nil omits the field.
+// Non-object schemas are wrapped in an object with a required "result"
+// property on the wire, along with the corresponding structured result.
 type ToolWithOutputSchema interface {
 	OutputSchema() map[string]any
 }
@@ -151,7 +153,54 @@ func deriveOutputSchema(t reflect.Type) map[string]any {
 	if t.Kind() == reflect.Struct && t.NumField() == 0 {
 		return nil
 	}
-	return fieldToSchema(t, "")
+	schema := fieldToSchema(t, "")
+	allowOutputNulls(t, schema, false)
+	return schema
+}
+
+// encoding/json emits nil pointers, slices, and maps as null unless omitted.
+// Keep output schemas aligned without weakening argument validation schemas.
+func allowOutputNulls(t reflect.Type, schema map[string]any, nested bool) {
+	if schema == nil {
+		return
+	}
+	if nested && (t.Kind() == reflect.Pointer || t.Kind() == reflect.Slice || t.Kind() == reflect.Map) {
+		if kind, ok := schema["type"].(string); ok {
+			schema["type"] = []string{kind, "null"}
+		}
+	}
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	switch t.Kind() {
+	case reflect.Struct:
+		properties, _ := schema["properties"].(map[string]any)
+		for sf := range t.Fields() {
+			name, skip := jsonFieldName(sf)
+			if skip || !sf.IsExported() {
+				continue
+			}
+			field, _ := properties[name].(map[string]any)
+			allowOutputNulls(sf.Type, field, true)
+		}
+	case reflect.Slice, reflect.Array:
+		items, _ := schema["items"].(map[string]any)
+		allowOutputNulls(t.Elem(), items, true)
+	case reflect.Map:
+		values, _ := schema["additionalProperties"].(map[string]any)
+		allowOutputNulls(t.Elem(), values, true)
+	}
+}
+
+func objectOutputSchema(schema map[string]any) map[string]any {
+	if schema == nil || schema["type"] == "object" {
+		return schema
+	}
+	return map[string]any{
+		"type":       "object",
+		"properties": map[string]any{"result": schema},
+		"required":   []string{"result"},
+	}
 }
 
 // buildObjectSchema produces a JSON Schema fragment for a struct type. The

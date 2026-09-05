@@ -461,8 +461,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	transport := newHTTPTransport(w, r, h.logger)
 	defer transport.Close()
+	session := newMCPSession(r.Context(), h, nil)
+	defer session.close()
 
-	if err := h.ProcessRequestWithTransport(transport); err != nil {
+	if err := h.processRequestWithTransportAndSession(transport, session, h.newRPCEngine(session)); err != nil {
 		h.logger.Error("Failed to process MCP request", "error", err)
 		var bodyTooLarge *http.MaxBytesError
 		switch {
@@ -769,7 +771,7 @@ func (h *Handler) handleToolsList(_ any) (any, error) {
 			InputSchema: tool.Schema(),
 		}
 		if out, ok := tool.(ToolWithOutputSchema); ok {
-			info.OutputSchema = out.OutputSchema()
+			info.OutputSchema = objectOutputSchema(out.OutputSchema())
 		}
 		tools = append(tools, info)
 	}
@@ -841,6 +843,40 @@ func (h *Handler) handleToolsCallContext(parent context.Context, params any) (an
 			}, nil
 		}
 		return nil, fmt.Errorf("tool execution failed: %w", err)
+	}
+
+	// Application-built error envelopes retain their meaning even when the
+	// tool advertises a schema for successful output.
+	if envelope, ok := result.(map[string]any); ok && envelope["isError"] == true {
+		content, err := toToolContent(result)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal tool response: %w", err)
+		}
+		return ToolResult{Content: content, IsError: true}, nil
+	}
+
+	if out, ok := tool.(ToolWithOutputSchema); ok && out.OutputSchema() != nil {
+		// Keep object envelopes for compatibility with initialize-era MCP.
+		encoded, err := json.Marshal(result)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal tool response: %w", err)
+		}
+		if string(encoded) == "null" || (out.OutputSchema()["type"] == "object" && encoded[0] != '{') {
+			return ToolResult{
+				Content: []map[string]any{{"type": "text", "text": "Tool output must be non-null and match outputSchema"}},
+				IsError: true,
+			}, nil
+		}
+		if out.OutputSchema()["type"] != "object" {
+			encoded, err = json.Marshal(map[string]any{"result": json.RawMessage(encoded)})
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal structured result: %w", err)
+			}
+		}
+		return ToolResult{
+			Content:           []map[string]any{{"type": "text", "text": string(encoded)}},
+			StructuredContent: json.RawMessage(encoded),
+		}, nil
 	}
 
 	content, err := toToolContent(result)

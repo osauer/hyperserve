@@ -194,8 +194,9 @@ type ResourceContent struct {
 
 // ToolResult represents the result of a tool execution.
 type ToolResult struct {
-	Content []map[string]any `json:"content"`
-	IsError bool             `json:"isError,omitempty"`
+	Content           []map[string]any `json:"content"`
+	StructuredContent any              `json:"structuredContent,omitempty"` // JSON object matching outputSchema, when advertised.
+	IsError           bool             `json:"isError,omitempty"`
 }
 
 // logger is the fallback for directly constructed MCP handlers. A Handler
