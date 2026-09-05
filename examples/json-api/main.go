@@ -48,7 +48,7 @@ func (s *TodoStore) List() []*Todo {
 
 	todos := make([]*Todo, 0, len(s.todos))
 	for _, todo := range s.todos {
-		todos = append(todos, todo)
+		todos = append(todos, new(*todo))
 	}
 	return todos
 }
@@ -58,7 +58,10 @@ func (s *TodoStore) Get(id int) (*Todo, bool) {
 	defer s.mu.RUnlock()
 
 	todo, exists := s.todos[id]
-	return todo, exists
+	if !exists {
+		return nil, false
+	}
+	return new(*todo), true
 }
 
 func (s *TodoStore) Create(title string) *Todo {
@@ -73,7 +76,7 @@ func (s *TodoStore) Create(title string) *Todo {
 	}
 	s.todos[s.nextID] = todo
 	s.nextID++
-	return todo
+	return new(*todo)
 }
 
 func (s *TodoStore) Update(id int, input todoInput) (*Todo, bool) {
@@ -86,7 +89,7 @@ func (s *TodoStore) Update(id int, input todoInput) (*Todo, bool) {
 	}
 	todo.Title = input.Title
 	todo.Completed = input.Completed
-	return todo, true
+	return new(*todo), true
 }
 
 func (s *TodoStore) Delete(id int) bool {

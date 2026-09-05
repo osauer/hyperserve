@@ -51,6 +51,7 @@ trap 'exit 143' TERM
 trap 'exit 129' HUP
 
 mkdir -p "$results_dir"
+[[ -z "$(ls -A "$results_dir")" ]] || fail "BENCH_RESULTS_DIR must be empty: $results_dir"
 
 commit="$(git -C "$repo_root" rev-parse HEAD)"
 tree_state="clean"
@@ -78,36 +79,52 @@ printf 'Building maintained benchmark fixture and load tool...\n'
 go -C "$repo_root" build -trimpath -o "$run_tmp/server" ./benchmarks/server
 go -C "$repo_root" build -trimpath -o "$run_tmp/load" ./benchmarks/load
 
-"$run_tmp/server" -addr "127.0.0.1:$port" >"$results_dir/server.log" 2>&1 &
+run_id="${run_tmp##*/}-$$"
+"$run_tmp/server" -addr "127.0.0.1:$port" -run-id "$run_id" >"$results_dir/server.log" 2>&1 &
 server_pid=$!
 
 ready_url="http://127.0.0.1:$port/ready"
+check_child() {
+	kill -0 "$server_pid" 2>/dev/null ||
+		fail "benchmark server exited; see $results_dir/server.log"
+}
+owns_listener() {
+	[[ "$(curl --fail --silent --max-time 1 "$ready_url")" == "$run_id" ]]
+}
 for _ in {1..100}; do
-	if curl --fail --silent --show-error --max-time 1 "$ready_url" >/dev/null 2>&1; then
+	check_child
+	if owns_listener; then
 		break
-	fi
-	if ! kill -0 "$server_pid" 2>/dev/null; then
-		fail "benchmark server exited before becoming ready; see $results_dir/server.log"
 	fi
 	sleep 0.05
 done
-curl --fail --silent --show-error --max-time 1 "$ready_url" >/dev/null ||
-	fail "benchmark server did not become ready; see $results_dir/server.log"
+check_child
+owns_listener || fail "benchmark child did not acquire the listener; see $results_dir/server.log"
+
+validate_endpoints() {
+	check_child
+	owns_listener || fail "benchmark listener identity changed"
+	[[ "$(curl --fail --silent --max-time 1 "http://127.0.0.1:$port/minimal")" == "OK" ]] || fail "unexpected minimal response"
+	[[ "$(curl --fail --silent --max-time 1 -H 'Authorization: Bearer benchmark-token' "http://127.0.0.1:$port/middleware")" == "OK" ]] || fail "unexpected middleware response"
+}
 
 run_profile() {
 	local name=$1
 	local endpoint=$2
 	shift 2
+	validate_endpoints
 	printf '\nRunning %s profile...\n' "$name"
 	GOMAXPROCS="$threads" "$run_tmp/load" \
 		-url "http://127.0.0.1:$port$endpoint" \
 		-duration "$duration" \
 		-workers "$connections" \
-		"$@" >"$results_dir/$name.txt"
-	sed -n '1,14p' "$results_dir/$name.txt"
+		"$@" >"$run_tmp/$name.txt"
+	validate_endpoints
+	sed -n '1,14p' "$run_tmp/$name.txt"
 }
 
 run_profile minimal /minimal
 run_profile middleware /middleware -bearer-token benchmark-token
+mv "$run_tmp/minimal.txt" "$run_tmp/middleware.txt" "$results_dir/"
 
 printf '\nBenchmark results: %s\n' "$results_dir"

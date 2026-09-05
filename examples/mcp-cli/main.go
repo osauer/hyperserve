@@ -89,6 +89,12 @@ func main() {
 	printUsage(app)
 
 	// Run the server
+	if app.Options().MCPEnabled && app.Options().MCPTransport == mcp.StdioTransport {
+		if err := app.RunStdio(); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if err := app.Run(ctx); err != nil {
 		log.Fatal(err)
 	}

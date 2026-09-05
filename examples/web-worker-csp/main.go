@@ -26,11 +26,6 @@ func main() {
 	// Apply security headers with Web Worker support
 	app.Use(hyperserve.HeadersMiddleware(app.Options()))
 
-	// Serve static files (HTML, JS, CSS)
-	if err := app.HandleStatic("/static/"); err != nil {
-		panic(err)
-	}
-
 	// Main page
 	app.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		html := `<!DOCTYPE html>

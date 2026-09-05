@@ -15,6 +15,7 @@ import (
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:18080", "loopback address to listen on")
+	runID := flag.String("run-id", "", "identity echoed by the readiness endpoint")
 	flag.Parse()
 
 	app, err := hyperserve.New(
@@ -26,7 +27,7 @@ func main() {
 	}
 
 	app.HandleFunc("/ready", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
+		_, _ = w.Write([]byte(*runID))
 	})
 	app.HandleFunc("/minimal", okHandler)
 	app.HandleFunc("/middleware", okHandler)
