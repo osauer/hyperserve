@@ -3,7 +3,9 @@ package hyperserve
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -172,6 +174,90 @@ func TestLoggingResponseWriterFlusher(t *testing.T) {
 
 	// Should not panic
 	lrw.Flush()
+	if !recorder.Flushed {
+		t.Fatal("legacy Flush did not reach the underlying writer")
+	}
+}
+
+type flushErrorResponseWriter struct {
+	*baseResponseWriter
+	flushErr      error
+	flushes       int
+	legacyFlushes int
+	deadline      time.Time
+}
+
+func (w *flushErrorResponseWriter) FlushError() error {
+	w.flushes++
+	return w.flushErr
+}
+
+func (w *flushErrorResponseWriter) Flush() { w.legacyFlushes++ }
+
+func (w *flushErrorResponseWriter) SetWriteDeadline(deadline time.Time) error {
+	w.deadline = deadline
+	return nil
+}
+
+type unwrapResponseWriter struct{ http.ResponseWriter }
+
+func (w unwrapResponseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func TestRequestLoggerPreservesResponseController(t *testing.T) {
+	wantErr := errors.New("stream flush failed")
+	deadline := time.Now().Add(5 * time.Second)
+	for _, level := range []slog.Level{slog.LevelWarn, slog.LevelInfo, slog.LevelDebug} {
+		for _, wrapped := range []bool{false, true} {
+			name := level.String() + "/direct"
+			if wrapped {
+				name = level.String() + "/unwrapped"
+			}
+			t.Run(name, func(t *testing.T) {
+				var logs bytes.Buffer
+				logger := slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: level}))
+				srv, err := New(WithLogger(logger))
+				if err != nil {
+					t.Fatal(err)
+				}
+				srv.HandleFunc("/events", func(w http.ResponseWriter, _ *http.Request) {
+					controller := http.NewResponseController(w)
+					if err := controller.SetWriteDeadline(deadline); err != nil {
+						t.Errorf("set deadline: %v", err)
+					}
+					w.WriteHeader(http.StatusAccepted)
+					_, _ = io.WriteString(w, "event")
+					if err := controller.Flush(); !errors.Is(err, wantErr) {
+						t.Errorf("flush error = %v, want %v", err, wantErr)
+					}
+				})
+				base := &flushErrorResponseWriter{baseResponseWriter: newBaseResponseWriter(), flushErr: wantErr}
+				var writer http.ResponseWriter = base
+				if wrapped {
+					writer = unwrapResponseWriter{writer}
+				}
+				srv.Handler().ServeHTTP(writer, httptest.NewRequest(http.MethodGet, "/events", nil))
+				if base.flushes != 1 || base.legacyFlushes != 0 || !base.deadline.Equal(deadline) {
+					t.Errorf("controller calls changed: error flushes=%d, legacy flushes=%d, deadline=%v", base.flushes, base.legacyFlushes, base.deadline)
+				}
+				if base.body.String() != "event" || base.status != http.StatusAccepted {
+					t.Errorf("response changed: body=%q, status=%d", base.body.String(), base.status)
+				}
+				if level <= slog.LevelInfo {
+					record := requestLogRecord(t, &logs)
+					if record["status"] != float64(http.StatusAccepted) || record["bytes"] != float64(5) {
+						t.Errorf("request accounting changed: %v", record)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestLoggingResponseWriterReportsUnsupportedFlush(t *testing.T) {
+	writer := &loggingResponseWriter{ResponseWriter: newBaseResponseWriter()}
+	if err := http.NewResponseController(writer).Flush(); !errors.Is(err, http.ErrNotSupported) {
+		t.Fatalf("flush error = %v, want ErrNotSupported", err)
+	}
 }
 
 func TestLoggingResponseWriterUnwrap(t *testing.T) {

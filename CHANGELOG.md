@@ -27,6 +27,40 @@ Entries tier by audience:
 Shape is enforced by `make changelog-lint RELEASE_VERSION=vX.Y.Z`; scaffold a
 new entry with `make changelog-stub RELEASE_VERSION=vX.Y.Z`.
 
+## [2.1.5] - 2026-09-13 12:33 CEST
+
+This patch keeps credentials out of request logs and preserves streaming errors.
+
+### What's new
+
+- Request logs omit query strings and URL user information, protecting pairing
+  credentials when diagnostic logging is enabled.
+- Streaming handlers receive flush errors through request logging, including
+  when another response wrapper is present.
+
+### Security
+
+- The request log's `url` field contains only the escaped path. Query values and
+  URL user information are omitted; the request passed to handlers is unchanged.
+
+### Fixed
+
+- Request logging preserves `ResponseController.Flush` errors and reports
+  unsupported flushing instead of silently returning success. Legacy `Flush`
+  callers remain supported, with write deadlines and response accounting intact.
+
+### Changed
+
+- Scaffold, examples, and installation instructions target v2.1.5.
+
+### Verification
+
+- Regressions reproduce credential logging and hidden flush errors before the
+  fix, and cover INFO/DEBUG logging, wrapped writers, deadlines, and accounting.
+- `make check`, `make test-race`, and `make fuzz-smoke`.
+- Isolated Canary and Desk race tests against the release candidate, including
+  Canary's bounded SSE sends and a synthetic Desk shutdown/restart witness.
+
 ## [2.1.4] - 2026-09-05 20:16 CEST
 
 This patch completes the SSE formatter with optional application-owned event IDs.

@@ -2,12 +2,67 @@ package hyperserve
 
 import (
 	"bytes"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+func TestRequestLoggerOmitsURLSecrets(t *testing.T) {
+	for _, level := range []slog.Level{slog.LevelInfo, slog.LevelDebug} {
+		for _, target := range []string{
+			"/pair.html?pair=synthetic-pair&nonce=synthetic-nonce",
+			"http://synthetic-user:synthetic-password@example.test/files/a%2Fb?token=synthetic-token",
+		} {
+			t.Run(level.String()+"/"+target, func(t *testing.T) {
+				var logs bytes.Buffer
+				logger := slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: level}))
+				srv, err := New(WithLogger(logger))
+				if err != nil {
+					t.Fatal(err)
+				}
+				req := httptest.NewRequest(http.MethodGet, target, nil)
+				query := req.URL.RawQuery
+				srv.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+					if r.URL.RawQuery != query {
+						t.Errorf("handler query = %q, want %q", r.URL.RawQuery, query)
+					}
+					w.WriteHeader(http.StatusAccepted)
+					_, _ = w.Write([]byte("ok"))
+				})
+				srv.Handler().ServeHTTP(httptest.NewRecorder(), req)
+				if strings.Contains(logs.String(), "synthetic-") {
+					t.Errorf("request log contains URL credentials: %s", &logs)
+				}
+				record := requestLogRecord(t, &logs)
+				if record["url"] != req.URL.EscapedPath() {
+					t.Errorf("logged URL = %v, want escaped path %q", record["url"], req.URL.EscapedPath())
+				}
+				if record["method"] != http.MethodGet || record["status"] != float64(http.StatusAccepted) || record["bytes"] != float64(2) {
+					t.Errorf("request accounting changed: %v", record)
+				}
+			})
+		}
+	}
+}
+
+func requestLogRecord(t *testing.T, logs *bytes.Buffer) map[string]any {
+	t.Helper()
+	decoder := json.NewDecoder(logs)
+	for decoder.More() {
+		var record map[string]any
+		if err := decoder.Decode(&record); err != nil {
+			t.Fatal(err)
+		}
+		if record["msg"] == "Request completed" {
+			return record
+		}
+	}
+	t.Fatal("request completion log missing")
+	return nil
+}
 
 // TestMiddlewareLogBehavior ensures middleware registration logs only appear during setup, not per request
 func TestMiddlewareLogBehavior(t *testing.T) {

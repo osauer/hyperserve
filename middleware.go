@@ -326,6 +326,8 @@ func MetricsMiddleware(srv *Server) Middleware {
 //   - Request duration
 //   - Response size in bytes
 //
+// Query strings and URL user information are omitted from request logs.
+//
 // This middleware is included by default in [New].
 // For high-traffic applications, consider the performance impact of logging.
 func RequestLoggerMiddleware(next http.Handler) http.Handler {
@@ -349,7 +351,7 @@ func requestLoggerMiddleware(logger *slog.Logger) Middleware {
 			logger.Info("Request completed",
 				"from", ip,
 				"method", r.Method,
-				"url", r.URL.String(),
+				"url", r.URL.EscapedPath(),
 				"status", lrw.statusCode,
 				"bytes", lrw.bytesWritten,
 				"duration", time.Since(start))
@@ -561,10 +563,13 @@ type loggingResponseWriter struct {
 }
 
 func (lrw *loggingResponseWriter) Flush() {
-	flusher, ok := lrw.ResponseWriter.(http.Flusher)
-	if ok {
-		flusher.Flush()
-	}
+	_ = lrw.FlushError()
+}
+
+// FlushError lets ResponseController preserve errors through logging and any
+// intervening wrappers that expose their underlying writer via Unwrap.
+func (lrw *loggingResponseWriter) FlushError() error {
+	return http.NewResponseController(lrw.ResponseWriter).Flush()
 }
 
 func (lrw *loggingResponseWriter) WriteHeader(code int) {
