@@ -4,8 +4,11 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/osauer/hyperserve/v2/mcp"
 )
 
 func TestConfigFileCanOverrideDefaultsWithZeroValues(t *testing.T) {
@@ -53,6 +56,88 @@ func TestEnvironmentBindings(t *testing.T) {
 	}
 	if !opts.StartupBanner {
 		t.Fatal("HS_STARTUP_BANNER did not enable the startup banner")
+	}
+}
+
+func TestDocumentedEnvironmentBindings(t *testing.T) {
+	type debugState struct {
+		enabled bool
+		level   string
+	}
+
+	tests := []struct {
+		name  string
+		value string
+		get   func(Options) any
+		want  any
+	}{
+		{paramServerAddr, "127.0.0.1:9001", func(o Options) any { return o.Addr }, "127.0.0.1:9001"},
+		{paramServerPort, "9002", func(o Options) any { return o.Addr }, ":9002"},
+		{paramHealthAddr, "127.0.0.1:9003", func(o Options) any { return o.HealthAddr }, "127.0.0.1:9003"},
+		{paramServerHeader, "environment-service", func(o Options) any { return o.ServerHeader }, "environment-service"},
+		{paramMCPEnabled, "true", func(o Options) any { return o.MCPEnabled }, true},
+		{paramMCPEndpoint, "/environment-mcp", func(o Options) any { return o.MCPEndpoint }, "/environment-mcp"},
+		{paramMCPServerName, "environment-mcp", func(o Options) any { return o.MCPServerName }, "environment-mcp"},
+		{paramMCPServerVersion, "2.3.4", func(o Options) any { return o.MCPServerVersion }, "2.3.4"},
+		{paramMCPToolsEnabled, "true", func(o Options) any { return o.MCPToolsEnabled }, true},
+		{paramMCPResourcesEnabled, "true", func(o Options) any { return o.MCPResourcesEnabled }, true},
+		{paramMCPFileToolRoot, "/srv/environment-mcp", func(o Options) any { return o.MCPFileToolRoot }, "/srv/environment-mcp"},
+		{paramMCPDev, "true", func(o Options) any { return o.MCPDev }, true},
+		{paramMCPObservability, "true", func(o Options) any { return o.MCPObservability }, true},
+		{paramMCPTransport, "stdio", func(o Options) any { return o.MCPTransport }, mcp.StdioTransport},
+		{paramMCPProtocolVersion, "2025-06-18", func(o Options) any { return o.MCPProtocolVersion }, "2025-06-18"},
+		{paramCSPWebWorkerSupport, "true", func(o Options) any { return o.CSPWebWorkerSupport }, true},
+		{paramCORSAllowedOrigins, "https://b.example, https://a.example", func(o Options) any { return o.CORS.AllowedOrigins }, []string{"https://a.example", "https://b.example"}},
+		{paramCORSAllowCredentials, "true", func(o Options) any { return o.CORS.AllowCredentials }, true},
+		{paramCORSAllowedMethods, "post, get", func(o Options) any { return o.CORS.AllowedMethods }, []string{"GET", "POST"}},
+		{paramCORSAllowedHeaders, "X-Zeta, X-Alpha", func(o Options) any { return o.CORS.AllowedHeaders }, []string{"X-Alpha", "X-Zeta"}},
+		{paramCORSExposeHeaders, "X-Trace, X-Request", func(o Options) any { return o.CORS.ExposeHeaders }, []string{"X-Request", "X-Trace"}},
+		{paramCORSMaxAge, "900", func(o Options) any { return o.CORS.MaxAgeSeconds }, 900},
+		{paramLogLevel, "ERROR", func(o Options) any { return o.LogLevel }, "ERROR"},
+		{paramDebugMode, "true", func(o Options) any { return debugState{o.DebugMode, o.LogLevel} }, debugState{true, "DEBUG"}},
+		{paramStartupBanner, "true", func(o Options) any { return o.StartupBanner }, true},
+		{paramBannerColor, "true", func(o Options) any { return o.BannerColor }, true},
+	}
+
+	boundNames := make([]string, 0, len(defaultEnvBindings())+6)
+	for _, binding := range defaultEnvBindings() {
+		boundNames = append(boundNames, binding.name)
+	}
+	boundNames = append(boundNames,
+		paramCORSAllowedOrigins,
+		paramCORSAllowCredentials,
+		paramCORSAllowedMethods,
+		paramCORSAllowedHeaders,
+		paramCORSExposeHeaders,
+		paramCORSMaxAge,
+	)
+	for _, name := range boundNames {
+		t.Setenv(name, "")
+	}
+
+	tested := make(map[string]struct{}, len(tests))
+	for _, tt := range tests {
+		if _, duplicate := tested[tt.name]; duplicate {
+			t.Fatalf("duplicate environment binding test for %s", tt.name)
+		}
+		tested[tt.name] = struct{}{}
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(tt.name, tt.value)
+			options := DefaultOptions()
+			applyEnvVars(&options)
+			if got := tt.get(options); !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("resolved value = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+
+	for _, name := range boundNames {
+		if _, ok := tested[name]; !ok {
+			t.Errorf("supported environment binding %s has no regression case", name)
+		}
+	}
+	if len(tested) != len(boundNames) {
+		t.Errorf("tested %d environment bindings, code exposes %d", len(tested), len(boundNames))
 	}
 }
 
