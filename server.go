@@ -679,13 +679,15 @@ func (srv *Server) shutdownAfter(originalErr error) error {
 // — usually because we initiated shutdown, but possibly because the listen
 // died. It rejoins the deferred-init error chain when present.
 func (srv *Server) handleServerExit(err error) error {
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		// A failed listener still leaves health, MCP, hooks and filesystem
+		// roots owned by Run. Drain them before returning the original error.
+		return srv.shutdownAfter(err)
+	}
 	srv.isRunning.Store(false)
 	srv.isReady.Store(false)
 	if srv.deferred.cancel != nil {
 		srv.deferred.cancel()
-	}
-	if err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return err
 	}
 	if derr := srv.getDeferredInitError(); derr != nil && !errors.Is(derr, context.Canceled) {
 		return derr

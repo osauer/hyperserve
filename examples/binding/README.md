@@ -3,6 +3,10 @@
 Three endpoints, same JSON payload, same 400 envelope on validation failure —
 different shapes of success path.
 
+JSON bodies must contain one value within 1 MiB, including whitespace. Unknown
+fields, trailing values, trailing garbage, and oversized bodies return 400
+before the business handler runs.
+
 | Endpoint            | Helper                       | Success behaviour                                  |
 |---------------------|------------------------------|----------------------------------------------------|
 | `POST /users/echo`  | `hyperserve.JSONEcho[CreateUser]()` | Validates the body and echoes the value back.   |

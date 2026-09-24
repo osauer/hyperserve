@@ -435,7 +435,8 @@ func generateCSP(options Options) string {
 
 // HeadersMiddleware returns middleware for content-type, framing, referrer,
 // permissions, cross-origin, HSTS, CSP, and configured CORS policy.
-// Automatically handles CORS preflight requests.
+// When CORS is configured, handles OPTIONS requests with both Origin and
+// Access-Control-Request-Method. Other OPTIONS requests reach the next handler.
 func HeadersMiddleware(options Options) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -473,10 +474,6 @@ func HeadersMiddleware(options Options) Middleware {
 
 func applyCORSHeaders(w http.ResponseWriter, r *http.Request, cors *CORSOptions) bool {
 	if cors == nil {
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return true
-		}
 		return false
 	}
 
@@ -525,11 +522,7 @@ func applyCORSHeaders(w http.ResponseWriter, r *http.Request, cors *CORSOptions)
 	addVaryHeader(w, "Access-Control-Request-Method")
 	addVaryHeader(w, "Access-Control-Request-Headers")
 
-	if r.Method == http.MethodOptions {
-		if origin == "" {
-			w.WriteHeader(http.StatusNoContent)
-			return true
-		}
+	if r.Method == http.MethodOptions && origin != "" && r.Header.Get("Access-Control-Request-Method") != "" {
 		if !originOK {
 			w.WriteHeader(http.StatusForbidden)
 			return true

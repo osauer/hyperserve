@@ -50,6 +50,52 @@ func TestProcessRequestValid(t *testing.T) {
 	}
 }
 
+func TestProcessRequestNilResult(t *testing.T) {
+	engine := NewEngine(nil)
+	engine.RegisterMethod("void", func(any) (any, error) { return nil, nil })
+	data := engine.ProcessRequest([]byte(`{"jsonrpc":"2.0","method":"void","id":1}`))
+	var wire map[string]json.RawMessage
+	if err := json.Unmarshal(data, &wire); err != nil {
+		t.Fatal(err)
+	}
+	if string(wire["result"]) != "null" || wire["error"] != nil || string(wire["id"]) != "1" {
+		t.Fatalf("success must contain result:null and preserve id: %s", data)
+	}
+}
+
+func TestResponseMarshalResultOrError(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		result     any
+		err        *ErrorDetails
+		wantResult string
+	}{
+		{"nil", nil, nil, "null"},
+		{"typed nil", (*string)(nil), nil, "null"},
+		{"false", false, nil, "false"},
+		{"zero", 0, nil, "0"},
+		{"empty string", "", nil, `""`},
+		{"error", "ignored", &ErrorDetails{Code: ErrorCodeInternalError, Message: "failed"}, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			response := Response{JSONRPC: Version, Result: tt.result, Error: tt.err, ID: nil}
+			for _, value := range []any{response, &response} {
+				data, err := json.Marshal(value)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var wire map[string]json.RawMessage
+				if err := json.Unmarshal(data, &wire); err != nil {
+					t.Fatal(err)
+				}
+				if string(wire["result"]) != tt.wantResult || (wire["error"] != nil) != (tt.err != nil) || string(wire["id"]) != "null" {
+					t.Fatalf("invalid result/error envelope: %s", data)
+				}
+			}
+		})
+	}
+}
+
 func TestProcessRequestInvalidJSON(t *testing.T) {
 	engine := NewEngine(nil)
 	respRaw := engine.ProcessRequest([]byte("{"))

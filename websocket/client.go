@@ -74,7 +74,7 @@ func Dial(ctx context.Context, rawURL string, opts *DialOptions) (*Conn, *http.R
 		return nil, nil, errors.New("websocket: HTTPClient cannot be combined with NetDialer or TLSConfig")
 	}
 	for _, protocol := range opts.Subprotocols {
-		if !validSubprotocol(protocol) {
+		if !validHTTPToken(protocol) {
 			return nil, nil, fmt.Errorf("websocket: invalid subprotocol %q", protocol)
 		}
 	}
@@ -522,11 +522,11 @@ func deleteHeaderFold(header http.Header, name string) {
 	}
 }
 
-func validSubprotocol(protocol string) bool {
-	if protocol == "" {
+func validHTTPToken(token string) bool {
+	if token == "" {
 		return false
 	}
-	for _, r := range protocol {
+	for _, r := range token {
 		if r <= 0x20 || r >= 0x7f || strings.ContainsRune("()<>@,;:\\\"/[]?={}", r) {
 			return false
 		}

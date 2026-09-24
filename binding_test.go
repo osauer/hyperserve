@@ -87,6 +87,45 @@ func TestBindJSON_BodyTooLarge(t *testing.T) {
 	}
 }
 
+func TestBindJSONRequiresOneBoundedValue(t *testing.T) {
+	const body = `{"name":"Ada"}`
+	const limit = 1 << 20
+	for _, tt := range []struct {
+		name         string
+		body         string
+		wantError    bool
+		wantTooLarge bool
+	}{
+		{"single value", body, false, false},
+		{"trailing whitespace", body + " \t\r\n", false, false},
+		{"exact limit", body + strings.Repeat(" ", limit-len(body)), false, false},
+		{"second object", body + body, true, false},
+		{"second null", body + "null", true, false},
+		{"trailing garbage", body + "!", true, false},
+		{"oversized whitespace", body + strings.Repeat(" ", limit-len(body)+1), true, true},
+		{"oversized first value", `{"name":"` + strings.Repeat("a", limit) + `"}`, true, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
+			// Enforce the bound from bytes read, including for chunked requests.
+			r.ContentLength = -1
+			var dst struct {
+				Name string `json:"name"`
+			}
+			err := BindJSON(r, &dst)
+			if (err != nil) != tt.wantError {
+				t.Fatalf("BindJSON error = %v, want error=%v", err, tt.wantError)
+			}
+			if tt.wantTooLarge {
+				var sizeErr *http.MaxBytesError
+				if !errors.As(err, &sizeErr) || sizeErr.Limit != limit {
+					t.Fatalf("error = %v, want wrapped MaxBytesError with limit %d", err, limit)
+				}
+			}
+		})
+	}
+}
+
 type searchQuery struct {
 	Q    string   `json:"q" validate:"required,min=1,max=100"`
 	Tags []string `json:"tag"`

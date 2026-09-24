@@ -52,6 +52,21 @@ type Response struct {
 	ID      any           `json:"id"`
 }
 
+// MarshalJSON emits exactly one of result or error. A successful nil result
+// must be encoded as null rather than omitted from the response.
+func (r Response) MarshalJSON() ([]byte, error) {
+	var result *any
+	if r.Error == nil {
+		result = &r.Result
+	}
+	return json.Marshal(struct {
+		JSONRPC string        `json:"jsonrpc"`
+		Result  *any          `json:"result,omitempty"`
+		Error   *ErrorDetails `json:"error,omitempty"`
+		ID      any           `json:"id"`
+	}{r.JSONRPC, result, r.Error, r.ID})
+}
+
 // ErrorDetails represents a JSON-RPC 2.0 error object.
 type ErrorDetails struct {
 	Code    int    `json:"code"`

@@ -137,3 +137,11 @@ bounded internal cleanup budget to drain the server. The 60-second pod budget
 leaves room for both phases before Kubernetes forces termination. See the
 [Kubernetes pod termination flow](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#pod-termination-flow)
 for the ordering and grace-period rules.
+
+## Implementation verification — 2026-09-24
+
+An unexpected main-listener failure follows the same bounded cleanup path as
+context cancellation, preserving the original serve error. Regression coverage
+checks shutdown hooks, health-listener release, MCP shutdown, and filesystem-root
+closure before `Run` returns. An expected `http.ErrServerClosed` from explicit
+shutdown does not start another cleanup pass.

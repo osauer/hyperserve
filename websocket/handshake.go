@@ -39,6 +39,7 @@ type HandshakeOptions struct {
 	// RequireProtocol rejects the handshake unless a supported subprotocol is negotiated.
 	RequireProtocol bool
 	// ResponseHeader is copied into the 101 Switching Protocols response.
+	// Invalid HTTP header names or values are rejected before hijacking.
 	ResponseHeader http.Header
 	// Extensions is the list of supported extensions
 	Extensions []string
@@ -107,12 +108,50 @@ func performHandshake(w http.ResponseWriter, r *http.Request, opts *HandshakeOpt
 		}
 	}
 
-	// Get the connection using hijacker
+	// Generate accept key
+	key := r.Header.Get("Sec-WebSocket-Key")
+	acceptKey := generateAcceptKey(key)
+
+	// Build response headers
+	headers := make(http.Header)
+	if opts != nil {
+		for key, values := range opts.ResponseHeader {
+			if !validHTTPToken(key) {
+				return nil, nil, fmt.Errorf("websocket: invalid response header name %q", key)
+			}
+			for _, value := range values {
+				if !validHeaderValue(value) {
+					return nil, nil, fmt.Errorf("websocket: invalid response header value for %q", key)
+				}
+				headers.Add(key, value)
+			}
+		}
+	}
+	headers.Set("Upgrade", "websocket")
+	headers.Set("Connection", "Upgrade")
+	headers.Set("Sec-WebSocket-Accept", acceptKey)
+
+	// Handle subprotocol negotiation
+	if negotiatedProtocol != "" {
+		if !validHTTPToken(negotiatedProtocol) {
+			return nil, nil, fmt.Errorf("websocket: invalid negotiated subprotocol")
+		}
+		headers.Set("Sec-WebSocket-Protocol", negotiatedProtocol)
+	}
+
+	// Validate and serialize before hijacking so callers can still return an
+	// HTTP error. Header.Write also provides safe standard-library formatting.
+	var response strings.Builder
+	response.WriteString("HTTP/1.1 101 Switching Protocols\r\n")
+	if err := headers.Write(&response); err != nil {
+		return nil, nil, err
+	}
+	response.WriteString("\r\n")
+
 	hijacker, ok := w.(http.Hijacker)
 	if !ok {
 		return nil, nil, errors.New("responsewriter does not support hijacking")
 	}
-
 	conn, buf, err := hijacker.Hijack()
 	if err != nil {
 		return nil, nil, err
@@ -125,44 +164,21 @@ func performHandshake(w http.ResponseWriter, r *http.Request, opts *HandshakeOpt
 		defer conn.SetWriteDeadline(time.Time{})
 	}
 
-	// Generate accept key
-	key := r.Header.Get("Sec-WebSocket-Key")
-	acceptKey := generateAcceptKey(key)
-
-	// Build response headers
-	headers := make(http.Header)
-	if opts != nil {
-		for key, values := range opts.ResponseHeader {
-			for _, value := range values {
-				headers.Add(key, value)
-			}
-		}
-	}
-	headers.Set("Upgrade", "websocket")
-	headers.Set("Connection", "Upgrade")
-	headers.Set("Sec-WebSocket-Accept", acceptKey)
-
-	// Handle subprotocol negotiation
-	if negotiatedProtocol != "" {
-		headers.Set("Sec-WebSocket-Protocol", negotiatedProtocol)
-	}
-
-	// Send upgrade response
-	var response strings.Builder
-	response.WriteString("HTTP/1.1 101 Switching Protocols\r\n")
-	for k, v := range headers {
-		for _, vv := range v {
-			fmt.Fprintf(&response, "%s: %s\r\n", k, vv)
-		}
-	}
-	response.WriteString("\r\n")
-
 	if _, err := conn.Write([]byte(response.String())); err != nil {
 		_ = conn.Close() // Best effort close on error
 		return nil, nil, err
 	}
 
 	return conn, buf, nil
+}
+
+func validHeaderValue(value string) bool {
+	for i := range len(value) {
+		if value[i] < 0x20 && value[i] != '\t' || value[i] == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 // generateAcceptKey generates the Sec-WebSocket-Accept header value.

@@ -527,7 +527,7 @@ func WithEnvironment() Option {
 // `options_mcp.go` and `options_mcp_discovery.go` for the same reason.
 
 // WithTLS enables TLS on the server with the specified certificate and key files.
-// Returns a Option that configures TLS settings and validates file existence.
+// Empty arguments retain previously configured paths. The resolved paths must exist.
 func WithTLS(certFile, keyFile string) Option {
 	return func(srv *Server) error {
 		wd, _ := os.Getwd()
@@ -539,15 +539,15 @@ func WithTLS(certFile, keyFile string) Option {
 			srv.options.KeyFile = keyFile
 		}
 		// check if the files exist
-		errCert := checkfile(certFile, wd)
-		errKey := checkfile(keyFile, wd)
+		errCert := checkfile(srv.options.CertFile, wd)
+		errKey := checkfile(srv.options.KeyFile, wd)
 		if errCert != nil || errKey != nil {
 			errs := make([]error, 0, 2)
 			if errCert != nil {
-				errs = append(errs, fmt.Errorf("cert file %q: %w", certFile, errCert))
+				errs = append(errs, fmt.Errorf("cert file %q: %w", srv.options.CertFile, errCert))
 			}
 			if errKey != nil {
-				errs = append(errs, fmt.Errorf("key file %q: %w", keyFile, errKey))
+				errs = append(errs, fmt.Errorf("key file %q: %w", srv.options.KeyFile, errKey))
 			}
 			return fmt.Errorf("error checking TLS files: %w", errors.Join(errs...))
 		}

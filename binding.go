@@ -41,15 +41,24 @@ type FieldError = validate.FieldError
 type ValidationError = validate.ValidationError
 
 // BindJSON decodes the request body as JSON into dst, then runs Validate.
+// The body must contain exactly one JSON value and at most 1 MiB, including
+// whitespace. Unknown fields and trailing data are rejected.
 // dst must be a non-nil pointer to a struct. Returns ValidationError when
 // rules fail, and the wrapped error otherwise (decode error, etc.).
 func BindJSON(r *http.Request, dst any) error {
 	if r.Body == nil {
 		return fmt.Errorf("BindJSON: request body is nil")
 	}
-	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20)) // 1 MiB cap
+	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 1<<20))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {
+		return fmt.Errorf("BindJSON: %w", err)
+	}
+	var trailing any
+	if err := dec.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("BindJSON: body must contain exactly one JSON value")
+		}
 		return fmt.Errorf("BindJSON: %w", err)
 	}
 	return Validate(dst)

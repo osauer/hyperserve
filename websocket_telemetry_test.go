@@ -218,7 +218,7 @@ func TestCheckOriginHelpers(t *testing.T) {
 			name:        "https origin with http host",
 			origin:      "https://example.com",
 			host:        "example.com",
-			shouldAllow: true, // Host comparison ignores scheme
+			shouldAllow: false, // Same-origin includes the transport scheme.
 		},
 		{
 			name:        "case insensitive host",

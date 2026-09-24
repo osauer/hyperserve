@@ -2,7 +2,11 @@ package hyperserve
 
 import (
 	"context"
+	"errors"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -10,6 +14,72 @@ import (
 
 	"github.com/osauer/hyperserve/v2/mcp"
 )
+
+func TestRunUnexpectedServeExitCleansResources(t *testing.T) {
+	t.Parallel()
+	var shutdownCalls atomic.Int32
+	srv, err := New(
+		WithAddr("127.0.0.1:0"), WithHealthServer(), WithHealthAddr("127.0.0.1:0"),
+		WithStaticDir(t.TempDir()), WithTemplateDir(t.TempDir()),
+		WithMCPSupport("shutdown-regression", "1.0.0"),
+		WithOnShutdown(func(context.Context) error { shutdownCalls.Add(1); return nil }),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.HandleStatic("/static/"); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	runErr := make(chan error, 1)
+	go func() { runErr <- srv.Run(ctx) }()
+	deadline := time.Now().Add(2 * time.Second)
+	for !srv.isRunning.Load() && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if !srv.isRunning.Load() {
+		t.Fatal("server did not start")
+	}
+	// Fallback cleanup also runs when the regression leaves resources open.
+	defer srv.healthListener.Close()
+	defer srv.staticRoot.Close()
+	defer srv.templateRoot.Close()
+	healthAddr := srv.healthListener.Addr().String()
+	if err := srv.listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-runErr:
+		if !errors.Is(err, net.ErrClosed) {
+			t.Errorf("Run error = %v, want original listener error", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Run did not return after listener failure")
+	}
+	if got := shutdownCalls.Load(); got != 1 {
+		t.Errorf("shutdown hook calls = %d, want 1", got)
+	}
+	if srv.isRunning.Load() || srv.isReady.Load() {
+		t.Error("server remained running or ready")
+	}
+	rebound, err := net.Listen("tcp", healthAddr)
+	if err != nil {
+		t.Errorf("health listener remained open: %v", err)
+	} else {
+		rebound.Close()
+	}
+	for name, root := range map[string]*os.Root{"static": srv.staticRoot, "template": srv.templateRoot} {
+		if _, err := root.Stat("."); !errors.Is(err, os.ErrClosed) {
+			t.Errorf("%s root after Run: %v, want closed", name, err)
+		}
+	}
+	rec := httptest.NewRecorder()
+	srv.mcpHandler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/mcp", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("MCP still accepts requests after Run returned: status=%d", rec.Code)
+	}
+}
 
 func TestRunCancellationGracefullyStopsServer(t *testing.T) {
 	t.Parallel()

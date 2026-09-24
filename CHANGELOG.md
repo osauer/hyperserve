@@ -27,6 +27,53 @@ Entries tier by audience:
 Shape is enforced by `make changelog-lint RELEASE_VERSION=vX.Y.Z`; scaffold a
 new entry with `make changelog-stub RELEASE_VERSION=vX.Y.Z`.
 
+## [2.1.6] - 2026-09-24 07:11 CEST
+
+This patch tightens protocol validation and releases server resources after
+unexpected listener failures.
+
+### What's new
+
+- WebSocket upgrades reject unsafe response headers and enforce the complete
+  same-origin check, including the transport scheme.
+- Unexpected listener failures run cleanup; ordinary `OPTIONS` requests reach
+  application handlers.
+- JSON binding rejects trailing and oversized input, JSON-RPC preserves null
+  results, and TLS setup respects previously configured paths.
+
+### Security
+
+- WebSocket response headers reject invalid names and control characters before
+  hijacking, preventing response-header injection while preserving HTTP errors.
+- Default WebSocket origin checks require one HTTP(S) origin matching scheme,
+  host, and effective port. TLS-terminating proxies must configure an explicit
+  origin policy; untrusted forwarding headers cannot change this check.
+
+### Fixed
+
+- An unexpected main-listener failure runs bounded cleanup of health and MCP
+  services, shutdown hooks, and filesystem roots before returning the serve error.
+- `BindJSON` requires exactly one JSON value within 1 MiB, counting whitespace,
+  and rejects trailing data before validation or business-handler execution.
+- Security headers intercept only configured CORS preflights with both `Origin`
+  and `Access-Control-Request-Method`; other `OPTIONS` requests reach handlers.
+- Successful JSON-RPC responses include `result: null` for nil results. Error
+  responses omit `result`.
+- `WithTLS` validates resolved certificate and key paths, including paths
+  retained from earlier options when an argument is empty.
+
+### Changed
+
+- Scaffold, examples, and installation instructions target v2.1.6.
+
+### Verification
+
+- Regression tests reproduce all seven reviewed failures before the fixes and
+  cover valid protocol inputs and resource cleanup.
+- `make check`, `make test-race`, and `make fuzz-smoke`.
+- A disposable external consumer verifies HTTP, WebSocket, JSON-RPC, and TLS
+  behavior against the release candidate.
+
 ## [2.1.5] - 2026-09-13 12:33 CEST
 
 This patch keeps credentials out of request logs and preserves streaming errors.

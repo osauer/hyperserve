@@ -20,6 +20,20 @@ type tUserOut struct {
 	Name string `json:"name"`
 }
 
+func TestJSONHandlerRejectsTrailingInputBeforeCallingBusinessFunction(t *testing.T) {
+	called := false
+	handler := JSONHandler(func(_ context.Context, in tUserIn) (tUserOut, error) {
+		called = true
+		return tUserOut{Name: in.Name}, nil
+	})
+	r := httptest.NewRequest(http.MethodPost, "/users", strings.NewReader(`{"name":"Ada","email":"ada@example.com"}{"name":"ignored"}`))
+	w := httptest.NewRecorder()
+	handler(w, r)
+	if w.Code != http.StatusBadRequest || called {
+		t.Fatalf("invalid body dispatched: status=%d called=%v", w.Code, called)
+	}
+}
+
 func TestJSONHandler(t *testing.T) {
 	t.Parallel()
 

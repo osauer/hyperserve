@@ -1,6 +1,6 @@
 # Production deployment
 
-_Last updated: 2026-09-13 for HyperServe v2.1.5._
+_Last updated: 2026-09-24 for HyperServe v2.1.6._
 
 This guide covers process ownership, reverse proxies, TLS, health checks, MCP,
 rate limiting, and the checks to run before deploying a HyperServe application.
@@ -54,8 +54,10 @@ The context passed to `Run` is a shutdown trigger. Its values are not copied
 into HTTP requests. Handlers use `r.Context()` for request cancellation and
 request-scoped values.
 
-`Run` performs bounded graceful cleanup when its context is cancelled. A
-larger application that coordinates shutdown itself can supply its own
+`Run` performs bounded graceful cleanup when its context is cancelled or the
+main listener fails. Cleanup includes the health listener, MCP, shutdown hooks,
+and filesystem roots; an unexpected serve error remains in the returned error
+chain. A larger application that coordinates shutdown itself can supply its own
 deadline:
 
 ```go
@@ -140,6 +142,9 @@ if err != nil {
 	log.Fatal(err)
 }
 ```
+
+An empty argument to `WithTLS` retains that path from earlier configuration
+options. The resolved certificate and key paths are both checked.
 
 Direct TLS listens on `Options.TLSAddr` (`:8443` by default), not the plaintext
 `Addr`. The current TLS configuration is implemented in

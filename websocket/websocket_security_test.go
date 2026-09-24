@@ -59,7 +59,7 @@ func TestDefaultCheckOrigin(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("GET", "/ws", nil)
+			req := httptest.NewRequest("GET", "https://example.com/ws", nil)
 			if tt.origin != "" {
 				req.Header.Set("Origin", tt.origin)
 			}
@@ -146,6 +146,47 @@ func TestCheckOriginWithAllowedList(t *testing.T) {
 	}
 }
 
+func TestDefaultCheckOriginRequiresSameSchemeHostAndPort(t *testing.T) {
+	for _, tt := range []struct {
+		name, target, origin string
+		want                 bool
+	}{
+		{"HTTP same origin", "http://example.com/ws", "http://example.com", true},
+		{"HTTP to HTTPS", "https://example.com/ws", "http://example.com", false},
+		{"HTTPS to HTTP", "http://example.com/ws", "https://example.com", false},
+		{"HTTPS default port", "https://example.com/ws", "https://example.com:443", true},
+		{"HTTP default port", "http://example.com:80/ws", "http://example.com", true},
+		{"IPv6 default port", "https://[::1]/ws", "https://[::1]:443", true},
+		{"wrong scheme", "https://example.com/ws", "ftp://example.com", false},
+		{"missing scheme", "https://example.com/ws", "//example.com", false},
+		{"opaque", "https://example.com/ws", "null", false},
+		{"userinfo", "https://example.com/ws", "https://user@example.com", false},
+		{"path", "https://example.com/ws", "https://example.com/", false},
+		{"query", "https://example.com/ws", "https://example.com?x=1", false},
+		{"empty query", "https://example.com/ws", "https://example.com?", false},
+		{"fragment", "https://example.com/ws", "https://example.com#fragment", false},
+		{"multiple origins", "https://example.com/ws", "https://example.com https://evil.example", false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, tt.target, nil)
+			r.Header.Set("Origin", tt.origin)
+			// Untrusted forwarding headers must not change the transport scheme.
+			r.Header.Set("X-Forwarded-Proto", "https")
+			if got := DefaultCheckOrigin(r); got != tt.want {
+				t.Fatalf("DefaultCheckOrigin = %v, want %v", got, tt.want)
+			}
+		})
+	}
+	t.Run("duplicate origin", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodGet, "https://example.com/ws", nil)
+		r.Header.Add("Origin", "https://example.com")
+		r.Header.Add("Origin", "https://evil.example")
+		if DefaultCheckOrigin(r) {
+			t.Fatal("multiple Origin headers accepted")
+		}
+	})
+}
+
 func TestEqualASCIIFold(t *testing.T) {
 	tests := []struct {
 		s1   string
@@ -165,6 +206,8 @@ func TestEqualASCIIFold(t *testing.T) {
 		{"123", "124", false},
 		{"example.com:8080", "EXAMPLE.COM:8080", true},
 		{"example.com:8080", "example.com:9090", false},
+		{"[", "{", false},
+		{"@", "`", false},
 	}
 
 	for _, tt := range tests {
@@ -225,7 +268,7 @@ func TestWebSocketUpgraderSecurity(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("GET", "/ws", nil)
+			req := httptest.NewRequest("GET", "https://example.com/ws", nil)
 			req.Header.Set("Upgrade", "websocket")
 			req.Header.Set("Connection", "Upgrade")
 			req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")

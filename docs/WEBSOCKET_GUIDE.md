@@ -93,14 +93,21 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-The zero-value upgrader accepts only requests whose `Origin` host matches the
-request host. Non-browser clients commonly omit `Origin`; configure
+The zero-value upgrader requires a single HTTP(S) `Origin` matching the request's
+scheme, host, and effective port. Default ports (`80` and `443`) may be omitted.
+The request scheme comes from `r.TLS`; forwarding headers do not override it.
+When TLS terminates at a proxy, configure `AllowedOrigins` or `CheckOrigin` for
+the public origin. Non-browser clients commonly omit `Origin`; configure
 `CheckOrigin` when those clients are expected. `AllowedOrigins` supports exact
 origins, `*`, and `*.example.com` host patterns.
 
 Use `BeforeUpgrade` for authentication or admission control. Set
 `RequireProtocol` when a supported subprotocol is mandatory. A custom `Error`
 callback may render handshake failures.
+
+Response header names must be HTTP tokens; values may not contain CR, LF, or
+other control characters except horizontal tabs. Invalid headers are rejected
+before hijacking, leaving the response writer available for an HTTP error.
 
 ## Deadlines and control frames
 

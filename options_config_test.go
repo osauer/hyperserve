@@ -251,3 +251,47 @@ func TestWithConfigFileRequiresReadableJSON(t *testing.T) {
 		t.Fatal("missing explicit config file succeeded")
 	}
 }
+
+func TestWithTLSUsesResolvedPaths(t *testing.T) {
+	dir := t.TempDir()
+	cert := filepath.Join(dir, "cert.pem")
+	key := filepath.Join(dir, "key.pem")
+	for _, path := range []string{cert, key} {
+		// WithTLS checks existence; Run validates certificate contents.
+		if err := os.WriteFile(path, []byte("placeholder"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	missing := filepath.Join(dir, "missing.pem")
+	for _, tt := range []struct {
+		name                          string
+		configuredCert, configuredKey string
+		certArg, keyArg               string
+		wantError                     bool
+	}{
+		{"inherited pair", cert, key, "", "", false},
+		{"override certificate", missing, key, cert, "", false},
+		{"override key", cert, missing, "", key, false},
+		{"explicit pair", missing, missing, cert, key, false},
+		{"missing inherited certificate", missing, key, "", "", true},
+		{"missing inherited key", cert, missing, "", "", true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := DefaultOptions()
+			opts.CertFile, opts.KeyFile = tt.configuredCert, tt.configuredKey
+			srv, err := New(WithOptions(opts), WithTLS(tt.certArg, tt.keyArg))
+			if tt.wantError {
+				if err == nil || !strings.Contains(err.Error(), missing) {
+					t.Fatalf("error = %v, want missing resolved path %q", err, missing)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !srv.options.EnableTLS || srv.options.CertFile != cert || srv.options.KeyFile != key {
+				t.Fatalf("resolved TLS options: enabled=%v cert=%q key=%q", srv.options.EnableTLS, srv.options.CertFile, srv.options.KeyFile)
+			}
+		})
+	}
+}

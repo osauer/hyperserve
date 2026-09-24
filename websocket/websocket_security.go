@@ -6,22 +6,29 @@ import (
 	"strings"
 )
 
-// DefaultCheckOrigin provides a safe default origin check that enforces same-origin policy
+// DefaultCheckOrigin requires a single HTTP(S) Origin matching the request's
+// scheme, host and effective port. TLS determines the request scheme; forwarding
+// headers are not trusted. TLS-terminating proxies need an explicit origin policy.
 func DefaultCheckOrigin(r *http.Request) bool {
-	origin := r.Header.Get("Origin")
-	if origin == "" {
+	origins := r.Header.Values("Origin")
+	if len(origins) != 1 || origins[0] == "" {
 		// No origin header - could be a non-browser client
 		// This is potentially unsafe, so we reject by default
 		return false
 	}
 
-	originURL, err := url.Parse(origin)
-	if err != nil {
+	originURL, err := url.Parse(origins[0])
+	if err != nil || originURL.Host == "" || originURL.User != nil ||
+		originURL.Path != "" || originURL.RawQuery != "" || originURL.ForceQuery ||
+		strings.Contains(origins[0], "#") || originURL.Opaque != "" {
 		return false
 	}
-
-	// Check if the origin matches the request host
-	return equalASCIIFold(originURL.Host, r.Host)
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	requestURL := &url.URL{Scheme: scheme, Host: r.Host}
+	return originURL.Scheme == scheme && equalASCIIFold(websocketAddress(originURL), websocketAddress(requestURL))
 }
 
 // CheckOriginWithAllowedList checks if the origin is in the allowed list
@@ -66,19 +73,14 @@ func equalASCIIFold(s1, s2 string) bool {
 	for i := range len(s1) {
 		c1 := s1[i]
 		c2 := s2[i]
-		if c1|0x20 != c2|0x20 {
-			// Fast path: if they're different even when lower-cased
-			if c1 < 'A' || c1 > 'Z' || c2 < 'A' || c2 > 'Z' {
-				// At least one is not a letter, so they must match exactly
-				if c1 != c2 {
-					return false
-				}
-			} else {
-				// Both are letters, check if they match case-insensitively
-				if c1|0x20 != c2|0x20 {
-					return false
-				}
-			}
+		if c1 >= 'A' && c1 <= 'Z' {
+			c1 += 'a' - 'A'
+		}
+		if c2 >= 'A' && c2 <= 'Z' {
+			c2 += 'a' - 'A'
+		}
+		if c1 != c2 {
+			return false
 		}
 	}
 	return true
