@@ -101,8 +101,10 @@ func WithMCPToolCallTimeout(d time.Duration) Option {
 	}
 }
 
-// WithMCPProtocolVersion overrides the MCP protocol version advertised to
-// clients. Empty values reset to mcp.DefaultProtocolVersion.
+// WithMCPProtocolVersion sets the initialize-era version for stdio and legacy
+// HTTP requests. Use "2025-06-18" for clients that do not accept the default
+// 2025-11-25 revision. Empty values reset to mcp.DefaultProtocolVersion.
+// Current Streamable HTTP selects its version independently per request.
 func WithMCPProtocolVersion(version string) Option {
 	return func(srv *Server) error {
 		if version == mcp.StreamableHTTPProtocolVersion {

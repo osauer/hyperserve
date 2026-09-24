@@ -19,7 +19,7 @@ This example demonstrates a standalone MCP server that communicates via stdio, a
 go build -o hyperserve-mcp-stdio ./examples/mcp-stdio
 
 # Or install globally
-go install github.com/osauer/hyperserve/v2/examples/mcp-stdio@v2.1.6
+go install github.com/osauer/hyperserve/v2/examples/mcp-stdio@v2.2.0
 ```
 
 ## Claude Desktop Configuration
@@ -57,6 +57,10 @@ Add to your Claude Desktop configuration file:
 
 - `-sandbox <path>`: Set sandbox directory (default: `~/.hyperserve-mcp/sandbox`)
 - `-verbose`: Enable verbose logging to stderr
+- `-protocol-version <version>`: Initialize-era version (default `2025-11-25`).
+  For older clients, including Torok revisions accepting only earlier versions,
+  pass `-protocol-version 2025-06-18`. See the
+  [compatibility guide](../../docs/MCP_GUIDE.md#older-stdio-clients).
 
 ## Usage in Claude
 

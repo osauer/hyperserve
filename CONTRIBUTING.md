@@ -29,7 +29,7 @@ does not enter HyperServe's shipped dependency graph.
 | `govulncheck` | Reachable vulnerabilities in runtime, example, and tool graphs |
 | `modernize` | Current Go idioms without changing public behavior |
 | documentation and example checks | Runnable imports, links, scaffold output, and stale-surface prevention |
-| MCP conformance | Protocol behavior against the official SDK |
+| MCP conformance | Streamable HTTP and stdio behavior against the official SDK |
 | release-gate fixtures | Exact-SHA CI selection and failure handling |
 
 `make test` runs the repository gate before the unit suite. Race and fuzz
@@ -46,6 +46,7 @@ protocol, concurrency, or lifecycle change.
 | MCP protocol, transports, discovery, namespaces | `mcp/` |
 | Opt-in MCP tools and resources | `mcp/builtin/` |
 | Bounded rate-limit middleware | `ratelimit/` |
+| SSE framing and bounded writes | `sse/` |
 | WebSocket server and outbound client | `websocket/` |
 | Scaffold generator | `internal/scaffold/`, `cmd/hyperserve-init/` |
 | Runnable examples | `examples/` |
@@ -71,6 +72,18 @@ the root `Server` does not.
 
 If a change contradicts an accepted ADR, propose a superseding ADR in the same
 pull request. Do not silently revise historical decision prose.
+
+Optional local MCP consumer checks accept a Torok checkout and the revisions
+used by its applications:
+
+```sh
+bash scripts/check-torok-consumers.sh /path/to/torok <commit> <other-commit>
+```
+
+The script archives each commit into a temporary directory and tests discovery,
+structured/text output, and tool errors against a synthetic stdio server. It
+does not edit the checkout or fetch private source. These checks complement
+public SDK CI; they require local access to the selected consumer revisions.
 
 ## Pull requests
 

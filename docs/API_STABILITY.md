@@ -26,6 +26,7 @@ The compatibility promise covers exported APIs in:
 - `github.com/osauer/hyperserve/v2/mcp`
 - `github.com/osauer/hyperserve/v2/mcp/builtin`
 - `github.com/osauer/hyperserve/v2/ratelimit`
+- `github.com/osauer/hyperserve/v2/sse`
 - `github.com/osauer/hyperserve/v2/websocket`
 
 There are no compatibility packages under `pkg/...` and no `NewServer`

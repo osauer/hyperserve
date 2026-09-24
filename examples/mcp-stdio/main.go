@@ -16,10 +16,12 @@ import (
 func main() {
 	var sandboxDir string
 	var verbose bool
+	var protocolVersion string
 
 	// Parse command line flags
 	flag.StringVar(&sandboxDir, "sandbox", "", "Directory for sandboxed file operations")
 	flag.BoolVar(&verbose, "verbose", false, "Enable verbose logging to stderr")
+	flag.StringVar(&protocolVersion, "protocol-version", mcp.DefaultProtocolVersion, "Initialize-era MCP version (2025-06-18 for older clients)")
 	flag.Parse()
 
 	// Set up sandbox directory
@@ -42,6 +44,7 @@ func main() {
 	// Create server with MCP stdio support
 	opts := []hyperserve.Option{
 		hyperserve.WithMCPSupport("hyperserve-mcp-stdio", "1.0.0", mcp.OverStdio()),
+		hyperserve.WithMCPProtocolVersion(protocolVersion),
 		hyperserve.WithMCPBuiltinTools(true),
 		hyperserve.WithMCPBuiltinResources(true),
 		hyperserve.WithMCPFileToolRoot(sandboxDir),

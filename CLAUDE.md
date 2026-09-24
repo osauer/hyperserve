@@ -13,6 +13,7 @@ Its public packages are:
 - `jsonrpc/` — JSON-RPC 2.0;
 - `mcp/` and `mcp/builtin/` — MCP protocol and opt-in builtins;
 - `ratelimit/` — bounded HTTP rate-limit middleware;
+- `sse/` — event encoding and bounded HTTP stream writes;
 - `websocket/` — RFC 6455 server and client.
 
 There are no public `pkg/...` packages or compatibility facades. The central

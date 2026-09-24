@@ -51,6 +51,7 @@ fuzz-smoke: ## Short fuzz pass over every Fuzz* target (15s each).
 	@set -e; \
 	go test -run=^$$ -fuzz=FuzzJSONRPCParse         -fuzztime=15s ./jsonrpc; \
 	go test -run=^$$ -fuzz=FuzzMCPStreamableHTTP   -fuzztime=15s ./mcp; \
+	go test -run=^$$ -fuzz=FuzzFrames              -fuzztime=15s ./sse; \
 	go test -run=^$$ -fuzz=FuzzWebSocketFrameParse -fuzztime=15s ./websocket; \
 	go test -run=^$$ -fuzz=FuzzCORSOriginMatch     -fuzztime=15s .; \
 	go test -run=^$$ -fuzz=FuzzValidateEmail       -fuzztime=15s .
@@ -303,7 +304,7 @@ check-canonical-examples: ## Build and test every example in the main module
 check-compatibility-examples: ## Build deprecated transport compatibility examples
 	go test ./examples/mcp-sse
 
-mcp-conformance: ## Verify Streamable HTTP with the official MCP Go SDK
+mcp-conformance: ## Verify Streamable HTTP and stdio with the official MCP Go SDK
 	go -C tools test ./mcpconformance
 
 # Idiom-drift gate. `go fix -diff` is the toolchain-native fixer (tracks the

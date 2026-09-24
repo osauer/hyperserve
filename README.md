@@ -21,7 +21,7 @@ HyperServe requires Go 1.27.
 ```sh
 mkdir hello && cd hello
 go mod init example.com/hello
-go get github.com/osauer/hyperserve/v2@v2.1.6
+go get github.com/osauer/hyperserve/v2@v2.2.0
 ```
 
 Save this as `main.go`:
@@ -186,6 +186,7 @@ authorization remain caller-owned.
 | `github.com/osauer/hyperserve/v2/mcp` | MCP handler, transports, discovery, tools, and resources |
 | `github.com/osauer/hyperserve/v2/mcp/builtin` | Opt-in built-in MCP tools and resources |
 | `github.com/osauer/hyperserve/v2/ratelimit` | Bounded rate-limit middleware and trusted-proxy client keys |
+| `github.com/osauer/hyperserve/v2/sse` | SSE frames, JSON events, and comments with bounded writes and flushing |
 | `github.com/osauer/hyperserve/v2/websocket` | WebSocket upgrader, connection, and outbound dialer |
 
 The runtime module has one external dependency, `golang.org/x/time`, used by
@@ -206,7 +207,7 @@ same machine; HyperServe publishes no universal throughput claim. See
 ## Scaffold a service
 
 ```sh
-go install github.com/osauer/hyperserve/v2/cmd/hyperserve-init@v2.1.6
+go install github.com/osauer/hyperserve/v2/cmd/hyperserve-init@v2.2.0
 hyperserve-init --module github.com/acme/payments
 cd payments
 go run ./cmd/server

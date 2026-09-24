@@ -21,6 +21,7 @@ github.com/osauer/hyperserve/v2/jsonrpc
 github.com/osauer/hyperserve/v2/mcp
 github.com/osauer/hyperserve/v2/mcp/builtin
 github.com/osauer/hyperserve/v2/ratelimit
+github.com/osauer/hyperserve/v2/sse
 github.com/osauer/hyperserve/v2/websocket
 ~~~
 

@@ -139,6 +139,28 @@ updates, and cancellation, in addition to HyperServe's protocol and
 adversarial tests. The SDK dependency exists only in the separate `tools`
 module and is not shipped to library users.
 
+Stdio conformance also covers discovery, structured/text tool results, and
+domain errors for the default version and the `2025-06-18` compatibility profile.
+Current Streamable HTTP is checked with both initialize-era settings.
+
+### Older stdio clients
+
+Clients that accept `2025-06-18` but reject `2025-11-25`, including the Torok
+client used in the local consumer checks, need an explicit compatibility version:
+
+```go
+app, err := hyperserve.New(
+    hyperserve.WithMCPSupport("my-tools", "1", mcp.OverStdio()),
+    hyperserve.WithMCPProtocolVersion("2025-06-18"),
+)
+```
+
+For a standalone handler, use `handler.SetProtocolVersion("2025-06-18")`.
+This changes the initialize-era response; it does not change the current
+Streamable HTTP version or add legacy sessions/resumability. HyperServe does
+not negotiate down automatically. The [stdio example](../examples/mcp-stdio/)
+accepts `-protocol-version 2025-06-18`.
+
 ## Legacy HyperServe Routed SSE
 
 This section documents the existing proprietary compatibility mode so it

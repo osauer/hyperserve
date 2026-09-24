@@ -27,6 +27,42 @@ Entries tier by audience:
 Shape is enforced by `make changelog-lint RELEASE_VERSION=vX.Y.Z`; scaffold a
 new entry with `make changelog-stub RELEASE_VERSION=vX.Y.Z`.
 
+## [2.2.0] - 2026-09-24 09:50 CEST
+
+This release adds a standalone SSE writer and verifies MCP compatibility with
+older stdio clients.
+
+### What's new
+
+- Send SSE data, JSON, and heartbeats with bounded writes and visible errors.
+- Use the documented stdio compatibility profile for older MCP clients, backed
+  by official SDK checks and disposable Torok consumer tests.
+
+### Added
+
+- Standalone `sse.Writer` sends data, JSON, and comments with bounded writes,
+  flushing, and returned encoding/transport errors. Applications retain stream
+  scheduling, event IDs, replay, and authorization.
+- The stdio example accepts `-protocol-version 2025-06-18` for older MCP clients;
+  SDK conformance now covers stdio compatibility, structured results, and tool
+  errors, alongside the existing current Streamable HTTP checks.
+
+### Changed
+
+- The HTMX streaming example uses `sse.Writer`. Responses must support flushing
+  and write deadlines through `http.ResponseController`; each frame clears its
+  deadline after flushing so idle streams stay open.
+- Scaffold, examples, and installation instructions target v2.2.0. Existing
+  `SSEMessage` APIs and default MCP protocol versions remain unchanged.
+
+### Verification
+
+- `make check`, `make test-race`, and all six `make fuzz-smoke` targets.
+- Official MCP SDK stdio and Streamable HTTP checks under the race detector.
+- Disposable Torok and Desk SSE migrations pass focused race tests; Torok MCP
+  clients verify discovery, text and structured results, and tool errors with
+  the explicit compatibility profile.
+
 ## [2.1.6] - 2026-09-24 07:11 CEST
 
 This patch tightens protocol validation and releases server resources after

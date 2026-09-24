@@ -75,7 +75,14 @@ func (w *captureWriter) Flush() {
 func (w *captureWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 func TestOfficialSDKStreamableHTTP(t *testing.T) {
+	for _, version := range []string{hyperservemcp.DefaultProtocolVersion, "2025-06-18"} {
+		t.Run(version, func(t *testing.T) { testOfficialSDKStreamableHTTP(t, version) })
+	}
+}
+
+func testOfficialSDKStreamableHTTP(t *testing.T, version string) {
 	handler := hyperservemcp.NewHandler(hyperservemcp.ServerInfo{Name: "conformance", Version: "1.4.0"})
+	handler.SetProtocolVersion(version)
 	handler.RegisterTool(echoTool{})
 	type answer struct {
 		Value  int               `json:"value"`

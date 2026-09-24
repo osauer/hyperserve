@@ -58,6 +58,8 @@ The canonical public packages are:
   resources.
 - `github.com/osauer/hyperserve/v2/ratelimit` — bounded HTTP rate-limit
   middleware.
+- `github.com/osauer/hyperserve/v2/sse` — event encoding and bounded, flushed
+  HTTP writes; see [ADR-0016](./docs/0016-sse-writer.md).
 - `github.com/osauer/hyperserve/v2/websocket` — RFC 6455 server and client.
 
 The load-bearing dependency direction is:
@@ -71,6 +73,7 @@ mcp/builtin ──> hyperserve root + mcp
 
 ratelimit ──> standard library + golang.org/x/time/rate
 auth      ──> standard library
+sse       ──> standard library
 ```
 
 The root package does not import `mcp/builtin` or `ratelimit`. Builtins

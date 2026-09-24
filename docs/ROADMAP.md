@@ -5,11 +5,11 @@ ADRs remain the authority for scheduled work.
 
 ## Current baseline
 
-The v2.1 package reset establishes:
+The current v2 API provides:
 
 - the branded root `hyperserve` package;
 - concern-specific `auth`, `jsonrpc`, `mcp`, `mcp/builtin`,
-  `ratelimit`, and `websocket` packages;
+  `ratelimit`, `sse`, and `websocket` packages;
 - application-owned lifecycle and deterministic configuration binding;
 - standalone, bounded rate-limit middleware;
 - MCP 2026-07-28 Streamable HTTP plus stdio;

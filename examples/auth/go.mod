@@ -4,7 +4,7 @@ go 1.27
 
 require (
 	github.com/coreos/go-oidc/v3 v3.20.0
-	github.com/osauer/hyperserve/v2 v2.1.6
+	github.com/osauer/hyperserve/v2 v2.2.0
 )
 
 require (

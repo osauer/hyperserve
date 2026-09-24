@@ -32,6 +32,7 @@ func TestCanonicalPublicPackageGraph(t *testing.T) {
 		modulePath + "/mcp":         {name: "mcp", imports: []string{modulePath + "/jsonrpc"}},
 		modulePath + "/mcp/builtin": {name: "builtin", imports: []string{modulePath, modulePath + "/mcp"}},
 		modulePath + "/ratelimit":   {name: "ratelimit"},
+		modulePath + "/sse":         {name: "sse"},
 		modulePath + "/websocket":   {name: "websocket"},
 	}
 

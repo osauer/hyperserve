@@ -1,13 +1,8 @@
 # HTMX + Server-Sent Events streaming
 
-An HTMX page that subscribes to an SSE endpoint and updates a DOM element
-in real time as the server streams events. Demonstrates:
-
-- Setting the SSE response headers correctly
-  (`text/event-stream`, `no-cache`, `keep-alive`).
-- Using `http.Flusher` to push individual events.
-- Cleanly stopping on `r.Context().Done()` when the client disconnects.
-- Pairing this with the `htmx-sse` extension on the browser side.
+An HTMX page receiving a random number every 100 ms. The server uses
+`sse.NewWriter(w, 5*time.Second)` to encode JSON events, bound each write,
+and flush through `http.ResponseController`.
 
 ## Run
 
@@ -16,34 +11,36 @@ cd examples/htmx-stream
 go run .
 ```
 
-Open <http://localhost:8080>. A random integer streams to the page every
-100 ms. Close the tab and the
-goroutine exits — context cancellation is the only stop signal.
+Open <http://localhost:8080>. Closing the tab cancels the request and stops the
+handler. A write or flush failure also ends the stream.
 
-## Event IDs
-
-An application can attach an ID to an event:
+## Writing frames
 
 ```go
-msg := hyperserve.NewSSEMessage("ready")
-msg.Event = "status"
-msg.ID = "42"
-fmt.Fprint(w, msg)
+stream, err := sse.NewWriter(w, 5*time.Second)
+if err != nil {
+    return
+}
+if err := stream.Send("status", "42", []byte("ready")); err != nil {
+    return
+}
 ```
 
-This adds `id: 42` before the data lines. An empty `ID` omits the field and
-leaves the client's last event ID unchanged. IDs containing CR, LF, NUL, or
-invalid UTF-8 are omitted entirely; they are never rewritten into another ID.
-To deliberately reset the client's last event ID, write `id:\n\n` directly to
-the stream and flush it.
+`Send` accepts raw UTF-8 data; `SendJSON` marshals a Go value and returns encoding
+errors before writing. `Comment("heartbeat")` sends a flushed comment without
+dispatching an event. The application chooses when to send heartbeats.
 
+The writer requires a positive timeout, deadline support, and flushing.
+Middleware can expose the underlying response with `Unwrap() http.ResponseWriter`.
+Deadlines are cleared after each frame so an idle stream stays connected.
+Set custom headers, such as `Cache-Control: no-store`, before the first frame.
+
+An empty ID omits the field and preserves the browser's last event ID. Invalid
+event names or IDs (CR, LF, NUL, or invalid UTF-8) return an error. Existing
+`hyperserve.SSEMessage` formatting remains available with its original behavior.
 ID assignment, persistence, and replay from `Last-Event-ID` belong to the
-application. This random-number example does not retain events for replay.
-See the [SSE specification](https://html.spec.whatwg.org/multipage/server-sent-events.html#the-last-event-id-header)
-for the browser's reconnection behavior.
+application. This example does not retain events for replay. See the
+[SSE specification](https://html.spec.whatwg.org/multipage/server-sent-events.html#the-last-event-id-header).
 
-## Notes
-
-This example uses raw `text/event-stream` for direct HTMX consumption. MCP's
-separate request-scoped SSE behavior is covered under
+MCP's separate request-scoped SSE behavior is covered under
 [resource subscriptions](../../docs/MCP_GUIDE.md#resource-subscriptions).

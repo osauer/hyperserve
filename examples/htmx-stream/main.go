@@ -19,31 +19,23 @@ import (
 	"time"
 
 	"github.com/osauer/hyperserve/v2"
+	"github.com/osauer/hyperserve/v2/sse"
 )
 
 func numbersStreamHandler(w http.ResponseWriter, r *http.Request) {
-	// set headers for server-sent events
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-
-	// Flusher to send buffered data to the client. Make sure the http.ResponseWriter supports flushing in case
-	// you use a custom one (must implement http.Flusher interface).
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+	stream, err := sse.NewWriter(w, 5*time.Second)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := stream.Comment("connected"); err != nil {
+		log.Println("SSE connection:", err)
 		return
 	}
 
 	// Send a random number every 100ms
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-
-	// Create a new SSE message, with empty data. The data will be updated in the loop.
-	sseMessage := hyperserve.NewSSEMessage("")
-	if _, err := fmt.Fprint(w, sseMessage); err != nil {
-		log.Println("Error creating SSE message:", err)
-	}
 
 	// Loop until the client closes the connection
 	for {
@@ -58,13 +50,10 @@ func numbersStreamHandler(w http.ResponseWriter, r *http.Request) {
 				"timestamp": time.Now().Format("15:04:05"),
 			}
 
-			// Use the improved SSE message formatting
-			sseMessage := hyperserve.NewSSEMessage(data)
-			if _, err := fmt.Fprint(w, sseMessage); err != nil {
+			if err := stream.SendJSON("message", "", data); err != nil {
 				log.Println("Error sending SSE message:", err)
 				return
 			}
-			flusher.Flush() // Ensure the message is sent immediately
 		}
 	}
 }
