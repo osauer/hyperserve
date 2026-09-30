@@ -14,8 +14,7 @@ service only needs routes and JSON, plain `net/http` is usually the better
 choice. HyperServe does not provide an ORM, browser sessions, identity-provider
 setup, or application authorization.
 
-HyperServe is independent work by Oliver Sauer, built and maintained in his
-own time and unaffiliated with any employer.
+HyperServe is a private project of Oliver Sauer, unaffiliated with any employer.
 
 ## Quick start
 
