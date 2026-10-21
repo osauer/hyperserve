@@ -27,6 +27,28 @@ Entries tier by audience:
 Shape is enforced by `make changelog-lint RELEASE_VERSION=vX.Y.Z`; scaffold a
 new entry with `make changelog-stub RELEASE_VERSION=vX.Y.Z`.
 
+## [2.2.1] - 2026-10-21 08:22 WEST
+
+This security patch requires Go 1.27.3 for HyperServe and generated services.
+
+### What's new
+
+- Upgrade to Go 1.27.3 and rebuild your services to include the Go standard
+  library's certificate-validation security fix.
+- New projects use Go 1.27.3 in their module and Docker builder.
+
+### Security
+
+- Raise the minimum Go version to 1.27.3 across the library, examples, developer
+  tools, CI and scaffold. Existing application binaries must be rebuilt with
+  Go 1.27.3 or newer to receive the fix; changing a dependency alone does not
+  update a running service.
+
+### Verification
+
+- `make check`, `make test-race` and `make fuzz-smoke` with Go 1.27.3.
+- `make release-smoke RELEASE_VERSION=v2.2.1`, including generated-project tests.
+
 ## [2.2.0] - 2026-09-24 09:50 CEST
 
 This release adds a standalone SSE writer and verifies MCP compatibility with

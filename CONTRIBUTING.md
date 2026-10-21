@@ -9,14 +9,14 @@ changed.
 ```sh
 git clone https://github.com/osauer/hyperserve.git
 cd hyperserve
-go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
+go install honnef.co/go/tools/cmd/staticcheck@v0.8.2
 go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
 make check
 make test-race
 make fuzz-smoke
 ```
 
-The required Go version is recorded in `go.mod` (currently 1.27).
+The required Go version is recorded in `go.mod` (currently 1.27.3).
 `modernize` is pinned in `tools/go.mod` and runs from that module, so it
 does not enter HyperServe's shipped dependency graph.
 

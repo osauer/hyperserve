@@ -52,8 +52,8 @@ func TestGenerateCreatesProject(t *testing.T) {
 	if !strings.Contains(content, "replace github.com/osauer/hyperserve/v2 =>") {
 		t.Fatalf("go.mod missing replace directive: %s", content)
 	}
-	if !strings.Contains(content, "go 1.27") {
-		t.Fatalf("go.mod missing Go 1.27 floor: %s", content)
+	if !strings.Contains(content, "\ngo 1.27.3\n") {
+		t.Fatalf("go.mod missing Go 1.27.3 security floor: %s", content)
 	}
 	if !strings.Contains(content, "golang.org/x/time v0.15.0 // indirect") {
 		t.Fatalf("go.mod does not record HyperServe's limiter dependency as indirect: %s", content)
@@ -140,8 +140,8 @@ func TestGenerateCreatesProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read Dockerfile: %v", err)
 	}
-	if !strings.Contains(string(dockerfile), "FROM golang:1.27 AS builder") {
-		t.Fatalf("Dockerfile missing Go 1.27 builder: %s", dockerfile)
+	if !strings.Contains(string(dockerfile), "FROM golang:1.27.3 AS builder") {
+		t.Fatalf("Dockerfile missing Go 1.27.3 builder: %s", dockerfile)
 	}
 
 	cmd := exec.Command("go", "test", "-mod=readonly", "./...")

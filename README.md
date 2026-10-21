@@ -18,12 +18,12 @@ HyperServe is a private project of Oliver Sauer, unaffiliated with any employer.
 
 ## Quick start
 
-HyperServe requires Go 1.27.
+HyperServe requires Go 1.27.3 or newer.
 
 ```sh
 mkdir hello && cd hello
 go mod init example.com/hello
-go get github.com/osauer/hyperserve/v2@v2.2.0
+go get github.com/osauer/hyperserve/v2@v2.2.1
 ```
 
 Save this as `main.go`:
@@ -209,7 +209,7 @@ same machine; HyperServe publishes no universal throughput claim. See
 ## Scaffold a service
 
 ```sh
-go install github.com/osauer/hyperserve/v2/cmd/hyperserve-init@v2.2.0
+go install github.com/osauer/hyperserve/v2/cmd/hyperserve-init@v2.2.1
 hyperserve-init --module github.com/acme/payments
 cd payments
 go run ./cmd/server

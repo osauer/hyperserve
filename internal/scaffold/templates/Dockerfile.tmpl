@@ -2,7 +2,7 @@
 
 # Go 1.27 sets GOMAXPROCS from the cgroup CPU quota automatically, so the
 # usual `GOMAXPROCS=$(nproc)` workaround is no longer needed in containers.
-FROM golang:1.27 AS builder
+FROM golang:1.27.3 AS builder
 WORKDIR /src
 
 COPY . .
