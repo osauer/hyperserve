@@ -6,7 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/osauer/hyperserve/v2/mcp"
+	"github.com/osauer/hyperserve/v3/mcp"
 	"net"
 	"net/http"
 	"strings"

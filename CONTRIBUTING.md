@@ -51,19 +51,14 @@ protocol, concurrency, or lifecycle change.
 | Scaffold generator | `internal/scaffold/`, `cmd/hyperserve-init/` |
 | Runnable examples | `examples/` |
 
-The main library import is `github.com/osauer/hyperserve/v2`. The old
+The main library import is `github.com/osauer/hyperserve/v3`. The old
 `.../pkg/...` public paths have no forwarding packages.
 
 ## Design boundaries
 
-Read the relevant ADR before changing a load-bearing boundary:
-
-- [ADR-0001](docs/0001-minimal-external-dependencies.md) — runtime dependency policy.
-- [ADR-0008](docs/0008-graceful-shutdown-design.md) — application-owned lifecycle.
-- [ADR-0011](docs/0011-mcp-protocol-support.md) and
-  [ADR-0012](docs/0012-mcp-streamable-http-2026.md) — MCP transports.
-- [ADR-0014](docs/0014-root-package-and-concern-subpackages.md) — canonical
-  root and concern-package architecture.
+Read [Architecture](ARCHITECTURE.md) and the current
+[v3 integration contract](docs/0017-v3-integrated-server.md) before changing a
+boundary. Earlier [decision records](docs/DECISIONS.md) preserve context.
 
 The application owns signals, its root context, identity-provider setup,
 sessions, and authorization. HyperServe follows `Run(ctx)`; request work

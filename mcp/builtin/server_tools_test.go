@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/hyperserve/v2"
+	"github.com/osauer/hyperserve/v3"
 )
 
 // TestRouteInspectorTool tests the RouteInspectorTool functionality

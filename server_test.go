@@ -2,13 +2,11 @@ package hyperserve
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
-	"time"
 )
 
 // Content serving tests
@@ -16,8 +14,7 @@ import (
 func TestHandleTemplateValidTemplate(t *testing.T) {
 	t.Parallel()
 	// Use unique directory name to avoid conflicts in parallel tests
-	templateDir := fmt.Sprintf("./test_templates_%d_%d", time.Now().UnixNano(), os.Getpid())
-	defer os.RemoveAll(templateDir)
+	templateDir := t.TempDir()
 
 	// Create a temporary template file before server creation
 	templateContent := "<html><body>{{.}}</body></html>"
@@ -56,8 +53,7 @@ func TestHandleTemplateValidTemplate(t *testing.T) {
 func TestHandleTemplateMissingTemplate(t *testing.T) {
 	t.Parallel()
 	// Use unique directory name to avoid conflicts in parallel tests
-	templateDir := fmt.Sprintf("./test_templates_%d_%d", time.Now().UnixNano(), os.Getpid())
-	defer os.RemoveAll(templateDir)
+	templateDir := t.TempDir()
 
 	// Create a directory but no template file
 	err := os.MkdirAll(templateDir, 0755)
@@ -81,8 +77,7 @@ func TestHandleTemplateMissingTemplate(t *testing.T) {
 func TestHandleFuncDynamicValidTemplate(t *testing.T) {
 	t.Parallel()
 	// Use unique directory name to avoid conflicts in parallel tests
-	templateDir := fmt.Sprintf("./test_templates_%d_%d", time.Now().UnixNano(), os.Getpid())
-	defer os.RemoveAll(templateDir)
+	templateDir := t.TempDir()
 
 	// Create a temporary template file before server creation
 	templateContent := "<html><body>{{.timestamp}}</body></html>"
@@ -125,14 +120,13 @@ func TestHandleFuncDynamicValidTemplate(t *testing.T) {
 func TestHandleFuncDynamicMissingTemplate(t *testing.T) {
 	t.Parallel()
 	// Use unique directory name to avoid conflicts in parallel tests
-	templateDir := fmt.Sprintf("./test_templates_%d_%d", time.Now().UnixNano(), os.Getpid())
+	templateDir := t.TempDir()
 
 	// Create the template directory first
 	err := os.MkdirAll(templateDir, 0755)
 	if err != nil {
 		t.Fatalf("failed to create template directory: %v", err)
 	}
-	defer os.RemoveAll(templateDir)
 
 	// Create server with existing template directory
 	srv, err := New(WithTemplateDir(templateDir))
@@ -217,8 +211,7 @@ func TestWithTemplateDirValidDirectory(t *testing.T) {
 	t.Parallel()
 
 	// Create a temporary directory
-	templateDir := fmt.Sprintf("./test_templates_%d_%d", time.Now().UnixNano(), os.Getpid())
-	defer os.RemoveAll(templateDir)
+	templateDir := t.TempDir()
 
 	err := os.MkdirAll(templateDir, 0755)
 	if err != nil {
@@ -267,8 +260,7 @@ func TestHandleFuncDynamicTemplateErrors(t *testing.T) {
 	t.Parallel()
 
 	// Use unique directory name to avoid conflicts in parallel tests
-	templateDir := fmt.Sprintf("./test_templates_%d_%d", time.Now().UnixNano(), os.Getpid())
-	defer os.RemoveAll(templateDir)
+	templateDir := t.TempDir()
 
 	// Create a temporary template file with invalid syntax
 	templateContent := "<html><body>{{.invalid syntax}}</body></html>"
@@ -300,8 +292,7 @@ func TestHandleFuncDynamicNonExistentTemplate(t *testing.T) {
 	t.Parallel()
 
 	// Use unique directory name to avoid conflicts in parallel tests
-	templateDir := fmt.Sprintf("./test_templates_%d_%d", time.Now().UnixNano(), os.Getpid())
-	defer os.RemoveAll(templateDir)
+	templateDir := t.TempDir()
 
 	// Create empty template directory
 	err := os.MkdirAll(templateDir, 0755)

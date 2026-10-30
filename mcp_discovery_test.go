@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/osauer/hyperserve/v2/mcp"
+	"github.com/osauer/hyperserve/v3/mcp"
 )
 
 // TestDiscoveryEndpointCacheVary pins the cache-poisoning fix: any response

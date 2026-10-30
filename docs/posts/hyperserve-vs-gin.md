@@ -11,16 +11,8 @@ boundary your application needs to own.
 
 ## A small HyperServe application
 
-> **v2.1.0 compatibility notice:** this release makes a dated, controlled
-> breaking change inside the existing `/v2` module. Read the
-> [v2.1 migration guide](../MIGRATING_V2_1.md) before upgrading an existing v2
-> application. To roll back, pin
-> `github.com/osauer/hyperserve/v2@v2.0.3`. Future breaking changes require a
-> new major version and matching major module path.
-
-```bash
-go get github.com/osauer/hyperserve/v2@v2.1.0
-```
+Use the [current quick start](../../README.md#quick-start) for installation.
+Existing users should read the [v3 migration](../MIGRATING_V3.md).
 
 ```go
 package main
@@ -33,7 +25,7 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/osauer/hyperserve/v2"
+	"github.com/osauer/hyperserve/v3"
 )
 
 func main() {
@@ -68,8 +60,8 @@ lifecycle:
 
 ```go
 import (
-	"github.com/osauer/hyperserve/v2"
-	"github.com/osauer/hyperserve/v2/mcp"
+	"github.com/osauer/hyperserve/v3"
+	"github.com/osauer/hyperserve/v3/mcp"
 )
 
 app, err := hyperserve.New(

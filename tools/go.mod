@@ -1,11 +1,11 @@
-module github.com/osauer/hyperserve/v2/tools
+module github.com/osauer/hyperserve/v3/tools
 
 go 1.27.3
 
 require (
 	github.com/google/jsonschema-go v0.4.3
 	github.com/modelcontextprotocol/go-sdk v1.7.0
-	github.com/osauer/hyperserve/v2 v2.2.1
+	github.com/osauer/hyperserve/v3 v3.0.0
 )
 
 require (
@@ -21,6 +21,6 @@ require (
 	golang.org/x/tools/gopls v0.23.0 // indirect
 )
 
-replace github.com/osauer/hyperserve/v2 => ..
+replace github.com/osauer/hyperserve/v3 => ..
 
 tool golang.org/x/tools/gopls/internal/analysis/modernize/cmd/modernize

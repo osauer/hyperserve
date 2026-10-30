@@ -13,9 +13,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/osauer/hyperserve/v2"
-	"github.com/osauer/hyperserve/v2/auth"
-	"github.com/osauer/hyperserve/v2/ratelimit"
+	"github.com/osauer/hyperserve/v3"
+	"github.com/osauer/hyperserve/v3/auth"
+	"github.com/osauer/hyperserve/v3/ratelimit"
 )
 
 // AppData represents our application's template data
@@ -97,7 +97,7 @@ func main() {
 	}
 	app.Use(hyperserve.HeadersMiddleware(app.Options()))
 	app.UsePrefix("/api", requireIdentity, apiGate)
-	app.UsePrefix("/mcp", requireIdentity)
+	app.UsePrefix(app.Options().MCPEndpoint, requireIdentity)
 
 	if app.MCPEnabled() {
 		if err := app.RegisterMCPTool(&CustomTool{}); err != nil {

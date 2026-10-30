@@ -3,14 +3,15 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"log"
 	"os"
 	"path/filepath"
 
-	"github.com/osauer/hyperserve/v2"
-	"github.com/osauer/hyperserve/v2/mcp"
-	_ "github.com/osauer/hyperserve/v2/mcp/builtin" // register builtin preset hooks
+	"github.com/osauer/hyperserve/v3"
+	"github.com/osauer/hyperserve/v3/mcp"
+	_ "github.com/osauer/hyperserve/v3/mcp/builtin" // register builtin preset hooks
 )
 
 func main() {
@@ -67,14 +68,26 @@ func main() {
 }
 
 func createSampleFiles(dir string) error {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
 	files := map[string]string{
 		"hello.txt": "Hello from Hyperserve MCP stdio server!",
 		"test.json": `{"message": "This is a test file", "server": "hyperserve"}`,
 	}
 
 	for name, content := range files {
-		path := filepath.Join(dir, name)
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		file, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if errors.Is(err, os.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		_, writeErr := file.WriteString(content)
+		if err := errors.Join(writeErr, file.Close()); err != nil {
 			return err
 		}
 	}

@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/osauer/hyperserve/v2/internal/validate"
+	"github.com/osauer/hyperserve/v3/internal/validate"
 )
 
 // TypedToolFunc is the signature an MCP tool implements when registered via

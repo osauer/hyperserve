@@ -6,8 +6,8 @@ import (
 	"flag"
 	"log"
 
-	"github.com/osauer/hyperserve/v2"
-	"github.com/osauer/hyperserve/v2/mcp"
+	"github.com/osauer/hyperserve/v3"
+	"github.com/osauer/hyperserve/v3/mcp"
 )
 
 type input struct {

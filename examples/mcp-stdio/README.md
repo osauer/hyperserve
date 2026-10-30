@@ -19,7 +19,7 @@ This example demonstrates a standalone MCP server that communicates via stdio, a
 go build -o hyperserve-mcp-stdio ./examples/mcp-stdio
 
 # Or install globally
-go install github.com/osauer/hyperserve/v2/examples/mcp-stdio@v2.2.1
+go install github.com/osauer/hyperserve/v3/examples/mcp-stdio@v3.0.0
 ```
 
 ## Claude Desktop Configuration

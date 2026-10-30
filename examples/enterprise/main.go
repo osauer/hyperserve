@@ -9,7 +9,7 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/osauer/hyperserve/v2"
+	"github.com/osauer/hyperserve/v3"
 )
 
 func main() {

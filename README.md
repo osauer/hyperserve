@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/osauer/hyperserve/actions/workflows/ci.yml/badge.svg)](https://github.com/osauer/hyperserve/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/osauer/hyperserve?label=release&sort=semver)](https://github.com/osauer/hyperserve/releases/latest)
-[![Go reference](https://pkg.go.dev/badge/github.com/osauer/hyperserve/v2.svg)](https://pkg.go.dev/github.com/osauer/hyperserve/v2)
+[![Go reference](https://pkg.go.dev/badge/github.com/osauer/hyperserve/v3.svg)](https://pkg.go.dev/github.com/osauer/hyperserve/v3)
 [![License: MIT](https://img.shields.io/github/license/osauer/hyperserve)](LICENSE)
 
 HyperServe is a Go server library built on `net/http`. It brings middleware,
@@ -14,7 +14,7 @@ service only needs routes and JSON, plain `net/http` is usually the better
 choice. HyperServe does not provide an ORM, browser sessions, identity-provider
 setup, or application authorization.
 
-HyperServe is a private project of Oliver Sauer, unaffiliated with any employer.
+HyperServe is a private project.
 
 ## Quick start
 
@@ -23,7 +23,7 @@ HyperServe requires Go 1.27.3 or newer.
 ```sh
 mkdir hello && cd hello
 go mod init example.com/hello
-go get github.com/osauer/hyperserve/v2@v2.2.1
+go get github.com/osauer/hyperserve/v3@v3.0.0
 ```
 
 Save this as `main.go`:
@@ -40,7 +40,7 @@ import (
     "os/signal"
     "syscall"
 
-    "github.com/osauer/hyperserve/v2"
+    "github.com/osauer/hyperserve/v3"
 )
 
 func main() {
@@ -69,7 +69,7 @@ started. Handlers continue to use `r.Context()` for request lifetime.
 
 For the next step, use the [examples](./examples/), the
 [production guide](./docs/PRODUCTION.md), or the
-[Go reference](https://pkg.go.dev/github.com/osauer/hyperserve/v2).
+[Go reference](https://pkg.go.dev/github.com/osauer/hyperserve/v3).
 
 ## The application model
 
@@ -96,7 +96,7 @@ Middleware from another package works without an adapter.
 Create a limiter, then attach it to the path that shares the quota:
 
 ```go
-import "github.com/osauer/hyperserve/v2/ratelimit"
+import "github.com/osauer/hyperserve/v3/ratelimit"
 
 apiLimit, err := ratelimit.New(ratelimit.Config{
     RequestsPerSecond: 20,
@@ -182,14 +182,14 @@ authorization remain caller-owned.
 
 | Import path | Purpose |
 |---|---|
-| `github.com/osauer/hyperserve/v2` | HTTP server, middleware, lifecycle, typed input, pages, and MCP wiring |
-| `github.com/osauer/hyperserve/v2/auth` | Provider-neutral request authentication and stable principals |
-| `github.com/osauer/hyperserve/v2/jsonrpc` | Standalone JSON-RPC 2.0 engine |
-| `github.com/osauer/hyperserve/v2/mcp` | MCP handler, transports, discovery, tools, and resources |
-| `github.com/osauer/hyperserve/v2/mcp/builtin` | Opt-in built-in MCP tools and resources |
-| `github.com/osauer/hyperserve/v2/ratelimit` | Bounded rate-limit middleware and trusted-proxy client keys |
-| `github.com/osauer/hyperserve/v2/sse` | SSE frames, JSON events, and comments with bounded writes and flushing |
-| `github.com/osauer/hyperserve/v2/websocket` | WebSocket upgrader, connection, and outbound dialer |
+| `github.com/osauer/hyperserve/v3` | HTTP server, middleware, lifecycle, typed input, pages, and MCP wiring |
+| `github.com/osauer/hyperserve/v3/auth` | Provider-neutral request authentication and stable principals |
+| `github.com/osauer/hyperserve/v3/jsonrpc` | Standalone JSON-RPC 2.0 engine |
+| `github.com/osauer/hyperserve/v3/mcp` | MCP handler, transports, discovery, tools, and resources |
+| `github.com/osauer/hyperserve/v3/mcp/builtin` | Opt-in built-in MCP tools and resources |
+| `github.com/osauer/hyperserve/v3/ratelimit` | Bounded rate-limit middleware and trusted-proxy client keys |
+| `github.com/osauer/hyperserve/v3/sse` | SSE frames, JSON events, and comments with bounded writes and flushing |
+| `github.com/osauer/hyperserve/v3/websocket` | WebSocket upgrader, connection, and outbound dialer |
 
 The runtime module has one external dependency, `golang.org/x/time`, used by
 the standalone rate-limit gate. WebSocket, JSON-RPC, and MCP are maintained in
@@ -209,7 +209,7 @@ same machine; HyperServe publishes no universal throughput claim. See
 ## Scaffold a service
 
 ```sh
-go install github.com/osauer/hyperserve/v2/cmd/hyperserve-init@v2.2.1
+go install github.com/osauer/hyperserve/v3/cmd/hyperserve-init@v3.0.0
 hyperserve-init --module github.com/acme/payments
 cd payments
 go run ./cmd/server
@@ -222,7 +222,7 @@ application's authorization policy. See [scaffolding](./docs/SCAFFOLDING.md).
 ## Documentation
 
 - [Examples](./examples/) — focused runnable programs
-- [Migrating from v1](./docs/MIGRATING_V2.md) — v1 to the current v2 API
+- [Migrating to v3](./docs/MIGRATING_V3.md) — module path and behavior changes
 - [Migrating from v2.0.x](./docs/MIGRATING_V2_1.md) — earlier package and configuration changes
 - [Production guide](./docs/PRODUCTION.md) — deployment, TLS, proxies, and security boundaries
 - [Architecture](./ARCHITECTURE.md) — package, configuration, and lifecycle design

@@ -31,31 +31,6 @@ jobs:
 
       - name: Run Claude Code
         id: claude
-        uses: anthropics/claude-code-action@beta
+        uses: anthropics/claude-code-action@6d5ae526d25ce88daa2200be073e1a373167f064 # v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          
-          # Optional: Specify model (defaults to Claude Sonnet 4, uncomment for Claude Opus 4)
-          # model: "claude-opus-4-20250514"
-          
-          # Optional: Customize the trigger phrase (default: @claude)
-          # trigger_phrase: "/claude"
-          
-          # Optional: Trigger when specific user is assigned to an issue
-          # assignee_trigger: "claude-bot"
-          
-          # Optional: Allow Claude to run specific commands. This repo
-          # is Go-only; example commands match the local `make check`
-          # gate plus the test and build targets.
-          # allowed_tools: "Bash(go build ./...),Bash(go test ./...),Bash(go vet ./...),Bash(make check),Bash(make test-race)"
-
-          # Optional: Add custom instructions for Claude to customize its behavior for your project
-          # custom_instructions: |
-          #   Follow CLAUDE.md and docs/API_STABILITY.md.
-          #   Ensure new code has -race-safe tests and updates examples.
-          #   `make check` is the floor — gofmt + vet + staticcheck +
-          #   govulncheck + modernize must pass before claiming done.
-
-          # Optional: Custom environment variables for Claude
-          # claude_env: |
-          #   GOFLAGS: "-mod=readonly"

@@ -20,8 +20,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/osauer/hyperserve/v2/mcp"
-	"github.com/osauer/hyperserve/v2/websocket"
+	"github.com/osauer/hyperserve/v3/mcp"
+	"github.com/osauer/hyperserve/v3/websocket"
 )
 
 func init() {
@@ -29,13 +29,13 @@ func init() {
 	if Version == "dev" {
 		if info, ok := debug.ReadBuildInfo(); ok {
 			for _, dep := range info.Deps {
-				if dep.Path == "github.com/osauer/hyperserve/v2" {
+				if dep.Path == "github.com/osauer/hyperserve/v3" {
 					Version = dep.Version
 					break
 				}
 			}
 			// If we're the main module, use the Go version as a fallback
-			if Version == "dev" && info.Main.Path == "github.com/osauer/hyperserve/v2" {
+			if Version == "dev" && info.Main.Path == "github.com/osauer/hyperserve/v3" {
 				if info.Main.Version != "" && info.Main.Version != "(devel)" {
 					Version = info.Main.Version
 				}
@@ -310,7 +310,7 @@ func initializeMCPHandler(srv *Server) {
 		} else {
 			srv.logger.Warn("WithMCPBuiltinTools(true) was set but no builtin tools are registered",
 				"reason", "missing blank import",
-				"fix", `add: _ "github.com/osauer/hyperserve/v2/mcp/builtin"`)
+				"fix", `add: _ "github.com/osauer/hyperserve/v3/mcp/builtin"`)
 		}
 	}
 	if srv.options.MCPResourcesEnabled {
@@ -324,12 +324,16 @@ func initializeMCPHandler(srv *Server) {
 		default:
 			srv.logger.Warn("WithMCPBuiltinResources(true) was set but no builtin resources are registered",
 				"reason", "missing blank import",
-				"fix", `add: _ "github.com/osauer/hyperserve/v2/mcp/builtin"`)
+				"fix", `add: _ "github.com/osauer/hyperserve/v3/mcp/builtin"`)
 		}
 	}
 
 	srv.registerRoute(srv.options.MCPEndpoint)
-	srv.mux.Handle(srv.options.MCPEndpoint, srv.mcpHandler)
+	// Register method-qualified routes so a normal GET / catch-all composes
+	// with the protocol endpoint. The handler still enforces transport methods.
+	for _, method := range []string{"GET", "POST"} {
+		srv.mux.Handle(method+" "+srv.options.MCPEndpoint, srv.mcpHandler)
+	}
 	srv.logger.Debug("MCP handler initialized", "endpoint", srv.options.MCPEndpoint)
 
 	srv.setupDiscoveryEndpoints()

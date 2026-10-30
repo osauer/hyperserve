@@ -5,13 +5,14 @@ bug fixes and security updates. Development happens on `main`, and fixes ship
 in the next release. Older tags remain available for reproducible builds, with
 no backports or parallel maintenance branches.
 
-The current module path is `github.com/osauer/hyperserve/v2`. Releases from
+The current module path is `github.com/osauer/hyperserve/v3`. Releases from
 the current API follow semantic versioning:
 
 - patch releases fix defects without intentionally breaking exported behavior;
 - minor releases add compatible APIs and behavior;
 - future breaking exported API changes require a new major module path.
 
+Migration from v2 is described in [Migrating to v3](MIGRATING_V3.md).
 The earlier v2.1.0 package migration is documented in
 [Migrating from v2.0.x](./MIGRATING_V2_1.md). Historical changes and rollback
 instructions live in that guide and the changelog.
@@ -20,14 +21,14 @@ instructions live in that guide and the changelog.
 
 The compatibility promise covers exported APIs in:
 
-- `github.com/osauer/hyperserve/v2`
-- `github.com/osauer/hyperserve/v2/auth`
-- `github.com/osauer/hyperserve/v2/jsonrpc`
-- `github.com/osauer/hyperserve/v2/mcp`
-- `github.com/osauer/hyperserve/v2/mcp/builtin`
-- `github.com/osauer/hyperserve/v2/ratelimit`
-- `github.com/osauer/hyperserve/v2/sse`
-- `github.com/osauer/hyperserve/v2/websocket`
+- `github.com/osauer/hyperserve/v3`
+- `github.com/osauer/hyperserve/v3/auth`
+- `github.com/osauer/hyperserve/v3/jsonrpc`
+- `github.com/osauer/hyperserve/v3/mcp`
+- `github.com/osauer/hyperserve/v3/mcp/builtin`
+- `github.com/osauer/hyperserve/v3/ratelimit`
+- `github.com/osauer/hyperserve/v3/sse`
+- `github.com/osauer/hyperserve/v3/websocket`
 
 There are no compatibility packages under `pkg/...` and no `NewServer`
 constructor alias.

@@ -72,7 +72,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/hyperserve/v2/mcp"
+	"github.com/osauer/hyperserve/v3/mcp"
 )
 
 // Options contains all configuration settings for the HTTP server.

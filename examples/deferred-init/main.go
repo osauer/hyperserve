@@ -24,7 +24,7 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/osauer/hyperserve/v2"
+	"github.com/osauer/hyperserve/v3"
 )
 
 func main() {

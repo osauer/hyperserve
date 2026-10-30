@@ -18,10 +18,10 @@ go run .
 ```
 
 Open <http://localhost:8080> and click the button. HTMX issues a
-`GET /load-content`; the server returns a template fragment for that element.
+`GET /dynamic-content`; the server returns a template fragment for that element.
 
 ## Files
 
-- `main.go` — server, two routes (`/` full page, `/load-content` fragment).
+- `main.go` — server, two routes (`/` full page, `/dynamic-content` fragment).
 - `templates/` — Go `html/template` source for both shapes.
 - `static/` — `htmx.min.js` plus the small example configuration scripts.

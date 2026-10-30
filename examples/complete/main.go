@@ -16,9 +16,9 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/osauer/hyperserve/v2"
-	"github.com/osauer/hyperserve/v2/auth"
-	"github.com/osauer/hyperserve/v2/ratelimit"
+	"github.com/osauer/hyperserve/v3"
+	"github.com/osauer/hyperserve/v3/auth"
+	"github.com/osauer/hyperserve/v3/ratelimit"
 )
 
 // Mock user store for authentication demo

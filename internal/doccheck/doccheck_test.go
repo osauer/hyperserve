@@ -19,8 +19,26 @@ var (
 	markdownLink  = regexp.MustCompile(`\[[^]]+\]\(([^)]+)\)`)
 	markdownTitle = regexp.MustCompile(`(?m)^ {0,3}#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$`)
 	explicitID    = regexp.MustCompile(`(?i)<(?:a|[a-z][a-z0-9-]*)[^>]+(?:id|name)=["']([^"']+)["'][^>]*>`)
-	historicalADR = regexp.MustCompile(`^docs/(?:000[1-9]|001[0-3])-.*\.md$`)
 )
+
+var historicalDecisions = []string{
+	"docs/0001-minimal-external-dependencies.md",
+	"docs/0002-functional-options-pattern.md",
+	"docs/0003-layered-middleware-architecture.md",
+	"docs/0004-configuration-precedence-hierarchy.md",
+	"docs/0005-separate-health-check-server.md",
+	"docs/0006-go-minimum-version.md",
+	"docs/0007-template-system-integration.md",
+	"docs/0008-graceful-shutdown-design.md",
+	"docs/0009-single-package-architecture.md",
+	"docs/0010-server-sent-events-support.md",
+	"docs/0011-mcp-protocol-support.md",
+	"docs/0012-mcp-streamable-http-2026.md",
+	"docs/0013-explicit-configuration-binding.md",
+	"docs/0014-root-package-and-concern-subpackages.md",
+	"docs/0015-single-current-release.md",
+	"docs/0016-sse-writer.md",
+}
 
 type staleSurfaceRule struct {
 	name         string
@@ -162,7 +180,7 @@ func TestCurrentAuthorityUsesCanonicalAPI(t *testing.T) {
 			name:    "old public package path",
 			pattern: regexp.MustCompile(`(?:github\.com/osauer/hyperserve/v2/)?pkg/(?:server|auth|jsonrpc|mcp|websocket)\b`),
 			allow: func(relative, line string) bool {
-				return relative == "docs/0014-root-package-and-concern-subpackages.md" &&
+				return relative == "docs/0017-v3-integrated-server.md" &&
 					strings.Contains(strings.ToLower(line), "intermediate public layout")
 			},
 		},
@@ -335,7 +353,7 @@ func TestHistoricalAuthorityExemptions(t *testing.T) {
 		"docs/MIGRATING_V2.md",
 		"docs/MIGRATING_V2_1.md",
 		"docs/0009-single-package-architecture.md",
-		"docs/0013-example-historical-adr.md",
+		"docs/0013-explicit-configuration-binding.md",
 	} {
 		if !isHistoricalAuthority(relative) {
 			t.Errorf("%s must remain exempt as explicit migration/history material", relative)
@@ -344,13 +362,13 @@ func TestHistoricalAuthorityExemptions(t *testing.T) {
 	if isHistoricalAuthority("docs/API_STABILITY.md") {
 		t.Error("current API stability policy must not be exempt from canonical-surface checks")
 	}
-	if isHistoricalAuthority("docs/0014-root-package-and-concern-subpackages.md") {
-		t.Error("ADR-0014 establishes the current architecture and must be scanned")
+	if isHistoricalAuthority("docs/0017-v3-integrated-server.md") {
+		t.Error("ADR-0017 establishes the current architecture and must be scanned")
 	}
 
-	foundCurrentADR := slices.Contains(currentAuthorityFiles(t, repoRoot(t)), "docs/0014-root-package-and-concern-subpackages.md")
+	foundCurrentADR := slices.Contains(currentAuthorityFiles(t, repoRoot(t)), "docs/0017-v3-integrated-server.md")
 	if !foundCurrentADR {
-		t.Error("ADR-0014 is not included in current-authority scanning")
+		t.Error("ADR-0017 is not included in current-authority scanning")
 	}
 }
 
@@ -414,7 +432,7 @@ func isHistoricalAuthority(relative string) bool {
 	if relative == "CHANGELOG.md" || strings.HasPrefix(relative, "docs/MIGRATING") {
 		return true
 	}
-	return historicalADR.MatchString(relative)
+	return slices.Contains(historicalDecisions, relative)
 }
 
 func isCurrentTextFile(relative string) bool {

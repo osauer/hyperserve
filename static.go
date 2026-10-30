@@ -43,7 +43,7 @@ func (srv *Server) rootFileServer() http.Handler {
 		}
 
 		path := filepath.Clean(r.URL.Path)
-		if path == "/" {
+		if path == "/" || path == "." {
 			path = "index.html"
 		}
 

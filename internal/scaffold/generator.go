@@ -16,10 +16,10 @@ import (
 	"go/format"
 )
 
-// latestStableVersion is intentionally advanced with each release candidate:
+// targetVersion is the release being prepared:
 // generated projects must depend on the version whose docs and examples they
 // were created from, rather than a pseudo-version of the local checkout.
-const latestStableVersion = "v2.2.1"
+const targetVersion = "v3.0.0"
 
 // Generate scaffolds a new HyperServe project, downloads its complete module
 // graph to create go.sum, and returns the absolute output directory.
@@ -51,7 +51,7 @@ func Generate(opts Options) (string, error) {
 		ServiceSlug:       opts.serviceSlug(),
 		BinaryName:        opts.serviceSlug(),
 		WithMCP:           opts.WithMCP,
-		HyperserveVersion: latestStableVersion,
+		HyperserveVersion: targetVersion,
 		LocalReplace:      filepath.ToSlash(opts.LocalReplace),
 		DefaultAddr:       ":8080",
 		DefaultHealthAddr: ":9080",

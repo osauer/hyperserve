@@ -3,11 +3,11 @@ module {{ .Module }}
 go 1.27.3
 
 require (
-	github.com/osauer/hyperserve/v2 {{ .HyperserveVersion }}
+	github.com/osauer/hyperserve/v3 {{ .HyperserveVersion }}
 	golang.org/x/time v0.15.0 // indirect
 )
 
 {{- if .LocalReplace }}
 
-replace github.com/osauer/hyperserve/v2 => {{ .LocalReplace }}
+replace github.com/osauer/hyperserve/v3 => {{ .LocalReplace }}
 {{- end }}

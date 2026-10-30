@@ -46,10 +46,10 @@ func TestGenerateCreatesProject(t *testing.T) {
 	if !strings.Contains(content, "module github.com/example/sample-service") {
 		t.Fatalf("go.mod missing module declaration: %s", content)
 	}
-	if !strings.Contains(content, "github.com/osauer/hyperserve/v2 "+latestStableVersion) {
+	if !strings.Contains(content, "github.com/osauer/hyperserve/v3 "+targetVersion) {
 		t.Fatalf("go.mod missing hyperserve requirement: %s", content)
 	}
-	if !strings.Contains(content, "replace github.com/osauer/hyperserve/v2 =>") {
+	if !strings.Contains(content, "replace github.com/osauer/hyperserve/v3 =>") {
 		t.Fatalf("go.mod missing replace directive: %s", content)
 	}
 	if !strings.Contains(content, "\ngo 1.27.3\n") {
@@ -79,8 +79,8 @@ func TestGenerateCreatesProject(t *testing.T) {
 		t.Fatal("generated server does not apply headers to the global middleware scope")
 	}
 	for _, required := range []string{
-		`"github.com/osauer/hyperserve/v2"`,
-		`"github.com/osauer/hyperserve/v2/ratelimit"`,
+		`"github.com/osauer/hyperserve/v3"`,
+		`"github.com/osauer/hyperserve/v3/ratelimit"`,
 		"app, err := hyperserve.New(opts...)",
 		"gate, err := ratelimit.New(ratelimit.Config{",
 		"RequestsPerSecond: float64(cfg.RateLimit)",
@@ -92,7 +92,7 @@ func TestGenerateCreatesProject(t *testing.T) {
 		}
 	}
 	for _, retired := range []string{
-		"github.com/osauer/hyperserve/v2/pkg/",
+		"github.com/osauer/hyperserve/v3/pkg/",
 		"golang.org/x/time/rate",
 		"server.NewServer",
 		"WithRateLimit",

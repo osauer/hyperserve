@@ -3,31 +3,15 @@
 This document records directions, not release promises. Issues and accepted
 ADRs remain the authority for scheduled work.
 
-## Current baseline
+## Current work
 
-The current v2 API provides:
+The v3 renovation focuses on tested HTTP/MCP composition, non-destructive file
+examples, correct binding and static serving, one reference application, and
+current documentation. See [ADR-0017](0017-v3-integrated-server.md).
 
-- the branded root `hyperserve` package;
-- concern-specific `auth`, `jsonrpc`, `mcp`, `mcp/builtin`,
-  `ratelimit`, `sse`, and `websocket` packages;
-- application-owned lifecycle and deterministic configuration binding;
-- standalone, bounded rate-limit middleware;
-- MCP 2026-07-28 Streamable HTTP plus stdio;
-- RFC 6455 server and outbound-client support.
-
-The baseline must settle before another public surface is added. Future
-breaking changes require a new major module path.
-
-## Near-term work
-
-| Area | Direction | Constraint |
-|---|---|---|
-| MCP conformance | Track protocol revisions through focused fixtures and the official SDK suite. | Do not confuse proprietary routed SSE with current Streamable HTTP. |
-| Authentication examples | Keep `auth` provider-neutral while maintaining at least one real provider integration example. | Identity must not imply application authorization. |
-| Limiter operations | Add evidence only where operators need it, without exporting mutable quota internals. | Preserve bounded state, no cleanup goroutine, and explicit proxy trust. |
-| Generated applications | Keep scaffold output compiling against the exact public release and application-owned policy. | Generated modules must contain no local replacement. |
-| Performance | Maintain exact-revision A/B baselines for middleware, limiter, and loopback workloads. | No universal throughput claim from a microbenchmark. |
-| Protocol hardening | Continue fuzzing WebSocket, JSON-RPC, MCP headers, and streaming cancellation. | Correctness and denial-of-service bounds precede convenience. |
+Protocol conformance, fuzzing, public-module consumer checks and repeatable
+performance measurements are continuing maintenance obligations, not features
+promised for a future release. New APIs require a concrete application need.
 
 ## Deliberately out of scope
 

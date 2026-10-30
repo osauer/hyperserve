@@ -11,9 +11,9 @@ import (
 	"os/signal"
 	"slices"
 
-	"github.com/osauer/hyperserve/v2"
-	"github.com/osauer/hyperserve/v2/mcp"
-	_ "github.com/osauer/hyperserve/v2/mcp/builtin" // register builtin preset hooks
+	"github.com/osauer/hyperserve/v3"
+	"github.com/osauer/hyperserve/v3/mcp"
+	_ "github.com/osauer/hyperserve/v3/mcp/builtin" // register builtin preset hooks
 )
 
 func main() {

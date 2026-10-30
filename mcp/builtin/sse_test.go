@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/hyperserve/v2"
+	"github.com/osauer/hyperserve/v3"
 )
 
 func TestMCPSSEEndpoint(t *testing.T) {

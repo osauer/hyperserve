@@ -22,13 +22,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"reflect"
 	"strconv"
 	"strings"
 
-	"github.com/osauer/hyperserve/v2/internal/validate"
+	"github.com/osauer/hyperserve/v3/internal/validate"
 )
 
 // FieldError describes one failed validation rule. Aliased to the
@@ -75,9 +76,28 @@ func BindQuery(r *http.Request, dst any) error {
 }
 
 // BindForm decodes application/x-www-form-urlencoded or multipart/form-data
-// into dst, then runs Validate.
+// into dst, then runs Validate. Like net/http ParseForm, an unparsed body is
+// limited to 10 MiB. Multipart files remain available through r.MultipartForm.
+// Callers own request-body limits; net/http cleans multipart temporary files after serving.
 func BindForm(r *http.Request, dst any) error {
-	if err := r.ParseForm(); err != nil {
+	var contentType string
+	var err error
+	if value := r.Header.Get("Content-Type"); value != "" {
+		contentType, _, err = mime.ParseMediaType(value)
+		if err != nil {
+			return fmt.Errorf("BindForm: content type: %w", err)
+		}
+	}
+	if contentType == "multipart/form-data" {
+		// Extend ParseForm's existing 10 MiB body ceiling to multipart bodies.
+		// A caller's smaller MaxBytesReader still takes precedence.
+		r.Body = http.MaxBytesReader(nil, r.Body, 10<<20)
+		// Avoid retaining file bodies in memory; net/http owns request cleanup.
+		err = r.ParseMultipartForm(0)
+	} else {
+		err = r.ParseForm()
+	}
+	if err != nil {
 		return fmt.Errorf("BindForm: parse form: %w", err)
 	}
 	if err := decodeValues(r.Form, dst); err != nil {

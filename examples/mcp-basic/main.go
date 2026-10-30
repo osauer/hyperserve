@@ -19,10 +19,10 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/osauer/hyperserve/v2"
-	"github.com/osauer/hyperserve/v2/mcp"
-	_ "github.com/osauer/hyperserve/v2/mcp/builtin" // wire built-in tool/resource hooks
-	"github.com/osauer/hyperserve/v2/ratelimit"
+	"github.com/osauer/hyperserve/v3"
+	"github.com/osauer/hyperserve/v3/mcp"
+	_ "github.com/osauer/hyperserve/v3/mcp/builtin" // wire built-in tool/resource hooks
+	"github.com/osauer/hyperserve/v3/ratelimit"
 )
 
 // TimestampTool returns the current time in a caller-selected format.
@@ -82,7 +82,21 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	app, err := hyperserve.New(
+	app, err := newApp()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	log.Println("mcp-basic listening on http://localhost:8080")
+	log.Println("MCP endpoint: http://localhost:8080/mcp (POST JSON-RPC)")
+	log.Println("Dashboard:    http://localhost:8080/")
+	if err := app.Run(ctx); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func newApp() (*hyperserve.Server, error) {
+	options := []hyperserve.Option{
 		hyperserve.WithAddr(":8080"),
 		hyperserve.WithEnvironment(), // Deployment may override address and endpoint.
 
@@ -94,24 +108,28 @@ func main() {
 		// file tools refuse to construct.
 		hyperserve.WithMCPFileToolRoot("examples/mcp-basic/sandbox"),
 		hyperserve.WithTemplateDir("examples/mcp-basic/templates"),
-	)
+	}
+	app, err := hyperserve.New(options...)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 	mcpGate, err := ratelimit.New(ratelimit.Config{
 		RequestsPerSecond: 50,
 		Burst:             100,
 	})
 	if err != nil {
-		log.Fatal(err)
+		app.Shutdown(context.Background())
+		return nil, err
 	}
-	app.UsePrefix("/mcp", mcpGate)
+	app.UsePrefix(app.Options().MCPEndpoint, mcpGate)
 
 	if err := app.RegisterMCPTool(TimestampTool{}); err != nil {
-		log.Fatal(err)
+		app.Shutdown(context.Background())
+		return nil, err
 	}
 	if err := app.RegisterMCPResource(&ServerStatusResource{start: time.Now()}); err != nil {
-		log.Fatal(err)
+		app.Shutdown(context.Background())
+		return nil, err
 	}
 
 	// Template-rendered dashboard. Data func runs on every request.
@@ -123,13 +141,9 @@ func main() {
 			"Uptime":      time.Since(start).Round(time.Second).String(),
 		}
 	}); err != nil {
-		log.Fatal(err)
+		app.Shutdown(context.Background())
+		return nil, err
 	}
 
-	log.Println("mcp-basic listening on http://localhost:8080")
-	log.Println("MCP endpoint: http://localhost:8080/mcp (POST JSON-RPC)")
-	log.Println("Dashboard:    http://localhost:8080/")
-	if err := app.Run(ctx); err != nil {
-		log.Fatal(err)
-	}
+	return app, nil
 }

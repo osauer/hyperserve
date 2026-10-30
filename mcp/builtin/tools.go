@@ -2,7 +2,7 @@
 // Import it for its registration side effect before constructing a HyperServe
 // server with built-in MCP tools, resources, or presets:
 //
-//	import _ "github.com/osauer/hyperserve/v2/mcp/builtin"
+//	import _ "github.com/osauer/hyperserve/v3/mcp/builtin"
 //
 // The pure tools (Calculator, FileRead, ListDirectory) and the pure resources
 // (Config, Metrics, System) have no dependency on the HyperServe server.

@@ -3,8 +3,8 @@ package builtin
 import (
 	"log/slog"
 
-	"github.com/osauer/hyperserve/v2"
-	"github.com/osauer/hyperserve/v2/mcp"
+	"github.com/osauer/hyperserve/v3"
+	"github.com/osauer/hyperserve/v3/mcp"
 )
 
 // init wires the builtin presets into the root package's auto-registration flow.

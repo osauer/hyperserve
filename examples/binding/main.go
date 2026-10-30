@@ -44,7 +44,7 @@ import (
 	"os/signal"
 	"strings"
 
-	"github.com/osauer/hyperserve/v2"
+	"github.com/osauer/hyperserve/v3"
 )
 
 type CreateUser struct {

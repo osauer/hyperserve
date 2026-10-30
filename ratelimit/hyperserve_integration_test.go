@@ -5,8 +5,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/osauer/hyperserve/v2"
-	"github.com/osauer/hyperserve/v2/ratelimit"
+	"github.com/osauer/hyperserve/v3"
+	"github.com/osauer/hyperserve/v3/ratelimit"
 )
 
 func TestReusedGateChargesOnceAcrossOverlappingHyperServePrefixes(t *testing.T) {

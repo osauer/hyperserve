@@ -3,8 +3,8 @@ package main
 import (
 	"testing"
 
-	"github.com/osauer/hyperserve/v2"
-	"github.com/osauer/hyperserve/v2/mcp"
+	"github.com/osauer/hyperserve/v3"
+	"github.com/osauer/hyperserve/v3/mcp"
 )
 
 func TestMCPDevOpsPreset(t *testing.T) {
