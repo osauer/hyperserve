@@ -48,8 +48,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/hyperserve"
-	"github.com/osauer/hyperserve/mcp"
+	"github.com/osauer/hyperserve/v2"
+	"github.com/osauer/hyperserve/v2/mcp"
 )
 
 // Post is the domain object every tool works with.

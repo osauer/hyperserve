@@ -9,8 +9,8 @@ import (
 	"os/signal"
 	"strings"
 
-	"github.com/osauer/hyperserve"
-	"github.com/osauer/hyperserve/mcp"
+	"github.com/osauer/hyperserve/v2"
+	"github.com/osauer/hyperserve/v2/mcp"
 )
 
 // CustomTool that opts out of discovery

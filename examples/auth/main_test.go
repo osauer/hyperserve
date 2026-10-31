@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/coreos/go-oidc/v3/oidc"
-	"github.com/osauer/hyperserve/auth"
+	"github.com/osauer/hyperserve/v2/auth"
 )
 
 type fakeIDTokenVerifier struct {

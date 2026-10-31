@@ -1,8 +1,57 @@
 <!doctype html>
-<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Catalogue · HyperServe</title><link rel="stylesheet" href="/style.css">
-<body><header><a href="/" class="brand">H<span>·</span>S</a><span>HYPERSERVE / REFERENCE APPLICATION</span><span id="connection" role="status">Connecting…</span></header>
-<main><div class="intro"><p class="eyebrow">ONE COLLECTION. FOUR INTERFACES.</p><h1>Document catalogue.</h1><p>Upload a file and find it through the browser, JSON API or MCP. Every interface reads the same collection.</p></div>
-<section class="workspace" aria-labelledby="collection-title"><div class="collection"><div class="toolbar"><h2 id="collection-title">Collection <span id="count">0</span></h2><label class="search">Find a document<input id="search" type="search" placeholder="Search filenames"></label></div><p id="storage" class="muted">Reading storage policy…</p><div id="documents" aria-live="polite"><p class="empty">No documents yet. Add your first file.</p></div></div>
-<aside><p class="eyebrow">ADD TO THE COLLECTION</p><h2>Bring a file.</h2><form id="upload"><label for="file">Choose a document</label><input id="file" type="file" required><button disabled>Upload document <span aria-hidden="true">↗</span></button></form><p id="result" role="status"></p><p id="limit" class="muted"></p><div class="note"><strong>A temporary collection</strong><p>Documents stay in this process’s memory and disappear when it stops. Use sample files only.</p></div></aside></section>
-<section class="interfaces"><div><p class="eyebrow">THE SAME DATA, EVERYWHERE</p><h2>Built to be called.</h2></div><div><h3>JSON</h3><code>GET /api/documents?q=notes</code><p>Authenticated reads and uploads.</p></div><div><h3>MCP</h3><code>search_documents</code><p>Find the same documents from your MCP client.</p></div><div><h3>Live updates</h3><code>GET /api/events</code><p>Authenticated SSE delivers complete snapshots.</p></div></section>
-<footer>Loopback teaching application · Public token: <code>catalogue-demo</code> · No persistent storage</footer></main><script src="/app.js"></script></body></html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Document catalogue · HyperServe</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="masthead">
+    <a href="/" class="brand" aria-label="HyperServe catalogue"><span class="brand-mark" aria-hidden="true">H<span>·</span>S</span> HyperServe</a>
+    <span class="edition">REFERENCE APPLICATION <span aria-hidden="true">/</span> 01</span>
+    <a class="source-link" href="https://github.com/osauer/hyperserve/tree/v2.2.2/examples/catalogue">View source <span aria-hidden="true">↗</span></a>
+  </header>
+  <main>
+    <section class="intro" aria-labelledby="title">
+      <div><p class="eyebrow">HTML · JSON · MCP · LIVE UPDATES</p><h1 id="title">A collection.<br><em>One source of truth.</em></h1></div>
+      <div class="intro-copy"><p>Add a sample document. Find it here, read it through the API, or ask an MCP client. Every view uses the same collection.</p><a href="#inspect">Try the interfaces <span aria-hidden="true">↓</span></a></div>
+    </section>
+
+    <section class="workspace" aria-labelledby="collection-title">
+      <div class="collection">
+        <div class="collection-heading"><div><p class="eyebrow">DOCUMENT CATALOGUE</p><h2 id="collection-title">Your collection <span id="count" class="count">—</span></h2></div><div class="connection"><span id="connection" role="status" data-state="waiting">Connecting…</span><a href="/" target="_blank" rel="noopener">Open a second view <span aria-hidden="true">↗</span></a></div></div>
+        <label class="search" for="search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><path d="m15 15 5 5"/></svg><span class="sr-only">Search filenames</span><input id="search" type="search" placeholder="Search filenames" autocomplete="off"><kbd aria-hidden="true">/</kbd></label>
+        <div class="list-heading" aria-hidden="true"><span>DOCUMENT <span id="filtered"></span></span><span>SIZE</span></div>
+        <div id="documents" aria-label="Documents" aria-busy="true"><div class="empty"><span class="sheet-icon" aria-hidden="true">↳</span><h3>Reading your collection…</h3><p>Documents will appear when the connection is ready.</p></div></div>
+        <div class="storage"><p id="storage">Reading storage policy…</p><meter id="capacity" min="0" max="1" value="0" aria-label="Stored file content" hidden></meter></div>
+      </div>
+      <aside aria-labelledby="upload-title">
+        <p class="eyebrow">ADD A DOCUMENT</p><h2 id="upload-title">Start with a file.</h2>
+        <p class="aside-copy">Upload a sample note, PDF or other document.</p>
+        <form id="upload">
+          <label class="file-picker" id="dropzone" for="file"><span class="upload-symbol" aria-hidden="true">↑</span><strong id="file-name">Choose a sample file</strong><span id="file-detail">or drop it here</span><input id="file" type="file" aria-describedby="limit temporary-note"></label>
+          <p id="limit" class="limit">Reading the upload limit…</p>
+          <button id="upload-button" class="primary" disabled>Upload document <span aria-hidden="true">↑</span></button>
+        </form>
+        <p id="result" class="feedback" role="status"></p>
+        <p class="sample-action">Nothing handy? <button id="sample" class="text-button" disabled>Add a sample note</button></p>
+        <div class="temporary" id="temporary-note"><strong>For trying things out.</strong><p>Use sample files only. This collection lives in memory and clears when the server stops.</p></div>
+      </aside>
+    </section>
+
+    <section class="interfaces" id="inspect" aria-labelledby="interfaces-title">
+      <div class="interface-intro"><p class="eyebrow">LOOK UNDER THE SURFACE</p><h2 id="interfaces-title">Same documents.<br>Different ways in.</h2><p>Run a read against this collection. Both interfaces use your filename search above.</p><p>To see live updates, open a second view and add a file. It appears in both without reloading.</p></div>
+      <div class="inspector">
+        <div class="inspector-toolbar"><div class="switcher" aria-label="Read interface"><button id="json-mode" aria-pressed="true">JSON API</button><button id="mcp-mode" aria-pressed="false">MCP tool</button></div><button id="run-read" class="run-button">Run read <span aria-hidden="true">→</span></button></div>
+        <div class="request-summary"><code id="request-label">GET /api/documents</code><span>READ ONLY</span></div>
+        <pre id="response" tabindex="0" aria-label="Read response">Run a read to see the actual server response.</pre>
+        <p id="read-status" class="read-status" role="status">The public demo token is sent with each request.</p>
+        <details><summary>Try it in your terminal</summary><div class="command"><pre><code id="command"></code></pre><button id="copy" class="text-button">Copy command</button></div></details>
+      </div>
+    </section>
+    <footer><span>Built with HyperServe <span aria-hidden="true">/</span> Standard Go handlers. One application.</span><span>Loopback only · Public token <code>catalogue-demo</code></span></footer>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -10,8 +10,8 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/osauer/hyperserve"
-	"github.com/osauer/hyperserve/ratelimit"
+	"github.com/osauer/hyperserve/v2"
+	"github.com/osauer/hyperserve/v2/ratelimit"
 )
 
 func main() {

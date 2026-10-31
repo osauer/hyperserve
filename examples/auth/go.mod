@@ -4,7 +4,7 @@ go 1.27.3
 
 require (
 	github.com/coreos/go-oidc/v3 v3.20.0
-	github.com/osauer/hyperserve v1.7.0
+	github.com/osauer/hyperserve/v2 v2.2.2
 )
 
 require (
@@ -12,4 +12,4 @@ require (
 	golang.org/x/oauth2 v0.36.0 // indirect
 )
 
-replace github.com/osauer/hyperserve => ../../
+replace github.com/osauer/hyperserve/v2 => ../../

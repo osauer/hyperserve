@@ -226,8 +226,8 @@ registers hooks without making the root package depend on `mcp/builtin`:
 
 ```go
 import (
-	"github.com/osauer/hyperserve"
-	_ "github.com/osauer/hyperserve/mcp/builtin"
+	"github.com/osauer/hyperserve/v2"
+	_ "github.com/osauer/hyperserve/v2/mcp/builtin"
 )
 
 app, err := hyperserve.New(

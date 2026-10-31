@@ -6,7 +6,7 @@ readiness, and lifecycle. Concern-specific public packages remain independently
 usable where coupling them to `Server` would blur ownership.
 
 The package layout is established by
-[ADR-0018](./docs/0018-single-owner-module.md); historical package decisions
+[ADR-0019](./docs/0019-v2-maintenance.md); historical package decisions
 remain in the [decision index](./docs/DECISIONS.md).
 
 ## Design principles
@@ -48,20 +48,20 @@ part of that trade-off.
 
 The canonical public packages are:
 
-- `github.com/osauer/hyperserve` — HTTP server, middleware, lifecycle,
+- `github.com/osauer/hyperserve/v2` — HTTP server, middleware, lifecycle,
   binding, templates, static files, SSE, and MCP wiring.
-- `github.com/osauer/hyperserve/auth` — provider-neutral authentication
+- `github.com/osauer/hyperserve/v2/auth` — provider-neutral authentication
   and request principals.
-- `github.com/osauer/hyperserve/jsonrpc` — standalone JSON-RPC 2.0.
-- `github.com/osauer/hyperserve/mcp` — MCP handler, transports, discovery,
+- `github.com/osauer/hyperserve/v2/jsonrpc` — standalone JSON-RPC 2.0.
+- `github.com/osauer/hyperserve/v2/mcp` — MCP handler, transports, discovery,
   tools, resources, and namespaces.
-- `github.com/osauer/hyperserve/mcp/builtin` — opt-in built-in tools and
+- `github.com/osauer/hyperserve/v2/mcp/builtin` — opt-in built-in tools and
   resources.
-- `github.com/osauer/hyperserve/ratelimit` — bounded HTTP rate-limit
+- `github.com/osauer/hyperserve/v2/ratelimit` — bounded HTTP rate-limit
   middleware.
-- `github.com/osauer/hyperserve/sse` — event encoding and bounded, flushed
+- `github.com/osauer/hyperserve/v2/sse` — event encoding and bounded, flushed
   HTTP writes; see [ADR-0016](./docs/0016-sse-writer.md).
-- `github.com/osauer/hyperserve/websocket` — RFC 6455 server and client.
+- `github.com/osauer/hyperserve/v2/websocket` — RFC 6455 server and client.
 
 The load-bearing dependency direction is:
 

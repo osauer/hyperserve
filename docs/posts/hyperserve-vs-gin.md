@@ -25,7 +25,7 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/osauer/hyperserve"
+	"github.com/osauer/hyperserve/v2"
 )
 
 func main() {
@@ -60,8 +60,8 @@ lifecycle:
 
 ```go
 import (
-	"github.com/osauer/hyperserve"
-	"github.com/osauer/hyperserve/mcp"
+	"github.com/osauer/hyperserve/v2"
+	"github.com/osauer/hyperserve/v2/mcp"
 )
 
 app, err := hyperserve.New(

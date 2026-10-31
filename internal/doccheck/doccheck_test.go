@@ -39,6 +39,7 @@ var historicalDecisions = []string{
 	"docs/0015-single-current-release.md",
 	"docs/0016-sse-writer.md",
 	"docs/0017-v3-integrated-server.md",
+	"docs/0018-single-owner-module.md",
 }
 
 type staleSurfaceRule struct {
@@ -301,8 +302,8 @@ func TestReleaseAuthoringPointsToCurrentPolicy(t *testing.T) {
 			if !strings.Contains(lower, "docs/api_stability.md") {
 				t.Error("release authoring must point to the current compatibility policy")
 			}
-			if strings.Contains(lower, "require a new major") {
-				t.Error("release authoring still requires a retired major-module migration")
+			if strings.Contains(lower, "do not add a major-version suffix") {
+				t.Error("release authoring contradicts semantic versioning")
 			}
 		})
 	}
@@ -359,13 +360,13 @@ func TestHistoricalAuthorityExemptions(t *testing.T) {
 	if isHistoricalAuthority("docs/API_STABILITY.md") {
 		t.Error("current API stability policy must not be exempt from canonical-surface checks")
 	}
-	if isHistoricalAuthority("docs/0018-single-owner-module.md") {
-		t.Error("ADR-0018 establishes the current architecture and must be scanned")
+	if isHistoricalAuthority("docs/0019-v2-maintenance.md") {
+		t.Error("ADR-0019 establishes the current architecture and must be scanned")
 	}
 
-	foundCurrentADR := slices.Contains(currentAuthorityFiles(t, repoRoot(t)), "docs/0018-single-owner-module.md")
+	foundCurrentADR := slices.Contains(currentAuthorityFiles(t, repoRoot(t)), "docs/0019-v2-maintenance.md")
 	if !foundCurrentADR {
-		t.Error("ADR-0018 is not included in current-authority scanning")
+		t.Error("ADR-0019 is not included in current-authority scanning")
 	}
 }
 

@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/osauer/hyperserve/ratelimit"
+	"github.com/osauer/hyperserve/v2/ratelimit"
 )
 
 func TestMiddlewareScopes(t *testing.T) {

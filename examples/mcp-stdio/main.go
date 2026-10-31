@@ -9,9 +9,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/osauer/hyperserve"
-	"github.com/osauer/hyperserve/mcp"
-	_ "github.com/osauer/hyperserve/mcp/builtin" // register builtin preset hooks
+	"github.com/osauer/hyperserve/v2"
+	"github.com/osauer/hyperserve/v2/mcp"
+	_ "github.com/osauer/hyperserve/v2/mcp/builtin" // register builtin preset hooks
 )
 
 func main() {

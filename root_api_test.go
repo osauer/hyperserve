@@ -3,7 +3,7 @@ package hyperserve_test
 import (
 	"testing"
 
-	"github.com/osauer/hyperserve"
+	"github.com/osauer/hyperserve/v2"
 )
 
 func TestCanonicalRootConstructor(t *testing.T) {

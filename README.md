@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/osauer/hyperserve/actions/workflows/ci.yml/badge.svg)](https://github.com/osauer/hyperserve/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/osauer/hyperserve?label=release)](https://github.com/osauer/hyperserve/releases/latest)
-[![Go reference](https://pkg.go.dev/badge/github.com/osauer/hyperserve.svg)](https://pkg.go.dev/github.com/osauer/hyperserve)
+[![Go reference](https://pkg.go.dev/badge/github.com/osauer/hyperserve/v2.svg)](https://pkg.go.dev/github.com/osauer/hyperserve/v2)
 [![License: MIT](https://img.shields.io/github/license/osauer/hyperserve)](LICENSE)
 
 HyperServe is a Go server library built on `net/http`. It brings middleware,
@@ -23,7 +23,7 @@ HyperServe requires Go 1.27.3 or newer.
 ```sh
 mkdir hello && cd hello
 go mod init example.com/hello
-go get github.com/osauer/hyperserve@v1.7.0
+go get github.com/osauer/hyperserve/v2@v2.2.2
 ```
 
 Save this as `main.go`:
@@ -40,7 +40,7 @@ import (
     "os/signal"
     "syscall"
 
-    "github.com/osauer/hyperserve"
+    "github.com/osauer/hyperserve/v2"
 )
 
 func main() {
@@ -71,7 +71,7 @@ For a complete application, run the [document catalogue](./examples/catalogue/):
 one collection shared by HTML, JSON, MCP and authenticated live updates.
 For focused lessons, use the [examples](./examples/), the
 [production guide](./docs/PRODUCTION.md), or the
-[Go reference](https://pkg.go.dev/github.com/osauer/hyperserve).
+[Go reference](https://pkg.go.dev/github.com/osauer/hyperserve/v2).
 
 ## The application model
 
@@ -98,7 +98,7 @@ Middleware from another package works without an adapter.
 Create a limiter, then attach it to the path that shares the quota:
 
 ```go
-import "github.com/osauer/hyperserve/ratelimit"
+import "github.com/osauer/hyperserve/v2/ratelimit"
 
 apiLimit, err := ratelimit.New(ratelimit.Config{
     RequestsPerSecond: 20,
@@ -184,14 +184,14 @@ authorization remain caller-owned.
 
 | Import path | Purpose |
 |---|---|
-| `github.com/osauer/hyperserve` | HTTP server, middleware, lifecycle, typed input, pages, and MCP wiring |
-| `github.com/osauer/hyperserve/auth` | Provider-neutral request authentication and stable principals |
-| `github.com/osauer/hyperserve/jsonrpc` | Standalone JSON-RPC 2.0 engine |
-| `github.com/osauer/hyperserve/mcp` | MCP handler, transports, discovery, tools, and resources |
-| `github.com/osauer/hyperserve/mcp/builtin` | Opt-in built-in MCP tools and resources |
-| `github.com/osauer/hyperserve/ratelimit` | Bounded rate-limit middleware and trusted-proxy client keys |
-| `github.com/osauer/hyperserve/sse` | SSE frames, JSON events, and comments with bounded writes and flushing |
-| `github.com/osauer/hyperserve/websocket` | WebSocket upgrader, connection, and outbound dialer |
+| `github.com/osauer/hyperserve/v2` | HTTP server, middleware, lifecycle, typed input, pages, and MCP wiring |
+| `github.com/osauer/hyperserve/v2/auth` | Provider-neutral request authentication and stable principals |
+| `github.com/osauer/hyperserve/v2/jsonrpc` | Standalone JSON-RPC 2.0 engine |
+| `github.com/osauer/hyperserve/v2/mcp` | MCP handler, transports, discovery, tools, and resources |
+| `github.com/osauer/hyperserve/v2/mcp/builtin` | Opt-in built-in MCP tools and resources |
+| `github.com/osauer/hyperserve/v2/ratelimit` | Bounded rate-limit middleware and trusted-proxy client keys |
+| `github.com/osauer/hyperserve/v2/sse` | SSE frames, JSON events, and comments with bounded writes and flushing |
+| `github.com/osauer/hyperserve/v2/websocket` | WebSocket upgrader, connection, and outbound dialer |
 
 The runtime module has one external dependency, `golang.org/x/time`, used by
 the standalone rate-limit gate. WebSocket, JSON-RPC, and MCP are maintained in
@@ -211,7 +211,7 @@ same machine; HyperServe publishes no universal throughput claim. See
 ## Scaffold a service
 
 ```sh
-go install github.com/osauer/hyperserve/cmd/hyperserve-init@v1.7.0
+go install github.com/osauer/hyperserve/v2/cmd/hyperserve-init@v2.2.2
 hyperserve-init --module github.com/acme/payments
 cd payments
 go run ./cmd/server

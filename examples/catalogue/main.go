@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/osauer/hyperserve"
+	"github.com/osauer/hyperserve/v2"
 )
 
 //go:embed policy.json

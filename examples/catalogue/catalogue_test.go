@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/hyperserve"
+	"github.com/osauer/hyperserve/v2"
 )
 
 func testCatalogue(t *testing.T) (*hyperserve.Server, *catalogue) {
@@ -216,5 +216,33 @@ func TestCatalogueExecutableConfiguration(t *testing.T) {
 				t.Fatalf("relocated endpoint lost authentication: %d", w.Code)
 			}
 		})
+	}
+}
+
+func TestCatalogueDiscoveredMCPProtocol(t *testing.T) {
+	app, c := testCatalogue(t)
+	if _, err := c.add("protocol.txt", []byte("hello")); err != nil {
+		t.Fatal(err)
+	}
+	h := app.Handler()
+	discovery := call(h, "GET", "/.well-known/mcp.json", "", "catalogue-demo")
+	var info struct {
+		Version   string            `json:"version"`
+		Endpoints map[string]string `json:"endpoints"`
+	}
+	if err := json.Unmarshal(discovery.Body.Bytes(), &info); err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest("POST", info.Endpoints["mcp"], strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search_documents","arguments":{"query":"protocol"},"_meta":{"io.modelcontextprotocol/protocolVersion":"`+info.Version+`"}}}`))
+	r.Header.Set("Authorization", "Bearer catalogue-demo")
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Accept", "application/json, text/event-stream")
+	r.Header.Set("MCP-Protocol-Version", info.Version)
+	r.Header.Set("Mcp-Method", "tools/call")
+	r.Header.Set("Mcp-Name", "search_documents")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "protocol.txt") || strings.Contains(w.Body.String(), `"error"`) {
+		t.Fatalf("discovered protocol read: %d %s", w.Code, w.Body)
 	}
 }

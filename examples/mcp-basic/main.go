@@ -19,10 +19,10 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/osauer/hyperserve"
-	"github.com/osauer/hyperserve/mcp"
-	_ "github.com/osauer/hyperserve/mcp/builtin" // wire built-in tool/resource hooks
-	"github.com/osauer/hyperserve/ratelimit"
+	"github.com/osauer/hyperserve/v2"
+	"github.com/osauer/hyperserve/v2/mcp"
+	_ "github.com/osauer/hyperserve/v2/mcp/builtin" // wire built-in tool/resource hooks
+	"github.com/osauer/hyperserve/v2/ratelimit"
 )
 
 // TimestampTool returns the current time in a caller-selected format.
@@ -87,9 +87,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	log.Println("mcp-basic listening on http://localhost:8080")
-	log.Println("MCP endpoint: http://localhost:8080/mcp (POST JSON-RPC)")
-	log.Println("Dashboard:    http://localhost:8080/")
+	log.Printf("mcp-basic listening on %s", app.Options().Addr)
+	log.Printf("MCP endpoint: %s (POST JSON-RPC)", app.Options().MCPEndpoint)
+	log.Println("Dashboard: /")
 	if err := app.Run(ctx); err != nil {
 		log.Fatal(err)
 	}

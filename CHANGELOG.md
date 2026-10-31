@@ -27,6 +27,52 @@ Entries tier by audience:
 Shape is enforced by `make changelog-lint RELEASE_VERSION=vX.Y.Z`; scaffold a
 new entry with `make changelog-stub RELEASE_VERSION=vX.Y.Z`.
 
+## [2.2.2] - 2026-10-31 08:35 CET
+
+Maintenance for existing v2 applications, with a working document catalogue
+that demonstrates shared HTML, JSON, MCP and live-update interfaces.
+
+### What's new
+
+- Keep your `/v2` imports. This release preserves the public Go API and normal
+  semantic-versioning guarantees.
+- Try the catalogue: upload or create a sample note, search and download files,
+  inspect real JSON/MCP responses, and watch changes in a second view.
+- Static mount roots serve their index page, typed MCP schemas match JSON
+  representations, and generated containers include their configuration file.
+
+### Fixed
+
+- Static-file mounts resolve the mount root to `index.html`.
+- Typed MCP schemas describe `time.Time` as a date-time string, `json.Number`
+  as a number, and fixed byte arrays as arrays. Custom JSON encoders no longer
+  receive a conflicting inferred object schema.
+- The stdio example creates sample files only when absent and confines creation
+  to its filesystem root, preserving existing files and symlinks.
+- Example authentication and rate limiting follow relocated MCP endpoints.
+- Generated Docker images contain the default configuration their command uses.
+
+### Changed
+
+- Replace the `complete` and `best-practices` demos with one in-memory document
+  catalogue. Its policy limits files to 10 MiB, stored content to 50 MiB and the
+  collection to 100 documents. It admits one upload at a time and uses a public
+  demonstration token on numeric loopback listeners only.
+- Consolidate architecture, protocol and upgrade documentation; distinguish
+  current guidance from historical decisions. Multipart parsing remains owned
+  by callers, and MCP retains v2 method rejection and ServeMux precedence.
+- Run standalone authentication-example tests in the normal repository gate.
+  Existing dependencies and optional proprietary routed-SSE support remain.
+
+### Verification
+
+- `make release-smoke RELEASE_VERSION=v2.2.2`, `make test-race` and
+  `GOMAXPROCS=2 make fuzz-smoke`.
+- Disposable Desk streaming/startup/cancellation tests and Canary HTTP, SSE and
+  WebSocket tests using a local replacement, without changing their running services.
+- Browser upload, search, download, JSON/MCP reads, live updates and reconnect;
+  protocol method, multipart ownership, upload-limit and filename regression tests.
+
 ## [2.2.1] - 2026-10-21 08:22 WEST
 
 This security patch requires Go 1.27.3 for HyperServe and generated services.

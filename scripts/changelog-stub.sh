@@ -40,7 +40,7 @@ Release summary in one or two plain-English sentences.
   GitHub Release header by make release-publish.
   Mark Go-library breaking changes with **Breaking (Go library):** and
   provide migration instructions and consumer evidence under
-  docs/API_STABILITY.md. Do not add a major-version suffix.
+  docs/API_STABILITY.md. Breaking public changes require a new major version and matching module suffix.
 -->
 
 - TODO:

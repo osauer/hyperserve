@@ -1,25 +1,27 @@
-# Migrating from /v2
+# Upgrading to v2.2.2
 
-Change the module requirement and every HyperServe import from
-`github.com/osauer/hyperserve/v2` to `github.com/osauer/hyperserve`.
-The next unsuffixed release is `v1.7.0`; old `/v2` releases remain unchanged.
-The package names and ordinary `net/http` handler shapes remain the same.
-Do not mix suffixed and unsuffixed server, middleware or protocol values in one
-integration. They are different Go package identities. See the
-[single-owner compatibility policy](API_STABILITY.md).
+Keep `github.com/osauer/hyperserve/v2` imports and update the dependency to
+`v2.2.2`. No public Go API is removed or renamed. The unpublished unsuffixed
+and v3 proposals are superseded by [ADR-0019](0019-v2-maintenance.md).
 
-## Behavior changes
+## Compatibility details
 
-- MCP and discovery use method-qualified registrations so HTTP `GET /` routes
-  can coexist with them. MCP handles GET and POST at its configured endpoint;
-  the selected transport still rejects methods it does not support. Discovery
-  accepts GET; its handler rejects HEAD. Other methods follow ServeMux routing.
+`BindForm` retains v2 parsing behavior: it calls `Request.ParseForm`. For
+multipart fields, set an application body limit and call `ParseMultipartForm`
+first. Unparsed multipart bodies remain unread; already parsed fields and
+files keep the caller's budget and standard-library precedence. When using
+requests outside net/http serving, call `MultipartForm.RemoveAll` for cleanup.
+
+MCP and discovery retain their methodless route registrations and protocol
+method rejection, even with a methodless application catch-all. Explicit
+application method routes retain ServeMux precedence. For a homepage alongside
+MCP, use `app.GET("/{$}", handler)`, not the overlapping `GET /` subtree. Register
+assets explicitly or use a methodless file-server fallback. HyperServe follows
+net/http's pattern specificity and conflict rules.
+
+## Corrections and example changes
+
 - Static mounts serve `index.html` for the mount root.
-- `BindForm` parses multipart fields as documented. File parts remain available
-  in `Request.MultipartForm`. The unparsed multipart body is capped at the same 10 MiB ceiling as
-  standard form parsing; applications may impose smaller limits. net/http
-  removes temporary files when the request finishes. Call `RemoveAll` yourself
-  when using a request outside a real HTTP server.
 - The stdio example creates missing sample files exclusively within its root.
   Existing files and symlinks are preserved.
 - Example authentication and limits follow the resolved MCP endpoint.

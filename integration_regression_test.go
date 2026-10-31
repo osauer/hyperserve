@@ -3,6 +3,7 @@ package hyperserve_test
 import (
 	"bytes"
 	"context"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -10,7 +11,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	hs "github.com/osauer/hyperserve"
+	hs "github.com/osauer/hyperserve/v2"
 )
 
 func TestStaticMountIndex(t *testing.T) {
@@ -57,6 +58,9 @@ func TestMultipartFieldsBind(t *testing.T) {
 			req.MultipartForm.RemoveAll()
 		}
 	}()
+	if err := req.ParseMultipartForm(0); err != nil {
+		t.Fatal(err)
+	}
 	err := hs.BindForm(req, &dst)
 	t.Logf("name=%q error=%v", dst.Name, err)
 	if err != nil || dst.Name != "Ada" {
@@ -64,30 +68,46 @@ func TestMultipartFieldsBind(t *testing.T) {
 	}
 }
 
-func TestMultipartBindingBoundsFileBodies(t *testing.T) {
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	file, err := writer.CreateFormFile("file", "large.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := file.Write(make([]byte, 11<<20)); err != nil {
-		t.Fatal(err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatal(err)
-	}
-	req := httptest.NewRequest("POST", "/", &body)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	defer func() {
-		if req.MultipartForm != nil {
-			req.MultipartForm.RemoveAll()
+// BindForm has always left multipart parsing and its budget to the caller.
+func TestMultipartBindingPreservesCallerParsing(t *testing.T) {
+	for _, parsed := range []bool{false, true} {
+		var body bytes.Buffer
+		writer := multipart.NewWriter(&body)
+		writer.WriteField("name", "body")
+		file, err := writer.CreateFormFile("file", "large.txt")
+		if err != nil {
+			t.Fatal(err)
 		}
-	}()
-	var dst struct {
-		Name string `json:"name"`
-	}
-	if err := hs.BindForm(req, &dst); err == nil {
-		t.Fatal("multipart file exceeded the standard form body bound")
+		if _, err := file.Write(make([]byte, 11<<20)); err != nil {
+			t.Fatal(err)
+		}
+		writer.Close()
+		original := append([]byte(nil), body.Bytes()...)
+		req := httptest.NewRequest("POST", "/?name=query", &body)
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+		if parsed {
+			req.Body = http.MaxBytesReader(nil, req.Body, 12<<20)
+			if err := req.ParseMultipartForm(0); err != nil {
+				t.Fatal(err)
+			}
+			defer req.MultipartForm.RemoveAll()
+		}
+		var dst struct {
+			Name string `json:"name"`
+		}
+		if err := hs.BindForm(req, &dst); err != nil {
+			t.Fatalf("parsed=%v: %v", parsed, err)
+		}
+		if dst.Name != "query" {
+			t.Fatalf("parsed=%v: caller form precedence changed: %q", parsed, dst.Name)
+		}
+		if !parsed {
+			remaining, err := io.ReadAll(req.Body)
+			if err != nil || !bytes.Equal(remaining, original) {
+				t.Fatalf("BindForm consumed or limited the caller's multipart body: %v", err)
+			}
+		} else if req.MultipartForm.File["file"][0].Size != 11<<20 {
+			t.Fatal("caller-parsed file lost")
+		}
 	}
 }

@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	jsonrpc "github.com/osauer/hyperserve/jsonrpc"
+	jsonrpc "github.com/osauer/hyperserve/v2/jsonrpc"
 )
 
 const (

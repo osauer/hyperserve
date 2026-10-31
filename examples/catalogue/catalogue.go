@@ -19,10 +19,10 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/osauer/hyperserve"
-	"github.com/osauer/hyperserve/auth"
-	"github.com/osauer/hyperserve/mcp"
-	"github.com/osauer/hyperserve/sse"
+	"github.com/osauer/hyperserve/v2"
+	"github.com/osauer/hyperserve/v2/auth"
+	"github.com/osauer/hyperserve/v2/mcp"
+	"github.com/osauer/hyperserve/v2/sse"
 )
 
 //go:embed web/*
@@ -133,7 +133,9 @@ func newCatalogue(policy Policy, options ...hyperserve.Option) (*hyperserve.Serv
 		app.Shutdown(context.Background())
 		return nil, nil, err
 	}
-	app.GET("/", http.FileServerFS(web).ServeHTTP)
+	for _, path := range []string{"/{$}", "/style.css", "/app.js"} {
+		app.GET(path, http.FileServerFS(web).ServeHTTP)
+	}
 	return app, c, nil
 }
 func writeJSON(w http.ResponseWriter, status int, value any) {

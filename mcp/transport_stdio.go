@@ -11,7 +11,7 @@ import (
 	"os"
 	"sync"
 
-	jsonrpc "github.com/osauer/hyperserve/jsonrpc"
+	jsonrpc "github.com/osauer/hyperserve/v2/jsonrpc"
 )
 
 // stdioTransport implements Transport for stdin/stdout communication.

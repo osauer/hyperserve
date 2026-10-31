@@ -3,8 +3,8 @@ package builtin
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/osauer/hyperserve"
-	jsonrpc "github.com/osauer/hyperserve/jsonrpc"
+	"github.com/osauer/hyperserve/v2"
+	jsonrpc "github.com/osauer/hyperserve/v2/jsonrpc"
 	"net/http"
 	"net/http/httptest"
 	"testing"

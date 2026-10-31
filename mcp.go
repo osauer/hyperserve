@@ -2,7 +2,7 @@ package hyperserve
 
 // MCP (Model Context Protocol) glue.
 //
-// The MCP protocol itself lives in github.com/osauer/hyperserve/mcp. This
+// The MCP protocol itself lives in github.com/osauer/hyperserve/v2/mcp. This
 // file wires *Server up to *mcp.Handler: server options that flip MCP modes,
 // the discovery endpoint registration, and the thin Register* helpers that
 // delegate into the handler.
@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/osauer/hyperserve/mcp"
+	"github.com/osauer/hyperserve/v2/mcp"
 )
 
 // =============================================================================
@@ -174,10 +174,10 @@ func (srv *Server) setupDiscoveryEndpoints() {
 	}
 
 	srv.registerRoute(mcpDiscoveryEndpoint)
-	srv.mux.HandleFunc("GET "+mcpDiscoveryEndpoint, writeDiscovery)
+	srv.mux.HandleFunc(mcpDiscoveryEndpoint, writeDiscovery)
 
 	srv.registerRoute(srv.options.MCPEndpoint + "/discover")
-	srv.mux.HandleFunc("GET "+srv.options.MCPEndpoint+"/discover", writeDiscovery)
+	srv.mux.HandleFunc(srv.options.MCPEndpoint+"/discover", writeDiscovery)
 
 	srv.logger.Debug("MCP discovery endpoints registered",
 		"endpoints", []string{mcpDiscoveryEndpoint, srv.options.MCPEndpoint + "/discover"})

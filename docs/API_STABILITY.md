@@ -1,21 +1,21 @@
 # API and release policy
 
-HyperServe has one owner and one maintained API. The module path is
-`github.com/osauer/hyperserve`; it does not acquire a new `/vN` suffix for each
-breaking change. Applications pin a release or commit and migrate together.
-This policy was adopted in [ADR-0018](0018-single-owner-module.md).
+HyperServe follows semantic versioning. The current module is
+`github.com/osauer/hyperserve/v2`. Version `v2.2.2` is a maintenance release;
+existing v2 applications keep their imports. See
+[ADR-0019](0019-v2-maintenance.md) and [upgrade notes](MIGRATING.md).
 
 ## Versions and compatibility
 
-Unsuffixed Go modules use v0 or v1 versions. The existing unsuffixed history
-ends at `v1.6.1`; the next release is `v1.7.0`. Old `/v2` tags remain available
-for reproducible builds. Only the current release line receives fixes; there
-are no backports or parallel compatibility implementations.
+- Patch releases fix defects without deliberately breaking the public contract.
+- Minor releases add backward-compatible functionality.
+- Breaking public API or behavior changes require a new major version, a
+  matching Go module suffix, and migration instructions.
 
-Release numbers identify snapshots. They do not promise that every minor
-release is source-compatible. A breaking change requires migration instructions,
-consumer checks and a clear **Breaking (Go library)** release note. Do not silently
-change a caller's dependency pin. See [migration from /v2](MIGRATING.md).
+Public exported Go APIs and documented behavior are compatibility commitments.
+Correcting a defect still requires checking observable effects on callers.
+Only the current release line receives fixes; old tags remain available for
+reproducible builds. Do not silently change a consumer's dependency pin.
 
 The public packages are listed in [Architecture](../ARCHITECTURE.md#public-package-graph).
 The root package owns HTTP integration; concern packages remain independently

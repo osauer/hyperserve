@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/osauer/hyperserve/internal/scaffold"
+	"github.com/osauer/hyperserve/v2/internal/scaffold"
 )
 
 const defaultWithMCP = false

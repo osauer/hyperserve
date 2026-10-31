@@ -17,8 +17,11 @@ The UI reads this policy from the server; no browser or library defaults copy it
 Stored file content and the single admitted upload are bounded separately;
 HTTP buffers and filename metadata also consume memory.
 
-Open http://127.0.0.1:8080. Upload a sample document, search its filename, and
-open a second window to see live changes. Storage is process-local and clears
+Open http://127.0.0.1:8080. Upload a sample document or choose **Add a sample
+note**, search its filename, and open a second view to see live changes.
+The JSON/MCP inspector runs real read requests using the current search; its
+terminal commands include the public token and discovered MCP headers. Click
+a filename to download it. Storage is process-local and clears
 on restart. This teaching app uses the public token `catalogue-demo`; keep it
 on loopback. Startup rejects a non-loopback address. A deployed application supplies a real verifier and access policy.
 

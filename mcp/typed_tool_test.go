@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/hyperserve/internal/validate"
+	"github.com/osauer/hyperserve/v2/internal/validate"
 )
 
 // Representative arg type covering the verbs the schema generator supports.

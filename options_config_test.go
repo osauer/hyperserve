@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/hyperserve/mcp"
+	"github.com/osauer/hyperserve/v2/mcp"
 )
 
 func TestConfigFileCanOverrideDefaultsWithZeroValues(t *testing.T) {

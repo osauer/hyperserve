@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/hyperserve/websocket"
+	"github.com/osauer/hyperserve/v2/websocket"
 )
 
 // TestWebSocketTelemetry tests that WebSocket connections are tracked in server metrics

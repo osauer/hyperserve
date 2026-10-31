@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/hyperserve/mcp"
+	"github.com/osauer/hyperserve/v2/mcp"
 )
 
 func TestRunUnexpectedServeExitCleansResources(t *testing.T) {

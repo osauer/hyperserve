@@ -1,14 +1,13 @@
 # Releases
 
-The current module has no major-version suffix. New releases use `v1.Y.Z`;
-`v1.7.0` follows the old unsuffixed `v1.6.1` history. Do not change existing v2
-tags or depend on sorting all repository tags numerically to choose this module.
+The module path ends in `/v2`; releases use `v2.Y.Z` and follow
+[semantic versioning](API_STABILITY.md). Keep existing tags immutable.
 At an authorized release, update the scaffold target and release entry, then
-use `make release RELEASE_VERSION=v1.Y.Z`. The gate verifies generated consumers
-against that version and exact-commit hosted CI before creating a tag.
+use `make release RELEASE_VERSION=v2.Y.Z`. The gate verifies generated consumers
+and exact-commit hosted CI before creating a tag.
 
-A local checkout can be exercised without publication using
-`make release-smoke RELEASE_VERSION=v1.7.0`, `make test-race` and `make fuzz-smoke`.
+A local checkout can be exercised with
+`make release-smoke RELEASE_VERSION=v2.2.2`, `make test-race` and `make fuzz-smoke`.
 This does not establish public module retrieval. After publication, install the
 CLI in a fresh module cache and build its generated app without a replacement.
 
@@ -20,7 +19,7 @@ resolve to the same immutable commit and that the push CI run for that exact SHA
 succeeded. Then recover only the publication step:
 
 ~~~sh
-make release-publish RELEASE_VERSION=v1.Y.Z
+make release-publish RELEASE_VERSION=v2.Y.Z
 ~~~
 
 ---

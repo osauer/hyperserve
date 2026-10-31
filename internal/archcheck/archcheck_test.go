@@ -13,7 +13,7 @@ import (
 	"testing"
 )
 
-const modulePath = "github.com/osauer/hyperserve"
+const modulePath = "github.com/osauer/hyperserve/v2"
 
 type listedPackage struct {
 	ImportPath string

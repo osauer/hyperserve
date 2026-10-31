@@ -7,7 +7,7 @@ ADRs remain the authority for scheduled work.
 
 Maintenance focuses on tested HTTP/MCP composition, non-destructive file
 examples, correct binding and static serving, one reference application, and
-current documentation. See [ADR-0018](0018-single-owner-module.md).
+current documentation. See [ADR-0019](0019-v2-maintenance.md).
 
 Protocol conformance, fuzzing, public-module consumer checks and repeatable
 performance measurements are continuing maintenance obligations, not features

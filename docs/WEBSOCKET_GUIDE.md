@@ -1,11 +1,11 @@
 # WebSocket guide
 
-HyperServe's `github.com/osauer/hyperserve/websocket` package implements
+HyperServe's `github.com/osauer/hyperserve/v2/websocket` package implements
 RFC 6455 without an external WebSocket dependency. It supports HTTP server
 upgrades and outbound `ws`/`wss` clients.
 
 ```go
-import "github.com/osauer/hyperserve/websocket"
+import "github.com/osauer/hyperserve/v2/websocket"
 ```
 
 ## Outbound client

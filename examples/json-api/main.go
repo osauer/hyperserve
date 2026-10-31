@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/hyperserve"
+	"github.com/osauer/hyperserve/v2"
 )
 
 // Todo represents a task in the API.

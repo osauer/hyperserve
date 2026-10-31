@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/hyperserve/websocket"
+	"github.com/osauer/hyperserve/v2/websocket"
 )
 
 // baseResponseWriter is a minimal ResponseWriter that doesn't implement optional interfaces

@@ -9,8 +9,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/osauer/hyperserve"
-	"github.com/osauer/hyperserve/auth"
+	"github.com/osauer/hyperserve/v2"
+	"github.com/osauer/hyperserve/v2/auth"
 )
 
 func main() {

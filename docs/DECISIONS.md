@@ -1,6 +1,6 @@
 # Decision history
 
-[ADR-0018](0018-single-owner-module.md) is the current integration contract.
+[ADR-0019](0019-v2-maintenance.md) is the current integration contract.
 The earlier records below preserve the decisions made at their dates; they
 are not installation guides or current API references.
 
@@ -21,4 +21,6 @@ are not installation guides or current API references.
 - [0015-single-current-release](0015-single-current-release.md)
 - [0016-sse-writer](0016-sse-writer.md)
 
-- [0017-v3-integrated-server](0017-v3-integrated-server.md) — integration retained; proposed module path superseded by ADR-0018.
+- [0017-v3-integrated-server](0017-v3-integrated-server.md) — integration retained; proposed module path superseded by ADR-0019.
+
+- [0018-single-owner-module](0018-single-owner-module.md) — catalogue retained; module and version policy superseded by ADR-0019.

@@ -2,8 +2,8 @@ package hyperserve
 
 import (
 	"encoding/json"
-	jsonrpc "github.com/osauer/hyperserve/jsonrpc"
-	"github.com/osauer/hyperserve/mcp"
+	jsonrpc "github.com/osauer/hyperserve/v2/jsonrpc"
+	"github.com/osauer/hyperserve/v2/mcp"
 	"net/http"
 	"net/http/httptest"
 	"strings"

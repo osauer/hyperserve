@@ -12,7 +12,7 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	hyperservemcp "github.com/osauer/hyperserve/mcp"
+	hyperservemcp "github.com/osauer/hyperserve/v2/mcp"
 )
 
 type customJSONValue struct{}

@@ -8,8 +8,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/osauer/hyperserve"
-	"github.com/osauer/hyperserve/mcp"
+	"github.com/osauer/hyperserve/v2"
+	"github.com/osauer/hyperserve/v2/mcp"
 )
 
 func TestObservabilityPresetDoesNotReplaceGlobalLoggers(t *testing.T) {
