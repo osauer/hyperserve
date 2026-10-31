@@ -1,0 +1,6 @@
+{
+  "_decision": "Oliver approved 2026-10-31 07:51 CET: 10 MiB per file, 50 MiB total, 100 documents; memory only, cleared on restart.",
+  "max_file_bytes": 10485760,
+  "max_total_bytes": 52428800,
+  "max_documents": 100
+}

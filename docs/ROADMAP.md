@@ -5,9 +5,9 @@ ADRs remain the authority for scheduled work.
 
 ## Current work
 
-The v3 renovation focuses on tested HTTP/MCP composition, non-destructive file
+Maintenance focuses on tested HTTP/MCP composition, non-destructive file
 examples, correct binding and static serving, one reference application, and
-current documentation. See [ADR-0017](0017-v3-integrated-server.md).
+current documentation. See [ADR-0018](0018-single-owner-module.md).
 
 Protocol conformance, fuzzing, public-module consumer checks and repeatable
 performance measurements are continuing maintenance obligations, not features

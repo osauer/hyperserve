@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	jsonrpc "github.com/osauer/hyperserve/v3/jsonrpc"
+	jsonrpc "github.com/osauer/hyperserve/jsonrpc"
 )
 
 // sseEvent is a queued write to the SSE wire. Routing every wire-side write

@@ -38,6 +38,7 @@ var historicalDecisions = []string{
 	"docs/0014-root-package-and-concern-subpackages.md",
 	"docs/0015-single-current-release.md",
 	"docs/0016-sse-writer.md",
+	"docs/0017-v3-integrated-server.md",
 }
 
 type staleSurfaceRule struct {
@@ -274,7 +275,7 @@ func TestCurrentAuthorityUsesCanonicalAPI(t *testing.T) {
 	}
 }
 
-func TestReleaseAuthoringRequiresFutureMajorAfterV21(t *testing.T) {
+func TestReleaseAuthoringPointsToCurrentPolicy(t *testing.T) {
 	root := repoRoot(t)
 
 	changelog, err := os.ReadFile(filepath.Join(root, "CHANGELOG.md"))
@@ -297,15 +298,11 @@ func TestReleaseAuthoringRequiresFutureMajorAfterV21(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			lower := strings.Join(strings.Fields(strings.ToLower(content)), " ")
-			for _, required := range []string{"after v2.1.0", "new major version", "major module path"} {
-				if !strings.Contains(lower, required) {
-					t.Errorf("must require %q for post-v2.1 release authoring", required)
-				}
+			if !strings.Contains(lower, "docs/api_stability.md") {
+				t.Error("release authoring must point to the current compatibility policy")
 			}
-			for _, stale := range []string{"v1 breakage", "future /v2"} {
-				if strings.Contains(lower, stale) {
-					t.Errorf("contains stale release guidance %q", stale)
-				}
+			if strings.Contains(lower, "require a new major") {
+				t.Error("release authoring still requires a retired major-module migration")
 			}
 		})
 	}
@@ -362,13 +359,13 @@ func TestHistoricalAuthorityExemptions(t *testing.T) {
 	if isHistoricalAuthority("docs/API_STABILITY.md") {
 		t.Error("current API stability policy must not be exempt from canonical-surface checks")
 	}
-	if isHistoricalAuthority("docs/0017-v3-integrated-server.md") {
-		t.Error("ADR-0017 establishes the current architecture and must be scanned")
+	if isHistoricalAuthority("docs/0018-single-owner-module.md") {
+		t.Error("ADR-0018 establishes the current architecture and must be scanned")
 	}
 
-	foundCurrentADR := slices.Contains(currentAuthorityFiles(t, repoRoot(t)), "docs/0017-v3-integrated-server.md")
+	foundCurrentADR := slices.Contains(currentAuthorityFiles(t, repoRoot(t)), "docs/0018-single-owner-module.md")
 	if !foundCurrentADR {
-		t.Error("ADR-0017 is not included in current-authority scanning")
+		t.Error("ADR-0018 is not included in current-authority scanning")
 	}
 }
 
@@ -429,7 +426,7 @@ func currentAuthorityFiles(t *testing.T, root string) []string {
 }
 
 func isHistoricalAuthority(relative string) bool {
-	if relative == "CHANGELOG.md" || strings.HasPrefix(relative, "docs/MIGRATING") {
+	if relative == "CHANGELOG.md" || relative == "docs/MIGRATING_V2.md" || relative == "docs/MIGRATING_V2_1.md" {
 		return true
 	}
 	return slices.Contains(historicalDecisions, relative)

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/hyperserve/v3/mcp"
+	"github.com/osauer/hyperserve/mcp"
 )
 
 // TestMCPProgrammaticConfigurationNoDoubleWarning tests that when MCP is configured

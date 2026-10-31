@@ -9,7 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/osauer/hyperserve/v3/jsonrpc"
+	"github.com/osauer/hyperserve/jsonrpc"
 )
 
 type performanceArguments struct {

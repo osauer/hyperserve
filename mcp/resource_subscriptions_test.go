@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	jsonrpc "github.com/osauer/hyperserve/v3/jsonrpc"
+	jsonrpc "github.com/osauer/hyperserve/jsonrpc"
 )
 
 type notificationCaptureTransport struct {

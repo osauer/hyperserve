@@ -16,11 +16,13 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
-	"github.com/osauer/hyperserve/v3"
-	"github.com/osauer/hyperserve/v3/auth"
-	"github.com/osauer/hyperserve/v3/mcp"
-	"github.com/osauer/hyperserve/v3/sse"
+	"github.com/osauer/hyperserve"
+	"github.com/osauer/hyperserve/auth"
+	"github.com/osauer/hyperserve/mcp"
+	"github.com/osauer/hyperserve/sse"
 )
 
 //go:embed web/*
@@ -157,7 +159,8 @@ func (c *catalogue) receive(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid filename encoding", http.StatusBadRequest)
 		return
 	}
-	if name == "" || name != filepath.Base(name) || strings.ContainsAny(name, "/\\\r\n") {
+	if name == "" || name == "." || name == ".." || !utf8.ValidString(name) ||
+		name != filepath.Base(name) || strings.ContainsAny(name, "/\\") || strings.ContainsFunc(name, unicode.IsControl) {
 		http.Error(w, "A plain filename is required", http.StatusBadRequest)
 		return
 	}

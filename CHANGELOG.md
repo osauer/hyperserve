@@ -1,9 +1,9 @@
 # Changelog
 
-All notable changes to this project are documented here. HyperServe normally
-follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The dated
-v2.1.0 entry records one explicitly controlled in-place compatibility reset;
-later breaking changes again require a new major module path. Release entries
+All notable changes to this project are documented here. Current release and
+compatibility policy lives in
+[API stability](docs/API_STABILITY.md). Dated entries preserve the policy and
+behavior that applied when each release shipped. Release entries
 follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories
 (Added / Changed / Deprecated / Removed / Fixed / Security).
 
@@ -11,8 +11,8 @@ Entries tier by audience:
 
 - **`### What's new`** — plain-English TL;DR for Go importers, MCP clients,
   API server owners, and scaffold users. Three bullets max. Mark Go-library
-  breakage with `**Breaking (Go library):**`; after v2.1.0, breaking changes
-  require a new major version and matching major module path. The GitHub
+  breakage with `**Breaking (Go library):**`; include migration instructions
+  and consumer evidence under `docs/API_STABILITY.md`. The GitHub
   Release body's "What's new in vX.Y.Z" section is mechanically derived from
   this section by `make release-publish`.
 - **`### Added / Changed / Deprecated / Removed / Fixed / Security`** —

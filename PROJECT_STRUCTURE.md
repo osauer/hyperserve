@@ -10,7 +10,7 @@
 | Deploy an application | [Production](docs/PRODUCTION.md) |
 | Generate an application | [Scaffolding](docs/SCAFFOLDING.md) |
 | Change the library | [Contributing](CONTRIBUTING.md) |
-| Migrate a consumer | [v3 migration](docs/MIGRATING_V3.md) |
+| Migrate a consumer | [module migration](docs/MIGRATING.md) |
 | Understand past decisions | [Decision history](docs/DECISIONS.md) |
 
 `Makefile` owns the executable checks. `internal/archcheck` verifies public

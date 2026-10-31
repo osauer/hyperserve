@@ -4,4 +4,4 @@
 // shipped module graph.
 package tools
 
-import _ "github.com/osauer/hyperserve/v3"
+import _ "github.com/osauer/hyperserve"

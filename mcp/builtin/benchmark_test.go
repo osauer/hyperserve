@@ -11,10 +11,10 @@ import (
 	"strings"
 	"testing"
 
-	hyperserve "github.com/osauer/hyperserve/v3"
-	"github.com/osauer/hyperserve/v3/jsonrpc"
-	"github.com/osauer/hyperserve/v3/mcp"
-	"github.com/osauer/hyperserve/v3/mcp/builtin"
+	hyperserve "github.com/osauer/hyperserve"
+	"github.com/osauer/hyperserve/jsonrpc"
+	"github.com/osauer/hyperserve/mcp"
+	"github.com/osauer/hyperserve/mcp/builtin"
 )
 
 var benchmarkToolResult any

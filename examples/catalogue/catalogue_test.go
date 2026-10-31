@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/hyperserve/v3"
+	"github.com/osauer/hyperserve"
 )
 
 func testCatalogue(t *testing.T) (*hyperserve.Server, *catalogue) {
@@ -165,5 +165,56 @@ func TestCatalogueAssets(t *testing.T) {
 		if w.Code != 200 || len(b) == 0 {
 			t.Fatalf("asset %s: %d", path, w.Code)
 		}
+	}
+}
+
+func TestCatalogueRejectsInvalidFilenames(t *testing.T) {
+	for _, name := range []string{"%00bad.txt", "%FF.txt", "hello%09world.txt", "../outside.txt", "..", "."} {
+		t.Run(name, func(t *testing.T) {
+			app, c := testCatalogue(t)
+			r := httptest.NewRequest("POST", "/api/documents", strings.NewReader("hello"))
+			r.Header.Set("Authorization", "Bearer catalogue-demo")
+			r.Header.Set("Content-Type", "application/octet-stream")
+			r.Header.Set("X-Document-Name", name)
+			w := httptest.NewRecorder()
+			app.Handler().ServeHTTP(w, r)
+			if w.Code != http.StatusBadRequest || c.snapshot("").Bytes != 0 {
+				t.Fatalf("invalid filename accepted: status=%d bytes=%d", w.Code, c.snapshot("").Bytes)
+			}
+		})
+	}
+}
+
+func TestCatalogueExecutableConfiguration(t *testing.T) {
+	t.Setenv("HS_MCP_ENDPOINT", "/rpc")
+	for _, address := range []string{"127.0.0.1:0", "[::1]:0", ":8080", "0.0.0.0:8080"} {
+		t.Run(address, func(t *testing.T) {
+			t.Setenv("SERVER_ADDR", address)
+			app, err := newApp()
+			local := strings.HasPrefix(address, "127.") || strings.HasPrefix(address, "[::1]")
+			if !local {
+				if err == nil {
+					app.Shutdown(context.Background())
+					t.Fatal("public-token application accepted a public listener")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer app.Shutdown(context.Background())
+			var expected Policy
+			if err := json.Unmarshal(policyJSON, &expected); err != nil {
+				t.Fatal(err)
+			}
+			w := call(app.Handler(), "GET", "/api/documents", "", "catalogue-demo")
+			var got Snapshot
+			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || got.Policy != expected {
+				t.Fatalf("executable did not apply embedded policy: %s (%v)", w.Body, err)
+			}
+			if w := call(app.Handler(), "POST", "/rpc", `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`, ""); w.Code != http.StatusUnauthorized {
+				t.Fatalf("relocated endpoint lost authentication: %d", w.Code)
+			}
+		})
 	}
 }

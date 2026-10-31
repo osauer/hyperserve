@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/osauer/hyperserve/v3"
+	"github.com/osauer/hyperserve"
 )
 
 const serverControlGetStatus = "get_status"

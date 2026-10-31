@@ -1,4 +1,4 @@
-module github.com/osauer/hyperserve/v3
+module github.com/osauer/hyperserve
 
 go 1.27.3
 

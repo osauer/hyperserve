@@ -12,8 +12,12 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	hyperservemcp "github.com/osauer/hyperserve/v3/mcp"
+	hyperservemcp "github.com/osauer/hyperserve/mcp"
 )
+
+type customJSONValue struct{}
+
+func (customJSONValue) MarshalJSON() ([]byte, error) { return []byte(`"custom"`), nil }
 
 type echoTool struct{}
 
@@ -85,10 +89,15 @@ func testOfficialSDKStreamableHTTP(t *testing.T, version string) {
 	handler.SetProtocolVersion(version)
 	handler.RegisterTool(echoTool{})
 	type answer struct {
-		Value  int               `json:"value"`
-		Notes  []string          `json:"notes"`
-		Next   *int              `json:"next"`
-		Labels map[string]string `json:"labels"`
+		Value   int               `json:"value"`
+		Notes   []string          `json:"notes"`
+		Next    *int              `json:"next"`
+		Labels  map[string]string `json:"labels"`
+		Created time.Time         `json:"created"`
+		Custom  customJSONValue   `json:"custom"`
+		Bytes   []byte            `json:"bytes"`
+		Array   [2]byte           `json:"array"`
+		Number  json.Number       `json:"number"`
 	}
 	handler.RegisterTool(hyperservemcp.NewTypedTool("answer", "typed object", func(context.Context, struct{}) (answer, error) { return answer{Value: 42}, nil }))
 	handler.RegisterTool(hyperservemcp.NewTypedTool("count", "typed scalar", func(context.Context, struct{}) (int, error) { return 42, nil }))

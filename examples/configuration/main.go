@@ -7,8 +7,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/osauer/hyperserve/v3"
-	"github.com/osauer/hyperserve/v3/ratelimit"
+	"github.com/osauer/hyperserve"
+	"github.com/osauer/hyperserve/ratelimit"
 )
 
 func main() {

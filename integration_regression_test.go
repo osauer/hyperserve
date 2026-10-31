@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	hs "github.com/osauer/hyperserve/v3"
+	hs "github.com/osauer/hyperserve"
 )
 
 func TestStaticMountIndex(t *testing.T) {

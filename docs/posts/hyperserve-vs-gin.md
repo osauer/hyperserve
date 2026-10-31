@@ -12,7 +12,7 @@ boundary your application needs to own.
 ## A small HyperServe application
 
 Use the [current quick start](../../README.md#quick-start) for installation.
-Existing users should read the [v3 migration](../MIGRATING_V3.md).
+Existing users should read the [module migration](../MIGRATING.md).
 
 ```go
 package main
@@ -25,7 +25,7 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/osauer/hyperserve/v3"
+	"github.com/osauer/hyperserve"
 )
 
 func main() {
@@ -60,8 +60,8 @@ lifecycle:
 
 ```go
 import (
-	"github.com/osauer/hyperserve/v3"
-	"github.com/osauer/hyperserve/v3/mcp"
+	"github.com/osauer/hyperserve"
+	"github.com/osauer/hyperserve/mcp"
 )
 
 app, err := hyperserve.New(

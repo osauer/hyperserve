@@ -1,82 +1,41 @@
-# API Stability
+# API and release policy
 
-HyperServe maintains one release line: only the latest stable release receives
-bug fixes and security updates. Development happens on `main`, and fixes ship
-in the next release. Older tags remain available for reproducible builds, with
-no backports or parallel maintenance branches.
+HyperServe has one owner and one maintained API. The module path is
+`github.com/osauer/hyperserve`; it does not acquire a new `/vN` suffix for each
+breaking change. Applications pin a release or commit and migrate together.
+This policy was adopted in [ADR-0018](0018-single-owner-module.md).
 
-The current module path is `github.com/osauer/hyperserve/v3`. Releases from
-the current API follow semantic versioning:
+## Versions and compatibility
 
-- patch releases fix defects without intentionally breaking exported behavior;
-- minor releases add compatible APIs and behavior;
-- future breaking exported API changes require a new major module path.
+Unsuffixed Go modules use v0 or v1 versions. The existing unsuffixed history
+ends at `v1.6.1`; the next release is `v1.7.0`. Old `/v2` tags remain available
+for reproducible builds. Only the current release line receives fixes; there
+are no backports or parallel compatibility implementations.
 
-Migration from v2 is described in [Migrating to v3](MIGRATING_V3.md).
-The earlier v2.1.0 package migration is documented in
-[Migrating from v2.0.x](./MIGRATING_V2_1.md). Historical changes and rollback
-instructions live in that guide and the changelog.
+Release numbers identify snapshots. They do not promise that every minor
+release is source-compatible. A breaking change requires migration instructions,
+consumer checks and a clear **Breaking (Go library)** release note. Do not silently
+change a caller's dependency pin. See [migration from /v2](MIGRATING.md).
 
-## Stable public packages
+The public packages are listed in [Architecture](../ARCHITECTURE.md#public-package-graph).
+The root package owns HTTP integration; concern packages remain independently
+usable. `internal`, examples, benchmarks and generated layouts are not public
+import contracts. Avoid compatibility aliases without a present consumer need.
 
-The compatibility promise covers exported APIs in:
+## Ownership contracts
 
-- `github.com/osauer/hyperserve/v3`
-- `github.com/osauer/hyperserve/v3/auth`
-- `github.com/osauer/hyperserve/v3/jsonrpc`
-- `github.com/osauer/hyperserve/v3/mcp`
-- `github.com/osauer/hyperserve/v3/mcp/builtin`
-- `github.com/osauer/hyperserve/v3/ratelimit`
-- `github.com/osauer/hyperserve/v3/sse`
-- `github.com/osauer/hyperserve/v3/websocket`
+- Construction is deterministic unless the application explicitly binds files
+  or environment.
+- The application owns signals, root context, data and authorization.
+- `Run(ctx)` follows application cancellation; handlers follow request context.
+- Authentication and discovery visibility do not grant resource authorization.
+- Rate-limit policy belongs to the application; default identity does not
+  trust forwarding headers.
+- Stream writes, cancellation and shutdown follow their documented contracts.
 
-There are no compatibility packages under `pkg/...` and no `NewServer`
-constructor alias.
+Changing one of these boundaries requires an ADR and tests at the affected
+boundary. The Go toolchain floor in `go.mod` and any increase are part of the
+consumer migration contract.
 
-The following are maintained and release-gated but are not stable Go import
-surfaces:
-
-- `cmd/hyperserve-init` command flags and generated project layout;
-- `examples/` and `benchmarks/`;
-- `internal/`, `scripts/`, and `tools/`;
-- Make targets and repository-only test helpers.
-
-Changes there should still be documented when they affect users, but they do
-not carry the same source-compatibility promise as exported package APIs.
-
-## Behavior and ownership
-
-Compatibility includes documented behavior, not only exported names. In
-particular:
-
-- `hyperserve.New` is deterministic unless the application explicitly binds
-  a file or process environment;
-- the application owns signals and the root context, while `Run(ctx)` follows
-  cancellation and handlers use `r.Context()`;
-- authentication does not imply application authorization;
-- the root server does not own limiter policy or quota state;
-- default rate-limit identity does not trust forwarding headers;
-- MCP discovery visibility does not authorize endpoint access;
-- WebSocket and streaming cancellation follow the documented request and
-  connection contracts.
-
-Changing one of these boundaries incompatibly requires the same major-version
-treatment as changing an exported signature.
-
-## Deprecation
-
-When practical, a supported replacement is documented before removal and the
-old surface remains through a major-version boundary. Security-sensitive
-behavior may be disabled or removed sooner when retaining it would preserve an
-unsafe authority path; such a change must be called out prominently.
-
-The proprietary HyperServe routed-SSE transport is deprecated and disabled by
-default. It is not the current MCP Streamable HTTP transport.
-
-## Toolchain floor
-
-The `go` directive in `go.mod` is the supported compiler floor. Raising it
-is a compatibility event and must be documented in release notes.
-
-For the concrete v1-to-current mapping, see
-[Migrating from v1](./MIGRATING_V2.md).
+The proprietary routed-SSE transport is retained, deprecated and disabled by
+default. It is isolated from current MCP Streamable HTTP and ordinary HTTP SSE.

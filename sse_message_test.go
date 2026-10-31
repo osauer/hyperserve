@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/osauer/hyperserve/v3"
+	"github.com/osauer/hyperserve"
 )
 
 func TestSSEMessageWireFormat(t *testing.T) {

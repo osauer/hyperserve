@@ -18,8 +18,8 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/osauer/hyperserve/v3"
-	"github.com/osauer/hyperserve/v3/sse"
+	"github.com/osauer/hyperserve"
+	"github.com/osauer/hyperserve/sse"
 )
 
 func numbersStreamHandler(w http.ResponseWriter, r *http.Request) {

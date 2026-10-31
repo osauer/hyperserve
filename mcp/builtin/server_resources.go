@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/hyperserve/v3"
+	"github.com/osauer/hyperserve"
 )
 
 // ServerConfigResource exposes a sanitized snapshot of server configuration.

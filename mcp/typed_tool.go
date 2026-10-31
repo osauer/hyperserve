@@ -3,14 +3,16 @@ package mcp
 import (
 	"bytes"
 	"context"
+	"encoding"
 	"encoding/json"
 	"fmt"
 	"math"
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 
-	"github.com/osauer/hyperserve/v3/internal/validate"
+	"github.com/osauer/hyperserve/internal/validate"
 )
 
 // TypedToolFunc is the signature an MCP tool implements when registered via
@@ -57,7 +59,9 @@ type ToolWithOutputSchema interface {
 // value, so callers don't write the type parameters explicitly.
 //
 // Schema generation covers strings, numbers, booleans, arrays, and nested
-// structs. It derives enums and bounds from oneof, min, max, and len validation
+// structs, plus time.Time as an RFC 3339 string. Custom marshalers whose wire
+// shape cannot be inferred are left unconstrained; use NewTool for an explicit
+// schema. It derives enums and bounds from oneof, min, max, and len validation
 // rules, and descriptions from mcp:"desc=..." tags. Nested structs are inlined;
 // $ref, $defs, cross-field rules, and custom validators are not emitted.
 //
@@ -264,8 +268,27 @@ func buildObjectSchema(t reflect.Type) map[string]any {
 func fieldToSchema(t reflect.Type, tag reflect.StructTag) map[string]any {
 	// Pointers map to the pointee schema; optionality is expressed by
 	// absence from `required`, not by a separate JSON Schema construct.
-	if t.Kind() == reflect.Pointer {
+	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
+	}
+	// Go's representation is not necessarily its JSON representation. Do not
+	// inspect struct fields when a custom marshaler owns the wire format.
+	if t == reflect.TypeFor[time.Time]() {
+		return map[string]any{"type": "string", "format": "date-time"}
+	}
+	if t == reflect.TypeFor[json.Number]() {
+		return map[string]any{"type": "number"}
+	}
+	if t.Implements(reflect.TypeFor[json.Marshaler]()) || reflect.PointerTo(t).Implements(reflect.TypeFor[json.Marshaler]()) {
+		return map[string]any{}
+	}
+	if t.Implements(reflect.TypeFor[encoding.TextMarshaler]()) {
+		return map[string]any{"type": "string"}
+	}
+	if reflect.PointerTo(t).Implements(reflect.TypeFor[encoding.TextMarshaler]()) {
+		// Pointer-only methods depend on whether encoding/json can address the
+		// value (struct fields, slice elements and map values differ).
+		return map[string]any{}
 	}
 	validateTag := tag.Get("validate")
 	switch t.Kind() {
@@ -294,7 +317,7 @@ func fieldToSchema(t reflect.Type, tag reflect.StructTag) map[string]any {
 		applyNumericBounds(s, validateTag)
 		return s
 	case reflect.Slice, reflect.Array:
-		if t.Elem().Kind() == reflect.Uint8 {
+		if t.Kind() == reflect.Slice && t.Elem().Kind() == reflect.Uint8 {
 			// []byte serialises as a base64 string in encoding/json.
 			s := map[string]any{"type": "string"}
 			applyStringBounds(s, validateTag)

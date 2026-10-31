@@ -273,3 +273,14 @@ curl -X POST http://localhost:8080/mcp \
 
 - Tools/resources registered without a namespace maintain their original names for backward compatibility
 - When using namespace methods with an empty namespace, the server name is used as the default namespace
+
+### JSON representation and typed schemas
+
+Typed schemas follow `encoding/json`: `time.Time` is a date-time string,
+`json.Number` is a number, `[]byte` is base64 text, and fixed byte arrays are
+numeric arrays. A custom JSON
+marshaler can emit an arbitrary shape, so its field schema is unconstrained.
+Use the explicit tool builder when a custom representation needs a precise
+schema. The tools module checks advertised output against actual results with
+the official MCP client and a JSON Schema validator; these are development-only
+dependencies.

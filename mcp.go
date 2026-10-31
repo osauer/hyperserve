@@ -2,7 +2,7 @@ package hyperserve
 
 // MCP (Model Context Protocol) glue.
 //
-// The MCP protocol itself lives in github.com/osauer/hyperserve/v3/mcp. This
+// The MCP protocol itself lives in github.com/osauer/hyperserve/mcp. This
 // file wires *Server up to *mcp.Handler: server options that flip MCP modes,
 // the discovery endpoint registration, and the thin Register* helpers that
 // delegate into the handler.
@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/osauer/hyperserve/v3/mcp"
+	"github.com/osauer/hyperserve/mcp"
 )
 
 // =============================================================================

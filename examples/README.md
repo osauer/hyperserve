@@ -1,7 +1,10 @@
 # HyperServe examples
 
-The examples are grouped by the question they answer. Start with the focused
-programs; the composition references deliberately combine several concerns.
+Start with [the document catalogue](./catalogue/) to see an integrated
+application: one collection, HTML, JSON, MCP, authenticated SSE, health checks,
+and bounded uploads. It uses the standard library and HyperServe only.
+
+The focused examples below isolate individual lessons.
 
 ## Start here
 
@@ -29,6 +32,7 @@ the exact `cd` and `go run .` command.
 | [static-files](./static-files/) | An `os.Root`-confined asset directory beside an API route. |
 | [htmx-dynamic](./htmx-dynamic/) | Server-rendered templates with HTMX partial updates. |
 | [htmx-stream](./htmx-stream/) | HTMX updates over Server-Sent Events. |
+| [enterprise](./enterprise/) | TLS and security-header configuration; no enterprise service dependencies. |
 | [web-worker-csp](./web-worker-csp/) | The explicit CSP allowance required by blob-backed Web Workers. |
 
 ## Authentication and long-lived connections
@@ -49,13 +53,3 @@ the exact `cd` and `go run .` command.
 | [mcp-extensions](./mcp-extensions/) | Typed application tools, resources, and subscriptions. |
 | [devops](./devops/) | Opt-in MCP observability resources. |
 | [mcp-sse](./mcp-sse/) | Deprecated routed-SSE compatibility. |
-
-## Composition references
-
-| Example | Purpose |
-|---|---|
-| [best-practices](./best-practices/) | A broad composition reference covering auth, SSE, health, templates, and MCP. |
-| [complete](./complete/) | A kitchen-sink tour for browsing several APIs in one program. |
-
-These are reference programs, not recommended learning sequences. Run each from
-its own directory because it uses local templates or static files.

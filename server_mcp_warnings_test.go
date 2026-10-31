@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/hyperserve/v3/mcp"
+	"github.com/osauer/hyperserve/mcp"
 )
 
 // TestMCPDevModeWarnings verifies the expected warning behavior when MCP developer mode is enabled

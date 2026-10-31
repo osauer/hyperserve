@@ -5,8 +5,8 @@ import (
 
 	"bytes"
 	"encoding/json"
-	jsonrpc "github.com/osauer/hyperserve/v3/jsonrpc"
-	"github.com/osauer/hyperserve/v3/mcp"
+	jsonrpc "github.com/osauer/hyperserve/jsonrpc"
+	"github.com/osauer/hyperserve/mcp"
 	"net/http"
 	"net/http/httptest"
 	"strings"

@@ -19,10 +19,10 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/osauer/hyperserve/v3"
-	"github.com/osauer/hyperserve/v3/mcp"
-	_ "github.com/osauer/hyperserve/v3/mcp/builtin" // wire built-in tool/resource hooks
-	"github.com/osauer/hyperserve/v3/ratelimit"
+	"github.com/osauer/hyperserve"
+	"github.com/osauer/hyperserve/mcp"
+	_ "github.com/osauer/hyperserve/mcp/builtin" // wire built-in tool/resource hooks
+	"github.com/osauer/hyperserve/ratelimit"
 )
 
 // TimestampTool returns the current time in a caller-selected format.

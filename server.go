@@ -20,8 +20,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/osauer/hyperserve/v3/mcp"
-	"github.com/osauer/hyperserve/v3/websocket"
+	"github.com/osauer/hyperserve/mcp"
+	"github.com/osauer/hyperserve/websocket"
 )
 
 func init() {
@@ -29,13 +29,13 @@ func init() {
 	if Version == "dev" {
 		if info, ok := debug.ReadBuildInfo(); ok {
 			for _, dep := range info.Deps {
-				if dep.Path == "github.com/osauer/hyperserve/v3" {
+				if dep.Path == "github.com/osauer/hyperserve" {
 					Version = dep.Version
 					break
 				}
 			}
 			// If we're the main module, use the Go version as a fallback
-			if Version == "dev" && info.Main.Path == "github.com/osauer/hyperserve/v3" {
+			if Version == "dev" && info.Main.Path == "github.com/osauer/hyperserve" {
 				if info.Main.Version != "" && info.Main.Version != "(devel)" {
 					Version = info.Main.Version
 				}
@@ -310,7 +310,7 @@ func initializeMCPHandler(srv *Server) {
 		} else {
 			srv.logger.Warn("WithMCPBuiltinTools(true) was set but no builtin tools are registered",
 				"reason", "missing blank import",
-				"fix", `add: _ "github.com/osauer/hyperserve/v3/mcp/builtin"`)
+				"fix", `add: _ "github.com/osauer/hyperserve/mcp/builtin"`)
 		}
 	}
 	if srv.options.MCPResourcesEnabled {
@@ -324,7 +324,7 @@ func initializeMCPHandler(srv *Server) {
 		default:
 			srv.logger.Warn("WithMCPBuiltinResources(true) was set but no builtin resources are registered",
 				"reason", "missing blank import",
-				"fix", `add: _ "github.com/osauer/hyperserve/v3/mcp/builtin"`)
+				"fix", `add: _ "github.com/osauer/hyperserve/mcp/builtin"`)
 		}
 	}
 

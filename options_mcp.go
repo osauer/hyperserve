@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	mcp "github.com/osauer/hyperserve/v3/mcp"
+	mcp "github.com/osauer/hyperserve/mcp"
 )
 
 // WithMCPSupport enables MCP (Model Context Protocol) support on the server.
@@ -133,7 +133,7 @@ func WithMCPLegacyRoutedSSE(enabled bool) Option {
 
 // WithMCPBuiltinTools toggles the built-in MCP tools (Calculator plus
 // sandboxed FileRead / ListDirectory when WithMCPFileToolRoot is set).
-// Default off. Requires `_ "github.com/osauer/hyperserve/v3/mcp/builtin"`
+// Default off. Requires `_ "github.com/osauer/hyperserve/mcp/builtin"`
 // to be blank-imported by the consumer; otherwise New logs a warning
 // and registers nothing.
 func WithMCPBuiltinTools(enabled bool) Option {

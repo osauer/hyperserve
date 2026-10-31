@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	hs "github.com/osauer/hyperserve/v3"
+	hs "github.com/osauer/hyperserve"
 )
 
 func TestMCPAndRootGETCompose(t *testing.T) {

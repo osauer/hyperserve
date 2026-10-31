@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	jsonrpc "github.com/osauer/hyperserve/v3/jsonrpc"
+	jsonrpc "github.com/osauer/hyperserve/jsonrpc"
 )
 
 func TestToolErrorReturnsMCPIsErrorResult(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	hyperservemcp "github.com/osauer/hyperserve/v3/mcp"
+	hyperservemcp "github.com/osauer/hyperserve/mcp"
 )
 
 func TestOfficialSDKStdio(t *testing.T) {

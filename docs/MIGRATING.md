@@ -1,9 +1,12 @@
-# Migrating to v3
+# Migrating from /v2
 
 Change the module requirement and every HyperServe import from
-`github.com/osauer/hyperserve/v2` to `github.com/osauer/hyperserve/v3`.
+`github.com/osauer/hyperserve/v2` to `github.com/osauer/hyperserve`.
+The next unsuffixed release is `v1.7.0`; old `/v2` releases remain unchanged.
 The package names and ordinary `net/http` handler shapes remain the same.
-Do not mix v2 and v3 server, middleware or protocol values in one integration.
+Do not mix suffixed and unsuffixed server, middleware or protocol values in one
+integration. They are different Go package identities. See the
+[single-owner compatibility policy](API_STABILITY.md).
 
 ## Behavior changes
 
@@ -21,6 +24,11 @@ Do not mix v2 and v3 server, middleware or protocol values in one integration.
   Existing files and symlinks are preserved.
 - Example authentication and limits follow the resolved MCP endpoint.
 - Generated containers include `configs/default.json`.
+- Typed MCP schemas describe `time.Time` as a date-time string and fixed byte
+  arrays as numeric arrays. `json.Number` remains numeric. Custom JSON
+  representations remain unconstrained
+  rather than advertising an incompatible object schema; use the explicit tool
+  builder when clients need a precise custom shape.
 
 ## Application migration check
 
@@ -36,6 +44,6 @@ HTTP SSE and current MCP Streamable HTTP are separate supported paths.
 
 For local consumer validation, use a disposable module with a replacement to
 this checkout. Generate it with `--local-replace /absolute/path/to/hyperserve`.
-Remove the replacement and verify retrieval of the public v3 tag at release
+Remove the replacement and verify retrieval of the public tag at release
 time. A local build is not proof of publication. Never edit a live consumer's
 checkout or its dependency pin as part of a library-only check.

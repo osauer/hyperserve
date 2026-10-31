@@ -5,7 +5,7 @@ BUILD_HASH ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_TIME ?= $(shell date -u +"%Y-%m-%d_%H:%M:%S_UTC" || echo "unknown")
 
 # Stamped into the root package's Version/BuildHash/BuildTime via -X.
-LDFLAGS := -ldflags "-X github.com/osauer/hyperserve/v3.Version=$(VERSION) -X github.com/osauer/hyperserve/v3.BuildHash=$(BUILD_HASH) -X github.com/osauer/hyperserve/v3.BuildTime=$(BUILD_TIME)"
+LDFLAGS := -ldflags "-X github.com/osauer/hyperserve.Version=$(VERSION) -X github.com/osauer/hyperserve.BuildHash=$(BUILD_HASH) -X github.com/osauer/hyperserve.BuildTime=$(BUILD_TIME)"
 
 override RELEASE_REPOSITORY := osauer/hyperserve
 override RELEASE_MAIN_BRANCH := main
@@ -125,8 +125,8 @@ release-publish: ## Create GitHub Release page from CHANGELOG.md — RELEASE_VER
 		echo "release-publish: RELEASE_VERSION is required, e.g. make release-publish RELEASE_VERSION=v1.2.3" >&2; \
 		exit 1; \
 	fi
-	@if ! echo "$(RELEASE_VERSION)" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$$'; then \
-		echo "release-publish: RELEASE_VERSION must look like vX.Y.Z (got $(RELEASE_VERSION))" >&2; \
+	@if ! echo "$(RELEASE_VERSION)" | grep -Eq '^v1\.[0-9]+\.[0-9]+$$'; then \
+		echo "release-publish: the unsuffixed module requires v1.Y.Z (got $(RELEASE_VERSION))" >&2; \
 		exit 1; \
 	fi
 	@command -v gh >/dev/null 2>&1 || { echo "release-publish: gh CLI not on PATH; install gh" >&2; exit 1; }
@@ -170,12 +170,11 @@ release-smoke: ## Run the full local release gate before tagging
 	fi
 	$(MAKE) -j$(RELEASE_TEST_JOBS) check
 	go test ./...
-	(cd examples/auth && go test ./...)
 	$(MAKE) build VERSION=$(RELEASE_VERSION)
 	@tmp=$$(mktemp -d); \
 		trap 'rm -rf "$$tmp"' EXIT; \
 		go run ./cmd/hyperserve-init --module example.com/hyperserve-release-smoke --out "$$tmp/app" --local-replace "$$(pwd)" >/dev/null; \
-		grep -Fq 'github.com/osauer/hyperserve/v3 $(RELEASE_VERSION)' "$$tmp/app/go.mod" || { echo "release-smoke: scaffold does not require $(RELEASE_VERSION)" >&2; exit 1; }; \
+		grep -Fq 'github.com/osauer/hyperserve $(RELEASE_VERSION)' "$$tmp/app/go.mod" || { echo "release-smoke: scaffold does not require $(RELEASE_VERSION)" >&2; exit 1; }; \
 		test -s "$$tmp/app/go.sum" || { echo "release-smoke: scaffold did not create go.sum" >&2; exit 1; }; \
 		grep -Fxq 'go 1.27.3' "$$tmp/app/go.mod" || { echo "release-smoke: scaffold does not use Go 1.27.3" >&2; exit 1; }; \
 		grep -Fxq 'FROM golang:1.27.3 AS builder' "$$tmp/app/Dockerfile" || { echo "release-smoke: scaffold Dockerfile does not use Go 1.27.3" >&2; exit 1; }; \
@@ -189,8 +188,8 @@ release: ## Tag, push, and publish a release: make release RELEASE_VERSION=vX.Y.
 		echo "release: RELEASE_VERSION is required, e.g. make release RELEASE_VERSION=v1.2.3" >&2; \
 		exit 1; \
 	fi
-	@if ! echo "$(RELEASE_VERSION)" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$$'; then \
-		echo "release: RELEASE_VERSION must look like vX.Y.Z (got $(RELEASE_VERSION))" >&2; \
+	@if ! echo "$(RELEASE_VERSION)" | grep -Eq '^v1\.[0-9]+\.[0-9]+$$'; then \
+		echo "release: the unsuffixed module requires v1.Y.Z (got $(RELEASE_VERSION))" >&2; \
 		exit 1; \
 	fi
 	@if [ -n "$$(git status --porcelain)" ]; then \
@@ -282,14 +281,14 @@ govulncheck-tools: ## Scan the separated developer-tool module
 # automatically without Makefile edits.
 EXAMPLE_MODULES := $(shell ls examples/*/go.mod 2>/dev/null | xargs -n1 dirname)
 
-check-examples: ## go vet + build + govulncheck in each standalone examples/*/ module
+check-examples: ## go vet + test + govulncheck in each standalone examples/*/ module
 	@if [ -z "$(EXAMPLE_MODULES)" ]; then \
 		echo "no standalone example modules found"; \
 		exit 0; \
 	fi
 	@for mod in $(EXAMPLE_MODULES); do \
 		echo "--- $$mod"; \
-		(cd $$mod && go vet ./... && go build ./... && govulncheck ./...) || exit 1; \
+		(cd $$mod && go vet ./... && go test ./... && govulncheck ./...) || exit 1; \
 	done
 
 check-docs: ## Verify entry-point links and reject known stale example claims
@@ -326,7 +325,7 @@ modernize-check: ## go fix -diff + modernize gate (Go idiom drift vs go.mod's go
 		echo "go fix found pending changes:"; echo "$$out"; \
 		echo "apply with: make modernize"; exit 1; \
 	fi
-	@out=$$(go -C tools tool modernize github.com/osauer/hyperserve/v3/... 2>&1 1>/dev/null | grep -v '^go: downloading'); \
+	@out=$$(go -C tools tool modernize github.com/osauer/hyperserve/... 2>&1 1>/dev/null | grep -v '^go: downloading'); \
 	if [ -n "$$out" ]; then \
 		echo "modernize found pending changes:"; echo "$$out"; \
 		echo "apply with: make modernize"; exit 1; \
@@ -334,7 +333,7 @@ modernize-check: ## go fix -diff + modernize gate (Go idiom drift vs go.mod's go
 
 modernize: ## Apply go fix + modernize rewrites in place
 	go fix ./...
-	go -C tools tool modernize -fix github.com/osauer/hyperserve/v3/...
+	go -C tools tool modernize -fix github.com/osauer/hyperserve/...
 
 fmt: ## gofmt -w over tracked / non-gitignored .go files (same scope as `make check`)
 	@git ls-files --cached --others --exclude-standard '*.go' | \

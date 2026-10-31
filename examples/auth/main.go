@@ -11,8 +11,8 @@ import (
 	"os/signal"
 
 	"github.com/coreos/go-oidc/v3/oidc"
-	"github.com/osauer/hyperserve/v3"
-	"github.com/osauer/hyperserve/v3/auth"
+	"github.com/osauer/hyperserve"
+	"github.com/osauer/hyperserve/auth"
 )
 
 type idTokenVerifier interface {

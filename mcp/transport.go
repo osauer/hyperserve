@@ -1,7 +1,7 @@
 package mcp
 
 import (
-	jsonrpc "github.com/osauer/hyperserve/v3/jsonrpc"
+	jsonrpc "github.com/osauer/hyperserve/jsonrpc"
 )
 
 // Transport defines the interface for MCP communication transports.

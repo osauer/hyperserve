@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	jsonrpc "github.com/osauer/hyperserve/v3/jsonrpc"
+	jsonrpc "github.com/osauer/hyperserve/jsonrpc"
 )
 
 // ErrMethodNotAllowed and ErrUnsupportedContentType are sentinel errors used by

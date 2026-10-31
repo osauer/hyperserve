@@ -3,7 +3,7 @@ package hyperserve
 import (
 	"net/http"
 
-	"github.com/osauer/hyperserve/v3/mcp"
+	"github.com/osauer/hyperserve/mcp"
 )
 
 // WithMCPDiscoveryPolicy sets the discovery policy for MCP tools and resources.

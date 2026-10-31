@@ -8,7 +8,7 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/osauer/hyperserve/v3"
+	"github.com/osauer/hyperserve"
 )
 
 type pageData struct {

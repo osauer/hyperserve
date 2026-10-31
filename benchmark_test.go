@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/hyperserve/v3/auth"
-	"github.com/osauer/hyperserve/v3/jsonrpc"
-	"github.com/osauer/hyperserve/v3/mcp"
+	"github.com/osauer/hyperserve/auth"
+	"github.com/osauer/hyperserve/jsonrpc"
+	"github.com/osauer/hyperserve/mcp"
 )
 
 var benchmarkDurationSink time.Duration

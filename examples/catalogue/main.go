@@ -3,28 +3,50 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
-	"flag"
+	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
-	"github.com/osauer/hyperserve/v3"
+	"github.com/osauer/hyperserve"
 )
 
-func main() {
-	policyPath := flag.String("policy", "policy.json", "Application storage policy file")
-	flag.Parse()
-	raw, err := os.ReadFile(*policyPath)
-	if err != nil {
-		log.Fatal(err)
-	}
+//go:embed policy.json
+var policyJSON []byte
+
+func newApp() (*hyperserve.Server, error) {
 	var policy Policy
-	if err := json.Unmarshal(raw, &policy); err != nil {
-		log.Fatal(err)
+	if err := json.Unmarshal(policyJSON, &policy); err != nil {
+		return nil, err
 	}
-	app, _, err := newCatalogue(policy, hyperserve.WithAddr("127.0.0.1:8080"), hyperserve.WithEnvironment(), hyperserve.WithMCPSupport("catalogue", "1"))
+	app, _, err := newCatalogue(policy,
+		hyperserve.WithAddr("127.0.0.1:8080"),
+		hyperserve.WithEnvironment(),
+		hyperserve.WithHealthServer(),
+		hyperserve.WithHealthAddr("127.0.0.1:9080"),
+		hyperserve.WithTimeouts(10*time.Second, 0, 30*time.Second),
+		hyperserve.WithMCPSupport("catalogue", "1"),
+	)
+	if err != nil {
+		return nil, err
+	}
+	// This public-token fixture must never bind a public interface, even when
+	// deployment environment overrides the baseline address.
+	host, _, err := net.SplitHostPort(app.Options().Addr)
+	if err != nil || !net.ParseIP(host).IsLoopback() {
+		_ = app.Shutdown(context.Background())
+		return nil, fmt.Errorf("catalogue requires a loopback IP address, got %q", app.Options().Addr)
+	}
+	return app, nil
+}
+
+func main() {
+	app, err := newApp()
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	jsonrpc "github.com/osauer/hyperserve/v3/jsonrpc"
+	jsonrpc "github.com/osauer/hyperserve/jsonrpc"
 )
 
 func TestSSEManager(t *testing.T) {

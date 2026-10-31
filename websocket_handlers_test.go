@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/hyperserve/v3/websocket"
+	"github.com/osauer/hyperserve/websocket"
 )
 
 func TestWebSocketPingPongHandlers(t *testing.T) {

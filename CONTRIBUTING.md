@@ -51,13 +51,13 @@ protocol, concurrency, or lifecycle change.
 | Scaffold generator | `internal/scaffold/`, `cmd/hyperserve-init/` |
 | Runnable examples | `examples/` |
 
-The main library import is `github.com/osauer/hyperserve/v3`. The old
+The main library import is `github.com/osauer/hyperserve`. The old
 `.../pkg/...` public paths have no forwarding packages.
 
 ## Design boundaries
 
 Read [Architecture](ARCHITECTURE.md) and the current
-[v3 integration contract](docs/0017-v3-integrated-server.md) before changing a
+[integration contract](docs/0018-single-owner-module.md) before changing a
 boundary. Earlier [decision records](docs/DECISIONS.md) preserve context.
 
 The application owns signals, its root context, identity-provider setup,

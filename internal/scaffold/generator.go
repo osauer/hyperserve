@@ -19,7 +19,7 @@ import (
 // targetVersion is the release being prepared:
 // generated projects must depend on the version whose docs and examples they
 // were created from, rather than a pseudo-version of the local checkout.
-const targetVersion = "v3.0.0"
+const targetVersion = "v1.7.0"
 
 // Generate scaffolds a new HyperServe project, downloads its complete module
 // graph to create go.sum, and returns the absolute output directory.

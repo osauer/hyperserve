@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/hyperserve/v3/sse"
+	"github.com/osauer/hyperserve/sse"
 )
 
 type response struct {
